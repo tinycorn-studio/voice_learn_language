@@ -1,22 +1,29 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VoiceSessionPanel } from './VoiceSessionPanel.js';
+import { VoiceSessionPanel, type VoiceSessionFactory } from './VoiceSessionPanel.js';
 import {
+  AudioSessionController,
   downsampleFloat32ToInt16Pcm,
-  type MediaDevicesLike,
-  type MediaTrackLike,
 } from '../services/audio-session-controller.js';
 
-afterEach(() => {
-  cleanup();
-});
-
-describe('M1-01 VoiceSessionPanel & AudioSessionController', () => {
-  it('renders initial idle state and switches across all 6 canonical voice states', () => {
-    render(<VoiceSessionPanel />);
-    const badge = screen.getByTestId('voice-status-badge');
-    expect(badge.getAttribute('data-state')).toBe('idle');
-
+afterEach(cleanup);
+describe('Voice session UI and microphone cancellation', () => {
+  it('starts the session from user gesture and reflects real callbacks, then stops on unmount', () => {
+    let callbacks: Parameters<VoiceSessionFactory>[0] | undefined;
+    const start = vi.fn().mockResolvedValue(undefined);
+    const stop = vi.fn();
+    const sendText = vi.fn().mockReturnValue(true);
+    const view = render(
+      <VoiceSessionPanel
+        sessionFactory={(value) => {
+          callbacks = value;
+          return { start, stop, sendText };
+        }}
+      />,
+    );
+    expect(start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('btn-start-mic'));
+    expect(start).toHaveBeenCalledTimes(1);
     for (const state of [
       'listening',
       'thinking',
@@ -25,85 +32,60 @@ describe('M1-01 VoiceSessionPanel & AudioSessionController', () => {
       'error',
       'idle',
     ] as const) {
-      fireEvent.click(screen.getByTestId(`btn-state-${state}`));
+      act(() => callbacks?.onStateChange(state));
       expect(screen.getByTestId('voice-status-badge').getAttribute('data-state')).toBe(state);
     }
-  });
-
-  it('requests microphone on Start and stops all MediaStreamTracks on Stop (TC-11)', async () => {
-    const stopSpy = vi.fn();
-    const fakeTrack: MediaTrackLike = {
-      kind: 'audio',
-      readyState: 'live',
-      stop: stopSpy,
-    };
-    const fakeMediaDevices: MediaDevicesLike = {
-      getUserMedia: vi.fn().mockResolvedValue({
-        getTracks: () => [fakeTrack],
-        getAudioTracks: () => [fakeTrack],
-      }),
-    };
-
-    render(<VoiceSessionPanel mediaDevices={fakeMediaDevices} />);
-    fireEvent.click(screen.getByTestId('btn-start-mic'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('voice-status-badge').getAttribute('data-state')).toBe('listening');
+    act(() => {
+      callbacks?.onStateChange('listening');
+      callbacks?.onTranscript('assistant', 'Hello learner.', true);
     });
-    expect(screen.getByTestId('mic-permission-state').textContent).toContain('granted');
-
-    fireEvent.click(screen.getByTestId('btn-stop-mic'));
-    expect(stopSpy).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('voice-status-badge').getAttribute('data-state')).toBe('idle');
-  });
-
-  it('shows clear error banner and sets permission to denied when user blocks microphone (TC-11)', async () => {
-    const deniedError = new Error('Permission denied');
-    deniedError.name = 'NotAllowedError';
-    const fakeMediaDevices: MediaDevicesLike = {
-      getUserMedia: vi.fn().mockRejectedValue(deniedError),
-    };
-
-    render(<VoiceSessionPanel mediaDevices={fakeMediaDevices} />);
-    fireEvent.click(screen.getByTestId('btn-start-mic'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('voice-status-badge').getAttribute('data-state')).toBe('error');
+    expect(screen.getByTestId('transcript-box').textContent).toContain('Hello learner.');
+    fireEvent.change(screen.getByTestId('utterance-input'), {
+      target: { value: 'What does bank mean?' },
     });
-    expect(screen.getByTestId('mic-permission-state').textContent).toContain('denied');
-    expect(screen.getByTestId('mic-error-banner').textContent).toContain('Quyền micro đã bị từ chối');
-  });
-
-  it('downsamples 48kHz Float32 audio to 16kHz Int16 PCM accurately', () => {
-    const input = new Float32Array(480);
-    input.fill(0.5);
-    const out = downsampleFloat32ToInt16Pcm(input, 48000, 16000);
-    expect(out.length).toBe(160);
-    expect(out[0]).toBeGreaterThan(16000);
-    expect(out[0]).toBeLessThan(16500);
-  });
-
-  it('saves explicit word query, ignores ordinary dialogue, and clarifies ambiguous referent in UI', () => {
-    const detected: Array<{ word: string; excerpt: string }> = [];
-    render(
-      <VoiceSessionPanel
-        onWordDetected={(word, excerpt) => detected.push({ word, excerpt })}
-      />,
-    );
-
-    const input = screen.getByTestId('utterance-input') as HTMLInputElement;
-    const sendBtn = screen.getByTestId('btn-send-utterance');
-
-    // 1. Ordinary sentence -> no saved badge
-    fireEvent.change(input, { target: { value: 'I feel overwhelmed today.' } });
-    fireEvent.click(sendBtn);
+    fireEvent.click(screen.getByTestId('btn-send-utterance'));
+    expect(sendText).toHaveBeenCalledWith('What does bank mean?');
     expect(screen.queryByTestId('saved-word-badge')).toBeNull();
-    expect(detected.length).toBe(0);
-
-    // 2. Explicit inquiry -> creates 1 saved badge
-    fireEvent.change(input, { target: { value: 'What does overwhelmed mean?' } });
-    fireEvent.click(sendBtn);
-    expect(screen.getAllByTestId('saved-word-badge').length).toBe(1);
-    expect(detected).toEqual([{ word: 'overwhelmed', excerpt: 'What does overwhelmed mean?' }]);
+    fireEvent.click(screen.getByTestId('btn-stop-mic'));
+    expect(stop).toHaveBeenCalledTimes(1);
+    view.unmount();
+    expect(stop).toHaveBeenCalledTimes(2);
+  });
+  it('cannot open microphone before authentication', () => {
+    const factory = vi.fn();
+    render(<VoiceSessionPanel sessionFactory={factory} enabled={false} />);
+    fireEvent.click(screen.getByTestId('btn-start-mic'));
+    expect(factory).not.toHaveBeenCalled();
+  });
+  it('closes tracks that arrive after Stop while permission prompt was pending', async () => {
+    const track = { kind: 'audio', readyState: 'live', stop: vi.fn() };
+    let resolve:
+      | ((stream: {
+          getTracks: () => (typeof track)[];
+          getAudioTracks: () => (typeof track)[];
+        }) => void)
+      | undefined;
+    const controller = new AudioSessionController({
+      getUserMedia: () =>
+        new Promise((value) => {
+          resolve = value;
+        }),
+    });
+    const pending = controller.requestMicrophone();
+    controller.stop();
+    resolve?.({ getTracks: () => [track], getAudioTracks: () => [track] });
+    expect((await pending).ok).toBe(false);
+    expect(track.stop).toHaveBeenCalledTimes(1);
+    expect(controller.isStreaming()).toBe(false);
+  });
+  it('maps denied permissions and correctly downsamples native PCM', async () => {
+    const controller = new AudioSessionController({
+      getUserMedia: vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError')),
+    });
+    expect((await controller.requestMicrophone()).permission).toBe('denied');
+    const samples = new Float32Array(480).fill(0.5);
+    const pcm = downsampleFloat32ToInt16Pcm(samples, 48000);
+    expect(pcm).toHaveLength(160);
+    expect(pcm[0]).toBe(16383);
   });
 });

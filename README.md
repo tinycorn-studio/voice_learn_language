@@ -5,19 +5,22 @@
 > **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
 ## Mục tiêu
-Ứng dụng luyện hội thoại tiếng Anh bằng giọng nói sử dụng Gemini Live API, tự nhận diện yêu cầu học từ (vd. *What does overwhelmed mean?*), ghi từ vào Google Sheets qua Apps Script, và ôn tập bằng Telegram Bot/Telegram Mini App với Spaced Repetition. Ưu tiên free tier, không tự vận hành VPS hay máy tính 24/7, bảo mật và dễ duy trì qua nhiều phiên coding-agent.
+
+Ứng dụng luyện hội thoại tiếng Anh bằng giọng nói sử dụng Gemini Live API, tự nhận diện yêu cầu học từ (vd. _What does overwhelmed mean?_), ghi từ vào Google Sheets qua Apps Script, và ôn tập bằng Telegram Bot/Telegram Mini App với Spaced Repetition. Ưu tiên free tier, không tự vận hành VPS hay máy tính 24/7, bảo mật và dễ duy trì qua nhiều phiên coding-agent.
 
 ## Mức độ sẵn sàng
+
 - ✅ Bộ tài liệu, quy tắc làm việc (`AGENTS.md`), tiến trình (`PROGRESS.md`), kịch bản setup đã khởi tạo.
-- ✅ Đã hiện thực đầy đủ source code & pass toàn bộ 31 automated tests (`typecheck`, `lint`, `test`, `build`):
+- ✅ Source đã sửa R01–R09 theo review M5-04, có tests hồi quy và tích hợp App → Worker → Apps Script VM. Bằng chứng/giới hạn trong [báo cáo sửa lỗi](docs/22_REVIEW_FIXES.md):
   - `packages/shared`: Zod contracts, bộ phát hiện từ vựng (`detectVocabularyIntent` đạt 30/30 mẫu câu 0 FP / 0 FN), bộ lập lịch SRS (`Again/Hard/Good/Easy`), xuất/nhập CSV, chống formula injection.
-  - `apps/web`: React + Vite + TypeScript strict, giao diện Voice Tutor (6 trạng thái, quản lý quyền micro, `GeminiLiveSessionClient` hỗ trợ `goAway`/`sessionResumption`), Flashcards SRS & quản lý từ vựng.
-  - `apps/worker`: Cloudflare Worker TypeScript strict, xác thực Telegram Mini App `initData` HMAC-SHA256, cấp ephemeral token `uses: 1`, ký HMAC-SHA256 tới Apps Script, Telegram webhook inline quiz, Cron `0 1 * * *` (08:00 UTC+7).
-  - `apps-script/Code.gs`: Xác thực chữ ký HMAC, `LockService`, idempotency `event_id`, đầy đủ 8 actions CRUD/SRS/Digest và hàm `setupSheets()`.
+  - `apps/web`: đăng nhập Telegram qua Worker, dữ liệu API thật, PCM AudioWorklet → Gemini trực tiếp → playback, reconnect có budget/Stop; Flashcards và CRUD lưu backend rồi mới báo thành công. Không có dữ liệu mẫu; mở ngoài Mini App chưa được xác thực.
+  - `apps/worker`: xác thực Telegram `initData`, ephemeral token `uses:1`, HMAC Apps Script, webhook retry và Cron `0-5 1 * * *` (08:00–08:05 UTC+7) với tối đa ba send attempts khi lỗi xác định.
+  - `apps-script/Code.gs`: HMAC, `LockService`, mutation replay và unique key, 9 actions CRUD/SRS/Digest/preferences, schema v2 và `migrateSchemaV2()` cho Sheet v1.
 - ⬜ Chờ cấu hình tài khoản & khoá bí mật thật (`M0-02`, `M3-01`) để chạy nghiệm thu thiết bị thật & triển khai production (`M1-02`, `M5`).
 - ⚠️ Giá, quota, tên model và lệnh CLI có thể đổi; kiểm tra tài liệu nguồn trước mỗi đợt triển khai.
 
 ## Công nghệ dự kiến
+
 - `React + TypeScript (strict) + Vite` cho web/PWA và Telegram Mini App (dùng **một codebase** + environment adapter).
 - `Gemini Live API` giọng nói realtime; model đề xuất `gemini-3.8-live` **nếu đang được mở cho project ở Free Tier**; token tạm thời cấp bởi Worker.
 - `Cloudflare Workers` cho API, xác thực Telegram, webhook, scheduler; có thể dùng Cloudflare Pages/Workers Static Assets để host web.
@@ -26,6 +29,7 @@
 - `Vitest + ESLint + Prettier + TypeScript`, Git, CI lint/test/build; không dùng n8n, Anki là tùy chọn sau MVP.
 
 ## Đọc tài liệu theo thứ tự
+
 1. [AGENTS.md](AGENTS.md): **quy tắc bắt buộc** cho lập trình viên và AI agent.
 2. [PROGRESS.md](PROGRESS.md): điểm tiếp nối và trạng thái của dự án (**đọc trước mỗi phiên**).
 3. [docs/00_PRODUCT_SCOPE.md](docs/00_PRODUCT_SCOPE.md): phạm vi/luồng sử dụng.
@@ -36,6 +40,7 @@
 8. [docs/19_AGENT_WORKFLOW.md](docs/19_AGENT_WORKFLOW.md): quy trình hoàn thành task, update tiến độ.
 
 ## Cấu trúc sau khi triển khai
+
 ```text
 VoiceChatLearnLanguage/
   AGENTS.md                  # Rules cho AI coding agent
@@ -53,6 +58,7 @@ VoiceChatLearnLanguage/
 ```
 
 ## Khởi động nhanh (Windows PowerShell)
+
 ```powershell
 # Sau khi giải nén gói vào D:\Profile\VoiceChatLearnLanguage
 Set-Location 'D:\Profile\VoiceChatLearnLanguage'
@@ -60,9 +66,13 @@ Get-Content .\PROGRESS.md
 .\scripts\Start-Session.ps1
 # làm lần lượt theo docs/03_SETUP_WINDOWS.md và docs/13_MILESTONES.md
 ```
+
 Nếu PowerShell không cho chạy script, dùng `powershell -ExecutionPolicy Bypass -File .\scripts\Start-Session.ps1` cho phiên chạy đó; không cần thay đổi policy toàn hệ thống.
 
+Frontend đọc `VITE_API_BASE_URL` từ `.env.local` ở root (copy `.env.example`, chỉ public vars). Worker giữ secret riêng theo docs setup. `npm run build` tạo web assets; kiểm bundle Worker riêng bằng `wrangler deploy --dry-run --config apps/worker/wrangler.toml --outdir .artifacts/worker`. Lệnh dry-run không triển khai. Sheet đang dùng schema v1 cần backup/migration theo [runbook](docs/05_APPS_SCRIPT_SETUP.md) trước khi chạy Worker mới.
+
 ## Chốt yêu cầu sản phẩm
+
 - 1 người dùng giai đoạn đầu; tài khoản Telegram là định danh production; không thu âm toàn bộ hội thoại lên Sheets.
 - Lưu từ theo ý định rõ ràng; chặn từ trùng (lemma + loại từ + nghĩa), giữ ngữ cảnh; hỗ trợ hỏi “What does that mean?” dựa trên lượt ngay trước.
 - Từ mới phải lưu ngay cả khi Telegram/Anki không hoạt động (chưa cần Anki).
@@ -70,4 +80,5 @@ Nếu PowerShell không cho chạy script, dùng `powershell -ExecutionPolicy By
 - SRS MVP với Again/Hard/Good/Easy; trạng thái và thuật toán mô tả trong `docs/16_SRS.md`.
 
 ## Lưu ý thực tế
+
 Đây là **bộ quy hoạch và scaffold** — không tuyên bố đã triển khai chạy thật. Mọi key, id, URL phải tự cấu hình; không commit credential thật. Chi phí $0 chỉ đúng nếu usage nằm trong quota Free Tier; xem `docs/17_COSTS_AND_LIMITS.md`.

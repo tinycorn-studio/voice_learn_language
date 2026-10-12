@@ -1,5 +1,11 @@
+import { z } from 'zod';
 import {
-  calculateNextReview,
+  dailyDigestClaimSchema,
+  dueReviewCardSchema,
+  reviewSubmitResponseSchema,
+  vocabularyCreateResponseSchema,
+  vocabularyItemSchema,
+  vocabularyListResponseSchema,
   type DueReviewCard,
   type GasAction,
   type GasSignedEnvelope,
@@ -77,15 +83,6 @@ export async function buildSignedGasEnvelope(params: {
   return { payload, signature };
 }
 
-interface GasJsonResponse<T> {
-  ok: boolean;
-  data?: T;
-  error?: {
-    code?: string;
-    message?: string;
-  };
-}
-
 /**
  * Adapter that communicates with the Google Apps Script Web App (`doPost`) via HMAC-signed envelopes.
  * Parses business-level `{ ok: true|false }` JSON because GAS `ContentService` returns HTTP 200 even on errors.
@@ -117,6 +114,7 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
           'content-type': 'application/json; charset=utf-8',
         },
         body: JSON.stringify(envelope),
+        signal: AbortSignal.timeout(15000),
       });
     } catch {
       throw new AppError({
@@ -136,9 +134,9 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
       });
     }
 
-    let body: GasJsonResponse<T>;
+    let raw: unknown;
     try {
-      body = (await res.json()) as GasJsonResponse<T>;
+      raw = await res.json();
     } catch {
       throw new AppError({
         code: 'UPSTREAM_ERROR',
@@ -148,7 +146,24 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
       });
     }
 
-    if (!body.ok || body.data === undefined) {
+    const responseEnvelope = z
+      .discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), data: z.unknown() }),
+        z.object({
+          ok: z.literal(false),
+          error: z.object({ code: z.string(), message: z.string() }),
+        }),
+      ])
+      .safeParse(raw);
+    if (!responseEnvelope.success)
+      throw new AppError({
+        code: 'UPSTREAM_ERROR',
+        message: 'Invalid Apps Script response envelope',
+        status: 502,
+      });
+    const body = responseEnvelope.data;
+
+    if (!body.ok) {
       const errCode = body.error?.code ?? 'UPSTREAM_ERROR';
       if (errCode === 'FORBIDDEN') {
         throw new AppError({
@@ -179,7 +194,25 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
       });
     }
 
-    return body.data;
+    const responseSchemas = {
+      'vocabulary.upsert': vocabularyCreateResponseSchema,
+      'vocabulary.list': vocabularyListResponseSchema,
+      'vocabulary.update': vocabularyItemSchema,
+      'vocabulary.delete': z.object({ word_id: z.string(), deleted: z.boolean() }),
+      'review.listDue': z.object({ items: z.array(dueReviewCardSchema) }),
+      'review.record': reviewSubmitResponseSchema,
+      'review.claimDigest': dailyDigestClaimSchema,
+      'review.finishDigest': z.object({ updated: z.boolean() }),
+      'user.preferences': z.object({ updated: z.boolean(), notifications_enabled: z.boolean() }),
+    };
+    const validated = responseSchemas[params.action].safeParse(body.data);
+    if (!validated.success)
+      throw new AppError({
+        code: 'UPSTREAM_ERROR',
+        message: 'Invalid Apps Script response contract',
+        status: 502,
+      });
+    return validated.data as T;
   }
 
   public async upsert(
@@ -285,8 +318,6 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
     input: ReviewSubmitRequest,
     reviewedAtIso: string,
   ): Promise<ReviewSubmitResponse> {
-    // Also pass precomputed deterministic SRS schedule helper callback or let GAS compute/validate
-    void calculateNextReview;
     return this.callGas<ReviewSubmitResponse>({
       action: 'review.record',
       eventId: input.event_id,
@@ -296,6 +327,7 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
         word_id: input.word_id,
         rating: input.rating,
         reviewed_at: reviewedAtIso,
+        version: input.version,
       },
     });
   }
@@ -305,6 +337,7 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
     requestId: string,
     localDate: string,
     limit: number,
+    nowIso = new Date().toISOString(),
   ): Promise<DailyDigestClaimResult> {
     return this.callGas<DailyDigestClaimResult>({
       action: 'review.claimDigest',
@@ -314,8 +347,27 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
       data: {
         local_date: localDate,
         limit,
-        now_iso: new Date().toISOString(),
+        now_iso: nowIso,
       },
+    });
+  }
+
+  public async finishDailyDigest(
+    userId: string,
+    requestId: string,
+    input: {
+      dispatch_id: string;
+      claim_token: string;
+      status: 'sent' | 'failed' | 'unknown';
+      message_id?: number;
+    },
+  ): Promise<{ updated: boolean }> {
+    return this.callGas<{ updated: boolean }>({
+      action: 'review.finishDigest',
+      eventId: `finish_${input.claim_token}`,
+      userId,
+      requestId,
+      data: input,
     });
   }
 

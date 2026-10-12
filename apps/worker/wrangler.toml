@@ -8,6 +8,6 @@ ENVIRONMENT = "production"
 GEMINI_MODEL = "models/gemini-3.8-live"
 ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
 
-# Cloudflare Cron runs in UTC: 01:00 UTC = 08:00 Asia/Ho_Chi_Minh (docs/06_CLOUDFLARE_SETUP.md)
+# First attempt 08:00 +07, then minute ticks through 08:05 for bounded retries/recovery.
 [triggers]
-crons = ["0 1 * * *"]
+crons = ["0-5 1 * * *"]

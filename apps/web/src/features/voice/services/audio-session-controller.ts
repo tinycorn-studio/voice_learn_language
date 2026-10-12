@@ -75,6 +75,7 @@ export class AudioSessionController {
   private activeStream: MediaStreamLike | null = null;
   private permissionState: MicPermissionState = 'prompt';
   private audioUnlocked = false;
+  private generation = 0;
 
   public constructor(private readonly mediaDevices: MediaDevicesLike | undefined) {
     if (!this.mediaDevices || typeof this.mediaDevices.getUserMedia !== 'function') {
@@ -94,6 +95,10 @@ export class AudioSessionController {
     return this.audioUnlocked;
   }
 
+  public getStream(): MediaStreamLike | null {
+    return this.activeStream;
+  }
+
   /**
    * Requests microphone capture after a user click/tap gesture (`US-01`).
    */
@@ -110,6 +115,7 @@ export class AudioSessionController {
 
     // Stop any previous tracks before opening a new stream to prevent leaks.
     this.stop();
+    const generation = this.generation;
 
     try {
       const stream = await this.mediaDevices.getUserMedia({
@@ -123,6 +129,15 @@ export class AudioSessionController {
         video: false,
       });
 
+      if (generation !== this.generation) {
+        stream.getTracks().forEach((track) => track.stop());
+        return {
+          ok: false,
+          permission: this.permissionState,
+          errorMessage: 'Đã hủy yêu cầu micro.',
+        };
+      }
+
       this.activeStream = stream;
       this.permissionState = 'granted';
       this.audioUnlocked = true;
@@ -133,7 +148,10 @@ export class AudioSessionController {
         errorMessage: null,
       };
     } catch (err) {
-      const errName = err instanceof Error ? err.name : '';
+      const errName =
+        typeof err === 'object' && err !== null && 'name' in err && typeof err.name === 'string'
+          ? err.name
+          : '';
       if (
         errName === 'NotAllowedError' ||
         errName === 'PermissionDeniedError' ||
@@ -161,6 +179,8 @@ export class AudioSessionController {
    * Deterministically stops all active media tracks (`TC-11`).
    */
   public stop(): void {
+    this.generation++;
+    this.audioUnlocked = false;
     if (!this.activeStream) {
       return;
     }

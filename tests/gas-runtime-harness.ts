@@ -21,12 +21,11 @@ export class InMemorySheet {
   }
 
   public getRange(row: number, col: number, numRows = 1, numCols = 1) {
-    const self = this;
     return {
-      getValues(): unknown[][] {
+      getValues: (): unknown[][] => {
         const result: unknown[][] = [];
         for (let r = 0; r < numRows; r++) {
-          const targetRow = self.rows[row - 1 + r] ?? [];
+          const targetRow = this.rows[row - 1 + r] ?? [];
           const slice: unknown[] = [];
           for (let c = 0; c < numCols; c++) {
             slice.push(targetRow[col - 1 + c] ?? '');
@@ -35,14 +34,14 @@ export class InMemorySheet {
         }
         return result;
       },
-      getValue(): unknown {
-        return self.rows[row - 1]?.[col - 1] ?? '';
+      getValue: (): unknown => {
+        return this.rows[row - 1]?.[col - 1] ?? '';
       },
-      setValue(val: unknown): void {
-        while (self.rows.length < row) {
-          self.rows.push([]);
+      setValue: (val: unknown): void => {
+        while (this.rows.length < row) {
+          this.rows.push([]);
         }
-        const targetRow = self.rows[row - 1]!;
+        const targetRow = this.rows[row - 1]!;
         while (targetRow.length < col) {
           targetRow.push('');
         }
@@ -69,6 +68,7 @@ export class InMemorySpreadsheet {
 export interface GasRuntimeInstance {
   spreadsheet: InMemorySpreadsheet;
   setupSheets: () => void;
+  migrateSchemaV2: () => void;
   doPost: (contents: string) => { status: number; bodyText: string };
 }
 
@@ -76,7 +76,9 @@ export interface GasRuntimeInstance {
  * Loads `apps-script/Code.gs` into an isolated VM context with Google Apps Script
  * built-in services (`SpreadsheetApp`, `PropertiesService`, `LockService`, `Utilities`, `ContentService`).
  */
-export function createGasRuntimeHarness(scriptProperties: Record<string, string>): GasRuntimeInstance {
+export function createGasRuntimeHarness(
+  scriptProperties: Record<string, string>,
+): GasRuntimeInstance {
   const codePath = path.resolve(process.cwd(), 'apps-script/Code.gs');
   const sourceCode = fs.readFileSync(codePath, 'utf8');
   const spreadsheet = new InMemorySpreadsheet();
@@ -98,6 +100,9 @@ export function createGasRuntimeHarness(scriptProperties: Record<string, string>
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (key: string) => scriptProperties[key] ?? null,
+        setProperty: (key: string, value: string) => {
+          scriptProperties[key] = value;
+        },
       }),
     },
     SpreadsheetApp: {
@@ -113,7 +118,10 @@ export function createGasRuntimeHarness(scriptProperties: Record<string, string>
     Utilities: {
       Charset: { UTF_8: 'UTF-8' },
       computeHmacSha256Signature: (value: string, key: string) => {
-        const buf = crypto.createHmac('sha256', Buffer.from(key, 'utf8')).update(value, 'utf8').digest();
+        const buf = crypto
+          .createHmac('sha256', Buffer.from(key, 'utf8'))
+          .update(value, 'utf8')
+          .digest();
         return Array.from(buf.values());
       },
       base64EncodeWebSafe: (bytes: number[]) => {
@@ -154,6 +162,8 @@ export function createGasRuntimeHarness(scriptProperties: Record<string, string>
   return {
     spreadsheet,
     setupSheets: () => setupSheetsFn(),
+    migrateSchemaV2: () =>
+      (sandbox as unknown as { migrateSchemaV2: () => void }).migrateSchemaV2(),
     doPost: (contents: string) => {
       const output = doPostFn({ postData: { contents } });
       return {

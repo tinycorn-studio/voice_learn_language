@@ -14,6 +14,7 @@ var ACTION_DELETE = 'vocabulary.delete';
 var ACTION_REVIEW_LIST_DUE = 'review.listDue';
 var ACTION_REVIEW_RECORD = 'review.record';
 var ACTION_REVIEW_CLAIM_DIGEST = 'review.claimDigest';
+var ACTION_REVIEW_FINISH_DIGEST = 'review.finishDigest';
 var ACTION_USER_PREFERENCES = 'user.preferences';
 
 var WORDS_COLUMNS = [
@@ -25,7 +26,7 @@ var WORDS_COLUMNS = [
 
 var EVENTS_COLUMNS = [
   'event_id', 'event_type', 'user_id', 'entity_id', 'occurred_at',
-  'created_at', 'request_id', 'payload_hash', 'result_code'
+  'created_at', 'request_id', 'payload_hash', 'result_code', 'result_json'
 ];
 
 var REVIEWS_COLUMNS = [
@@ -40,7 +41,7 @@ var USERS_COLUMNS = [
 
 var DISPATCH_COLUMNS = [
   'dispatch_id', 'user_id', 'local_date', 'status', 'claimed_at',
-  'sent_at', 'message_id', 'last_error', 'attempt_count'
+  'sent_at', 'message_id', 'last_error', 'attempt_count', 'claim_token'
 ];
 
 /**
@@ -68,6 +69,25 @@ function ensureTabWithHeaders_(ss, tabName, headers) {
   if (sheet.getLastColumn() === 0) {
     sheet.appendRow(headers);
   }
+}
+
+/** Run after backing up an existing v1 Sheet; only appends headers, never rewrites data. */
+function migrateSchemaV2() {
+  var props = PropertiesService.getScriptProperties();
+  var ss = SpreadsheetApp.openById(props.getProperty('SHEET_ID'));
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    [['Events', 'result_json'], ['DailyDispatchLog', 'claim_token']].forEach(function (entry) {
+      var sheet = ss.getSheetByName(entry[0]);
+      if (!sheet) throw new Error('Missing migration tab');
+      if (!headerMap_(sheet)[entry[1]]) {
+        sheet.getRange(1, sheet.getLastColumn() + 1).setValue(entry[1]);
+      }
+    });
+    SpreadsheetApp.flush();
+    props.setProperty('SCHEMA_VERSION', '2');
+  } finally { lock.releaseLock(); }
 }
 
 /** Entry point: only HMAC-signed Worker requests may access or mutate the spreadsheet. */
@@ -113,7 +133,7 @@ function doPost(e) {
 
     var ss = SpreadsheetApp.openById(sheetId);
     if (event.action === ACTION_UPSERT) {
-      return jsonResponse_({ ok: true, data: upsertWord_(ss, event) });
+      return handleWithBusinessError_(function () { return upsertWord_(ss, event); });
     }
     if (event.action === ACTION_LIST) {
       return jsonResponse_({ ok: true, data: listWords_(ss, event) });
@@ -132,6 +152,9 @@ function doPost(e) {
     }
     if (event.action === ACTION_REVIEW_CLAIM_DIGEST) {
       return jsonResponse_({ ok: true, data: claimDailyDigest_(ss, event) });
+    }
+    if (event.action === ACTION_REVIEW_FINISH_DIGEST) {
+      return handleWithBusinessError_(function () { return finishDailyDigest_(ss, event); });
     }
     if (event.action === ACTION_USER_PREFERENCES) {
       return jsonResponse_({ ok: true, data: updateUserPreferences_(ss, event) });
@@ -184,7 +207,7 @@ function upsertWord_(ss, event) {
   var d = event.data || {};
   var word = checkedText_(d.word, 120, true);
   var lemma = checkedText_(d.lemma || d.word, 120, true);
-  var pos = checkedText_(d.part_of_speech || 'unknown', 32, true).toLowerCase();
+  var pos = checkedPos_(d.part_of_speech || 'unknown');
   var sense = checkedText_(d.sense_key || 'default', 100, true).toLowerCase();
   var meaning = checkedText_(d.meaning_vi || '', 300, false);
   var ipa = checkedText_(d.ipa || '', 120, false);
@@ -206,6 +229,8 @@ function upsertWord_(ss, event) {
 
     var eventRow = findRow_(events, eh['event_id'], String(event.event_id));
     if (eventRow > 0) {
+      var oldEvent = readRowObject_(events, eh, eventRow);
+      if (oldEvent.event_type !== event.action || oldEvent.user_id !== event.user_id || (oldEvent.payload_hash && oldEvent.payload_hash !== mutationFingerprint_(event))) throw new Error('CONFLICT:Event ID already used');
       var existingEntity = String(events.getRange(eventRow, eh['entity_id']).getValue());
       return { word_id: existingEntity, duplicate_event: true, created: false };
     }
@@ -220,6 +245,10 @@ function upsertWord_(ss, event) {
       words.getRange(wordRow, wh['times_asked']).setValue(count + 1);
       words.getRange(wordRow, wh['version']).setValue(version + 1);
       words.getRange(wordRow, wh['deleted_at']).setValue('');
+      if (String(words.getRange(wordRow, wh['review_state']).getValue()) === 'suspended') {
+        words.getRange(wordRow, wh['review_state']).setValue('new');
+        words.getRange(wordRow, wh['due_at']).setValue(now);
+      }
       created = false;
     } else {
       id = 'w_' + Utilities.getUuid();
@@ -234,13 +263,7 @@ function upsertWord_(ss, event) {
         last_reviewed_at: '', version: 1, deleted_at: ''
       });
     }
-    appendMapped_(events, eh, {
-      event_id: String(event.event_id), event_type: ACTION_UPSERT,
-      user_id: event.user_id, entity_id: id,
-      occurred_at: String(event.issued_at), created_at: now,
-      request_id: safeCell_(String(event.request_id || '').slice(0, 80)),
-      payload_hash: '', result_code: created ? 'CREATED' : 'UPDATED'
-    });
+    appendMutationEvent_(events, eh, event, id, { word_id: id, duplicate_event: false, created: created });
     SpreadsheetApp.flush();
     return { word_id: id, duplicate_event: false, created: created };
   } finally {
@@ -308,6 +331,9 @@ function updateWord_(ss, event) {
     requireColumns_(wh, WORDS_COLUMNS);
     requireColumns_(eh, EVENTS_COLUMNS);
 
+    var replay = mutationReplay_(events, eh, event);
+    if (replay !== null) return replay;
+
     var wordRow = findRow_(words, wh['word_id'], wordId);
     if (wordRow <= 0) {
       throw new Error('NOT_FOUND:Vocabulary item not found');
@@ -322,42 +348,29 @@ function updateWord_(ss, event) {
       throw new Error('CONFLICT:Version mismatch');
     }
 
-    if (typeof d.meaning_vi === 'string') {
-      var m = checkedText_(d.meaning_vi, 300, false);
-      words.getRange(wordRow, wh['meaning_vi']).setValue(safeCell_(m));
-    }
-    if (typeof d.example === 'string') {
-      var ex = checkedText_(d.example, 500, false);
-      words.getRange(wordRow, wh['example']).setValue(safeCell_(ex));
-    }
-    if (typeof d.part_of_speech === 'string') {
-      var pos = checkedText_(d.part_of_speech, 32, true).toLowerCase();
-      words.getRange(wordRow, wh['part_of_speech']).setValue(pos);
-    }
-    if (typeof d.sense_key === 'string') {
-      var sk = checkedText_(d.sense_key, 100, true).toLowerCase();
-      words.getRange(wordRow, wh['sense_key']).setValue(safeCell_(sk));
-    }
-
-    var updatedObj = readRowObject_(words, wh, wordRow);
+    // Validate the complete proposed row before changing any cell.
+    var updatedObj = Object.assign({}, rowObj);
+    if (typeof d.meaning_vi === 'string') updatedObj.meaning_vi = safeCell_(checkedText_(d.meaning_vi, 300, false));
+    if (typeof d.example === 'string') updatedObj.example = safeCell_(checkedText_(d.example, 500, false));
+    if (typeof d.part_of_speech === 'string') updatedObj.part_of_speech = checkedPos_(d.part_of_speech);
+    if (typeof d.sense_key === 'string') updatedObj.sense_key = safeCell_(checkedText_(d.sense_key, 100, true).toLowerCase());
     var newKey = [
       event.user_id,
       norm_(updatedObj.lemma),
       norm_(updatedObj.part_of_speech),
       norm_(updatedObj.sense_key)
     ].join('|');
-    words.getRange(wordRow, wh['word_key']).setValue(newKey);
-    words.getRange(wordRow, wh['version']).setValue(currentVersion + 1);
-
-    appendMapped_(events, eh, {
-      event_id: String(event.event_id), event_type: ACTION_UPDATE,
-      user_id: event.user_id, entity_id: wordId,
-      occurred_at: String(event.issued_at), created_at: now,
-      request_id: safeCell_(String(event.request_id || '').slice(0, 80)),
-      payload_hash: '', result_code: 'UPDATED'
+    var collision = findRow_(words, wh['word_key'], newKey);
+    if (collision > 0 && collision !== wordRow) throw new Error('CONFLICT:Word sense already exists');
+    updatedObj.word_key = newKey;
+    updatedObj.version = currentVersion + 1;
+    Object.keys(updatedObj).forEach(function (key) {
+      words.getRange(wordRow, wh[key]).setValue(updatedObj[key]);
     });
+    var result = toVocabularyItem_(updatedObj);
+    appendMutationEvent_(events, eh, event, wordId, result);
     SpreadsheetApp.flush();
-    return toVocabularyItem_(readRowObject_(words, wh, wordRow));
+    return result;
   } finally {
     lock.releaseLock();
   }
@@ -380,6 +393,9 @@ function deleteWord_(ss, event) {
     requireColumns_(wh, WORDS_COLUMNS);
     requireColumns_(eh, EVENTS_COLUMNS);
 
+    var replay = mutationReplay_(events, eh, event);
+    if (replay !== null) return replay;
+
     var wordRow = findRow_(words, wh['word_id'], wordId);
     if (wordRow <= 0) {
       throw new Error('NOT_FOUND:Vocabulary item not found');
@@ -393,15 +409,10 @@ function deleteWord_(ss, event) {
     words.getRange(wordRow, wh['review_state']).setValue('suspended');
     words.getRange(wordRow, wh['version']).setValue(Number(rowObj.version || 1) + 1);
 
-    appendMapped_(events, eh, {
-      event_id: String(event.event_id), event_type: ACTION_DELETE,
-      user_id: event.user_id, entity_id: wordId,
-      occurred_at: String(event.issued_at), created_at: now,
-      request_id: safeCell_(String(event.request_id || '').slice(0, 80)),
-      payload_hash: '', result_code: 'DELETED'
-    });
+    var result = { word_id: wordId, deleted: true };
+    appendMutationEvent_(events, eh, event, wordId, result);
     SpreadsheetApp.flush();
-    return { word_id: wordId, deleted: true };
+    return result;
   } finally {
     lock.releaseLock();
   }
@@ -474,6 +485,9 @@ function recordReview_(ss, event) {
     requireColumns_(eh, EVENTS_COLUMNS);
     requireColumns_(rh, REVIEWS_COLUMNS);
 
+    var replay = mutationReplay_(events, eh, event);
+    if (replay !== null) return Object.assign({}, replay, { duplicate_event: true });
+
     var existingRevRow = findRow_(reviews, rh['event_id'], String(event.event_id));
     if (existingRevRow > 0) {
       var existingRev = readRowObject_(reviews, rh, existingRevRow);
@@ -499,6 +513,7 @@ function recordReview_(ss, event) {
     if (String(wordObj.user_id) !== event.user_id || String(wordObj.deleted_at || '') !== '') {
       throw new Error('FORBIDDEN:Unauthorized word review');
     }
+    if (d.version !== undefined && Number(d.version) !== Number(wordObj.version)) throw new Error('CONFLICT:Review card is stale');
 
     var srs = computeSrsNext_(
       {
@@ -534,20 +549,7 @@ function recordReview_(ss, event) {
       new_interval_days: srs.intervalDays
     });
 
-    appendMapped_(events, eh, {
-      event_id: String(event.event_id),
-      event_type: ACTION_REVIEW_RECORD,
-      user_id: event.user_id,
-      entity_id: reviewId,
-      occurred_at: reviewedAtIso,
-      created_at: new Date().toISOString(),
-      request_id: safeCell_(String(event.request_id || '').slice(0, 80)),
-      payload_hash: '',
-      result_code: 'REVIEWED'
-    });
-
-    SpreadsheetApp.flush();
-    return {
+    var result = {
       review_id: reviewId,
       word_id: wordId,
       next_due_at: srs.dueAt,
@@ -557,6 +559,9 @@ function recordReview_(ss, event) {
       review_state: srs.reviewState,
       duplicate_event: false
     };
+    appendMutationEvent_(events, eh, event, reviewId, result);
+    SpreadsheetApp.flush();
+    return result;
   } finally {
     lock.releaseLock();
   }
@@ -567,7 +572,9 @@ function claimDailyDigest_(ss, event) {
   var localDate = checkedText_(d.local_date, 20, true);
   var limit = Math.min(50, Math.max(1, Number(d.limit || 10)));
   var dispatchId = localDate + '|' + event.user_id;
-  var now = new Date().toISOString();
+  var now = String(d.now_iso || new Date().toISOString());
+  var nowMs = Date.parse(now);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(localDate) || !isFinite(nowMs)) throw new Error('Invalid digest date');
 
   var users = ss.getSheetByName('Users');
   var dispatchLog = ss.getSheetByName('DailyDispatchLog');
@@ -606,14 +613,19 @@ function claimDailyDigest_(ss, event) {
     }
 
     var existingDispatchRow = findRow_(dispatchLog, dh['dispatch_id'], dispatchId);
+    var attempts = 0;
     if (existingDispatchRow > 0) {
-      return {
-        dispatch_id: dispatchId,
-        already_dispatched: true,
-        notifications_enabled: true,
-        telegram_chat_id: telegramChatId,
-        due_cards: []
-      };
+      var previous = readRowObject_(dispatchLog, dh, existingDispatchRow);
+      attempts = Number(previous.attempt_count || 1);
+      var ageMs = nowMs - Date.parse(String(previous.claimed_at));
+      // A crashed sender may have delivered the message. Do not retry an ambiguous send.
+      if (previous.status === 'claimed' && ageMs >= 300000) {
+        dispatchLog.getRange(existingDispatchRow, dh['status']).setValue('unknown');
+        dispatchLog.getRange(existingDispatchRow, dh['last_error']).setValue('Sender outcome unknown; manual reconciliation required');
+      }
+      if (previous.status !== 'failed' || attempts >= 3 || ageMs < 30000 * Math.pow(2, attempts - 1)) {
+        return { dispatch_id: dispatchId, already_dispatched: true, notifications_enabled: true, telegram_chat_id: telegramChatId, due_cards: [] };
+      }
     }
 
     var dueList = listDueReviews_(ss, {
@@ -621,18 +633,25 @@ function claimDailyDigest_(ss, event) {
       data: { limit: limit, now_iso: d.now_iso || now }
     });
 
+    var claimToken = Utilities.getUuid();
     if (dueList.items.length > 0) {
-      appendMapped_(dispatchLog, dh, {
+      var claim = {
         dispatch_id: dispatchId,
         user_id: event.user_id,
         local_date: localDate,
-        status: 'sent',
+        status: 'claimed',
         claimed_at: now,
-        sent_at: now,
+        sent_at: '',
         message_id: '',
         last_error: '',
-        attempt_count: 1
-      });
+        attempt_count: attempts + 1,
+        claim_token: claimToken
+      };
+      if (existingDispatchRow > 0) {
+        Object.keys(claim).forEach(function (key) { dispatchLog.getRange(existingDispatchRow, dh[key]).setValue(claim[key]); });
+      } else {
+        appendMapped_(dispatchLog, dh, claim);
+      }
       SpreadsheetApp.flush();
     }
 
@@ -641,24 +660,54 @@ function claimDailyDigest_(ss, event) {
       already_dispatched: false,
       notifications_enabled: true,
       telegram_chat_id: telegramChatId,
-      due_cards: dueList.items
+      due_cards: dueList.items,
+      claim_token: claimToken
     };
   } finally {
     lock.releaseLock();
   }
 }
 
+function finishDailyDigest_(ss, event) {
+  var d = event.data || {};
+  if (['sent', 'failed', 'unknown'].indexOf(d.status) < 0) throw new Error('Invalid digest outcome');
+  var sheet = ss.getSheetByName('DailyDispatchLog');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var h = headerMap_(sheet);
+    requireColumns_(h, DISPATCH_COLUMNS);
+    var row = findRow_(sheet, h['dispatch_id'], String(d.dispatch_id));
+    if (row <= 0) throw new Error('NOT_FOUND:Digest claim not found');
+    var old = readRowObject_(sheet, h, row);
+    if (old.user_id !== event.user_id || old.claim_token !== d.claim_token) throw new Error('CONFLICT:Digest claim changed');
+    if (old.status === d.status) return { updated: true };
+    if (old.status !== 'claimed' && old.status !== 'unknown') throw new Error('CONFLICT:Digest outcome already recorded');
+    sheet.getRange(row, h['status']).setValue(d.status);
+    sheet.getRange(row, h['sent_at']).setValue(d.status === 'sent' ? new Date().toISOString() : '');
+    sheet.getRange(row, h['message_id']).setValue(d.message_id ? String(d.message_id) : '');
+    sheet.getRange(row, h['last_error']).setValue(d.status === 'sent' ? '' : 'Telegram send ' + d.status);
+    SpreadsheetApp.flush();
+    return { updated: true };
+  } finally { lock.releaseLock(); }
+}
+
 function updateUserPreferences_(ss, event) {
   var d = event.data || {};
   var now = new Date().toISOString();
   var users = ss.getSheetByName('Users');
+  var events = ss.getSheetByName('Events');
   if (!users) throw new Error('Missing Users tab');
 
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     var uh = headerMap_(users);
+    var eh = headerMap_(events);
     requireColumns_(uh, USERS_COLUMNS);
+    requireColumns_(eh, EVENTS_COLUMNS);
+    var replay = mutationReplay_(events, eh, event);
+    if (replay !== null) return replay;
     var userRow = findRow_(users, uh['user_id'], event.user_id);
     var enabled = d.notifications_enabled !== undefined ? Boolean(d.notifications_enabled) : true;
     var chatId = d.telegram_chat_id ? String(d.telegram_chat_id) : event.user_id.replace(/^telegram:/, '');
@@ -680,8 +729,10 @@ function updateUserPreferences_(ss, event) {
         updated_at: now
       });
     }
+    var result = { updated: true, notifications_enabled: enabled };
+    appendMutationEvent_(events, eh, event, event.user_id, result);
     SpreadsheetApp.flush();
-    return { updated: true, notifications_enabled: enabled };
+    return result;
   } finally {
     lock.releaseLock();
   }
@@ -750,6 +801,35 @@ function checkedText_(value, max, required) {
   var s = value.trim();
   if (s.length > max || (required && !s)) throw new Error('Invalid field length');
   return s;
+}
+function checkedPos_(value) {
+  var pos = checkedText_(value, 32, true).toLowerCase();
+  if (['noun', 'verb', 'adjective', 'adverb', 'phrase', 'idiom', 'preposition', 'conjunction', 'pronoun', 'interjection', 'unknown'].indexOf(pos) < 0) throw new Error('Invalid part of speech');
+  return pos;
+}
+function mutationFingerprint_(event) {
+  var data = Object.assign({}, event.data);
+  // Server review time changes across deliveries; it is not the mutation identity.
+  if (event.action === ACTION_REVIEW_RECORD) delete data.reviewed_at;
+  var raw = Utilities.computeHmacSha256Signature(JSON.stringify({ action: event.action, user_id: event.user_id, data: data }), PropertiesService.getScriptProperties().getProperty('GAS_SHARED_SECRET'), Utilities.Charset.UTF_8);
+  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
+}
+function mutationReplay_(events, headers, event) {
+  var row = findRow_(events, headers['event_id'], String(event.event_id));
+  if (row <= 0) return null;
+  var old = readRowObject_(events, headers, row);
+  if (old.user_id !== event.user_id || old.event_type !== event.action || old.payload_hash !== mutationFingerprint_(event) || !old.result_json) {
+    throw new Error('CONFLICT:Event ID already used for a different or legacy operation');
+  }
+  return JSON.parse(String(old.result_json));
+}
+function appendMutationEvent_(events, headers, event, entityId, result) {
+  appendMapped_(events, headers, {
+    event_id: String(event.event_id), event_type: event.action, user_id: event.user_id,
+    entity_id: entityId, occurred_at: String(event.issued_at), created_at: new Date().toISOString(),
+    request_id: safeCell_(String(event.request_id || '').slice(0, 80)),
+    payload_hash: mutationFingerprint_(event), result_code: 'OK', result_json: JSON.stringify(result)
+  });
 }
 function norm_(value) {
   return String(value).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { VocabularyItem } from '@voice-chat/shared';
 import { FlashcardReviewPanel } from './FlashcardReviewPanel.js';
@@ -35,14 +35,9 @@ const SAMPLE_CARD: VocabularyItem = {
 };
 
 describe('M4-04 & M3-04 FlashcardReviewPanel, VocabularyManagerPanel & SaveQueue', () => {
-  it('conceals flashcard answer until Show Answer is clicked and updates SRS state on rating', () => {
-    const updatedItems: VocabularyItem[] = [];
-    render(
-      <FlashcardReviewPanel
-        items={[SAMPLE_CARD]}
-        onUpdateItem={(item) => updatedItems.push(item)}
-      />,
-    );
+  it('conceals answer and only counts a grade after backend confirmation', async () => {
+    const onGrade = vi.fn().mockResolvedValue(undefined);
+    render(<FlashcardReviewPanel items={[SAMPLE_CARD]} onGrade={onGrade} />);
 
     expect(screen.getByTestId('flashcard-word').textContent).toBe('resilient');
     expect(screen.queryByTestId('flashcard-back')).toBeNull();
@@ -51,19 +46,21 @@ describe('M4-04 & M3-04 FlashcardReviewPanel, VocabularyManagerPanel & SaveQueue
     expect(screen.getByTestId('flashcard-back').textContent).toContain('kiên cường');
 
     fireEvent.click(screen.getByTestId('btn-rate-good'));
-    expect(updatedItems.length).toBe(1);
-    expect(updatedItems[0]?.interval_days).toBe(1);
-    expect(updatedItems[0]?.repetitions).toBe(1);
-    expect(screen.getByTestId('stat-reviewed-today').textContent).toContain('1');
+    expect(onGrade).toHaveBeenCalledWith(SAMPLE_CARD.word_id, 'good', expect.any(String));
+    await waitFor(() =>
+      expect(screen.getByTestId('stat-reviewed-today').textContent).toContain('1'),
+    );
   });
 
-  it('supports editing meaning without resetting SRS progress and exporting CSV in VocabularyManagerPanel', () => {
+  it('supports editing meaning without resetting SRS progress and exporting CSV in VocabularyManagerPanel', async () => {
     const updates: VocabularyItem[] = [];
     render(
       <VocabularyManagerPanel
         items={[{ ...SAMPLE_CARD, repetitions: 3, interval_days: 8 }]}
-        onUpdateItem={(u) => updates.push(u)}
-        onDeleteItem={vi.fn()}
+        onUpdateItem={async (item, changes) => {
+          updates.push({ ...item, ...changes });
+        }}
+        onDeleteItem={vi.fn().mockResolvedValue(undefined)}
       />,
     );
 
@@ -72,7 +69,7 @@ describe('M4-04 & M3-04 FlashcardReviewPanel, VocabularyManagerPanel & SaveQueue
     fireEvent.change(meaningInput, { target: { value: 'bền bỉ, kiên cường' } });
     fireEvent.click(screen.getByTestId('btn-save-edit'));
 
-    expect(updates.length).toBe(1);
+    await waitFor(() => expect(updates.length).toBe(1));
     expect(updates[0]?.meaning_vi).toBe('bền bỉ, kiên cường');
     // SRS progress preserved on manual edit (`docs/16_SRS.md` invariant)
     expect(updates[0]?.repetitions).toBe(3);

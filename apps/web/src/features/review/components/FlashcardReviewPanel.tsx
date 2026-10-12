@@ -1,28 +1,33 @@
-import { useState } from 'react';
-import {
-  calculateNextReview,
-  type ReviewRating,
-  type VocabularyItem,
-} from '@voice-chat/shared';
+import { useEffect, useState } from 'react';
+import { type ReviewRating, type VocabularyItem } from '@voice-chat/shared';
 
 export interface FlashcardReviewPanelProps {
   items: VocabularyItem[];
-  onUpdateItem: (updated: VocabularyItem) => void;
-  isOffline?: boolean | undefined;
+  onGrade: (wordId: string, rating: ReviewRating, eventId: string) => Promise<void>;
+  enabled?: boolean;
 }
 
 export function FlashcardReviewPanel({
   items,
-  onUpdateItem,
-  isOffline = false,
+  onGrade,
+  enabled = true,
 }: FlashcardReviewPanelProps) {
   const [revealedWordId, setRevealedWordId] = useState<string | null>(null);
   const [reviewedTodayCount, setReviewedTodayCount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<{
+    wordId: string;
+    rating: ReviewRating;
+    eventId: string;
+  } | null>(null);
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const activeItems = items.filter(
-    (it) => it.deleted_at === '' && it.review_state !== 'suspended',
-  );
-  const nowMs = Date.now();
+  const activeItems = items.filter((it) => it.deleted_at === '' && it.review_state !== 'suspended');
   const dueCards = activeItems.filter((it) => {
     const ms = Date.parse(it.due_at);
     return !Number.isFinite(ms) || ms <= nowMs;
@@ -31,35 +36,28 @@ export function FlashcardReviewPanel({
   const currentCard = dueCards[0] ?? null;
   const isRevealed = currentCard !== null && revealedWordId === currentCard.word_id;
 
-  const handleGrade = (rating: ReviewRating) => {
-    if (!currentCard) {
+  const handleGrade = async (rating: ReviewRating) => {
+    if (!currentCard || busy || !enabled) {
       return;
     }
-    const nowIso = new Date().toISOString();
-    const nextSrs = calculateNextReview(
-      {
-        reviewState: currentCard.review_state,
-        repetitions: currentCard.repetitions,
-        intervalDays: currentCard.interval_days,
-        easeFactor: currentCard.ease_factor,
-        dueAt: currentCard.due_at,
-      },
+    const operation = pending ?? {
+      wordId: currentCard.word_id,
       rating,
-      nowIso,
-    );
-
-    onUpdateItem({
-      ...currentCard,
-      review_state: nextSrs.reviewState,
-      repetitions: nextSrs.repetitions,
-      interval_days: nextSrs.intervalDays,
-      ease_factor: nextSrs.easeFactor,
-      due_at: nextSrs.dueAt,
-      last_reviewed_at: nowIso,
-      version: currentCard.version + 1,
-    });
-    setRevealedWordId(null);
-    setReviewedTodayCount((c) => c + 1);
+      eventId: crypto.randomUUID(),
+    };
+    setPending(operation);
+    setBusy(true);
+    setError(null);
+    try {
+      await onGrade(operation.wordId, operation.rating, operation.eventId);
+      setPending(null);
+      setRevealedWordId(null);
+      setReviewedTodayCount((count) => count + 1);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Không thể lưu kết quả ôn.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -74,15 +72,14 @@ export function FlashcardReviewPanel({
           <strong className="stat-value">{dueCards.length}</strong>
         </div>
         <div className="stat-card" data-testid="stat-reviewed-today">
-          <span className="stat-label">Đã ôn hôm nay</span>
+          <span className="stat-label">Đã ôn phiên này</span>
           <strong className="stat-value">{reviewedTodayCount}</strong>
         </div>
       </div>
 
-      {isOffline && (
+      {error && (
         <div className="voice-clarify-banner" role="status" data-testid="offline-review-banner">
-          Bạn đang ở chế độ ngoại tuyến (Offline). Kết quả ôn tập sẽ được giữ trong phiên và đồng bộ
-          khi có mạng trở lại.
+          {error} Chưa xác nhận lưu kết quả. Nhấn lại mức đánh giá để thử cùng sự kiện.
         </div>
       )}
 
@@ -141,6 +138,9 @@ export function FlashcardReviewPanel({
                     className="btn-secondary"
                     aria-label={`Rate ${btn.rating}`}
                     onClick={() => handleGrade(btn.rating)}
+                    disabled={
+                      !enabled || busy || (pending !== null && pending.rating !== btn.rating)
+                    }
                     data-testid={`btn-rate-${btn.rating}`}
                   >
                     {btn.label}

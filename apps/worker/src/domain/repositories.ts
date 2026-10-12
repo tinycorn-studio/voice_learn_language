@@ -16,6 +16,7 @@ export interface DailyDigestClaimResult {
   notifications_enabled: boolean;
   telegram_chat_id: string;
   due_cards: DueReviewCard[];
+  claim_token?: string;
 }
 
 /**
@@ -54,11 +55,7 @@ export interface VocabularyRepository {
  * Repository abstraction for Spaced Repetition reviews and daily digest dispatches (`AGENTS.md` Section 2).
  */
 export interface ReviewRepository {
-  listDue(
-    userId: string,
-    requestId: string,
-    limit: number,
-  ): Promise<{ items: DueReviewCard[] }>;
+  listDue(userId: string, requestId: string, limit: number): Promise<{ items: DueReviewCard[] }>;
 
   recordReview(
     userId: string,
@@ -72,7 +69,19 @@ export interface ReviewRepository {
     requestId: string,
     localDate: string,
     limit: number,
+    nowIso?: string,
   ): Promise<DailyDigestClaimResult>;
+
+  finishDailyDigest(
+    userId: string,
+    requestId: string,
+    input: {
+      dispatch_id: string;
+      claim_token: string;
+      status: 'sent' | 'failed' | 'unknown';
+      message_id?: number;
+    },
+  ): Promise<{ updated: boolean }>;
 
   updateUserPreferences(
     userId: string,

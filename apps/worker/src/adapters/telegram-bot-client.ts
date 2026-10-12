@@ -1,4 +1,10 @@
+import { z } from 'zod';
 import type { DueReviewCard } from '@voice-chat/shared';
+
+const sendResultSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), result: z.object({ message_id: z.number().int().positive() }) }),
+  z.object({ ok: z.literal(false) }),
+]);
 
 export interface TelegramInlineButton {
   text: string;
@@ -20,26 +26,30 @@ export class TelegramBotClient {
     chatId: string | number;
     text: string;
     inlineKeyboard?: TelegramInlineButton[][];
-  }): Promise<{ ok: boolean; messageId?: number }> {
-    const res = await this.fetchFn(this.endpoint('sendMessage'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({
-        chat_id: params.chatId,
-        text: params.text,
-        ...(params.inlineKeyboard
-          ? { reply_markup: { inline_keyboard: params.inlineKeyboard } }
-          : {}),
-      }),
-    });
-    if (!res.ok) {
-      return { ok: false };
+  }): Promise<{ ok: boolean; messageId?: number; outcome?: 'failed' | 'unknown' }> {
+    let res: Response;
+    try {
+      res = await this.fetchFn(this.endpoint('sendMessage'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          chat_id: params.chatId,
+          text: params.text,
+          ...(params.inlineKeyboard
+            ? { reply_markup: { inline_keyboard: params.inlineKeyboard } }
+            : {}),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+    } catch {
+      return { ok: false, outcome: 'unknown' };
     }
-    const json = (await res.json()) as { ok?: boolean; result?: { message_id?: number } };
-    return {
-      ok: Boolean(json.ok),
-      ...(json.result?.message_id !== undefined ? { messageId: json.result.message_id } : {}),
-    };
+    // A proxy error or malformed acknowledgement cannot prove whether Telegram sent it.
+    const raw: unknown = await res.json().catch(() => null);
+    const parsed = sendResultSchema.safeParse(raw);
+    if (!parsed.success) return { ok: false, outcome: 'unknown' };
+    if (!parsed.data.ok) return { ok: false, outcome: 'failed' };
+    return { ok: true, messageId: parsed.data.result.message_id };
   }
 
   public async answerCallbackQuery(params: {
@@ -54,22 +64,31 @@ export class TelegramBotClient {
         text: params.text,
         show_alert: false,
       }),
+      signal: AbortSignal.timeout(10000),
     });
-    return res.ok;
+    const parsed = z.object({ ok: z.boolean() }).safeParse(await res.json().catch(() => null));
+    return res.ok && parsed.success && parsed.data.ok;
   }
 
   /**
    * Formats a compact inline-keyboard review card for Telegram (`docs/07_TELEGRAM_SETUP.md` Section 4).
-   * Callback data strictly fits Telegram's 64-byte limit: `r:<word_id>:<rating>`.
+   * Includes the card version so pressing an old keyboard cannot score a newer card.
    */
-  public static buildQuizKeyboard(wordId: string): TelegramInlineButton[][] {
-    const shortId = wordId.slice(0, 40);
+  public static buildQuizKeyboard(wordId: string, version: number): TelegramInlineButton[][] {
+    if (
+      !/^[a-zA-Z0-9_-]+$/.test(wordId) ||
+      !Number.isSafeInteger(version) ||
+      version < 1 ||
+      `r:${wordId}:again:${version}`.length > 64
+    ) {
+      throw new Error('Review callback exceeds Telegram constraints');
+    }
     return [
       [
-        { text: 'Again (10m)', callback_data: `r:${shortId}:again` },
-        { text: 'Hard', callback_data: `r:${shortId}:hard` },
-        { text: 'Good', callback_data: `r:${shortId}:good` },
-        { text: 'Easy', callback_data: `r:${shortId}:easy` },
+        { text: 'Again (10m)', callback_data: `r:${wordId}:again:${version}` },
+        { text: 'Hard', callback_data: `r:${wordId}:hard:${version}` },
+        { text: 'Good', callback_data: `r:${wordId}:good:${version}` },
+        { text: 'Easy', callback_data: `r:${wordId}:easy:${version}` },
       ],
     ];
   }

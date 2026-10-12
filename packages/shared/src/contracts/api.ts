@@ -242,6 +242,7 @@ export const reviewSubmitRequestSchema = z.object({
   word_id: z.string().min(3).max(120),
   rating: z.enum(REVIEW_RATINGS),
   reviewed_at: z.string().datetime().optional(),
+  version: z.number().int().positive().optional(),
 });
 
 export type ReviewSubmitRequest = z.infer<typeof reviewSubmitRequestSchema>;
@@ -270,6 +271,7 @@ export const GAS_ACTIONS = [
   'review.listDue',
   'review.record',
   'review.claimDigest',
+  'review.finishDigest',
   'user.preferences',
 ] as const;
 
@@ -292,3 +294,31 @@ export const gasSignedEnvelopeSchema = z.object({
 });
 
 export type GasSignedEnvelope = z.infer<typeof gasSignedEnvelopeSchema>;
+
+export const dailyDigestClaimSchema = z.object({
+  dispatch_id: z.string(),
+  already_dispatched: z.boolean(),
+  notifications_enabled: z.boolean(),
+  telegram_chat_id: z.string(),
+  due_cards: z.array(dueReviewCardSchema),
+  claim_token: z.string().optional(),
+});
+
+export const telegramUpdateSchema = z.object({
+  update_id: z.number().int().nonnegative(),
+  message: z
+    .object({
+      chat: z.object({ id: z.number().int() }).optional(),
+      from: z.object({ id: z.number().int() }).optional(),
+      text: z.string().max(4096).optional(),
+    })
+    .optional(),
+  callback_query: z
+    .object({
+      id: z.string().max(256),
+      from: z.object({ id: z.number().int() }),
+      message: z.object({ chat: z.object({ id: z.number().int() }) }).optional(),
+      data: z.string().max(64).optional(),
+    })
+    .optional(),
+});

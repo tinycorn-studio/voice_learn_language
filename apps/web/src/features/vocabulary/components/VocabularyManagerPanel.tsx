@@ -1,22 +1,31 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { exportVocabularyToCsv, type VocabularyItem } from '@voice-chat/shared';
 
 export interface VocabularyManagerPanelProps {
   items: VocabularyItem[];
-  onUpdateItem: (updated: VocabularyItem) => void;
-  onDeleteItem: (wordId: string) => void;
+  onUpdateItem: (
+    item: VocabularyItem,
+    changes: { meaning_vi: string; example: string },
+    eventId: string,
+  ) => Promise<void>;
+  onDeleteItem: (wordId: string) => Promise<void>;
+  enabled?: boolean;
 }
 
 export function VocabularyManagerPanel({
   items,
   onUpdateItem,
   onDeleteItem,
+  enabled = true,
 }: VocabularyManagerPanelProps) {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftMeaning, setDraftMeaning] = useState('');
   const [draftExample, setDraftExample] = useState('');
   const [csvExportPreview, setCsvExportPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pendingEdit = useRef<{ key: string; eventId: string } | null>(null);
 
   const visibleItems = items.filter((it) => {
     if (it.deleted_at !== '') {
@@ -39,14 +48,23 @@ export function VocabularyManagerPanel({
     setDraftExample(item.example);
   };
 
-  const saveEdit = (item: VocabularyItem) => {
-    onUpdateItem({
-      ...item,
-      meaning_vi: draftMeaning.trim(),
-      example: draftExample.trim(),
-      version: item.version + 1,
-    });
-    setEditingId(null);
+  const saveEdit = async (item: VocabularyItem) => {
+    if (busy || !enabled) return;
+    const changes = { meaning_vi: draftMeaning.trim(), example: draftExample.trim() };
+    const key = JSON.stringify([item.word_id, item.version, changes]);
+    if (pendingEdit.current?.key !== key)
+      pendingEdit.current = { key, eventId: crypto.randomUUID() };
+    setBusy(true);
+    setError(null);
+    try {
+      await onUpdateItem(item, changes, pendingEdit.current.eventId);
+      setEditingId(null);
+      pendingEdit.current = null;
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Không thể sửa từ.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleExportCsv = () => {
@@ -56,6 +74,7 @@ export function VocabularyManagerPanel({
 
   return (
     <section className="voice-panel" aria-label="Personal Vocabulary Manager">
+      {error && <p role="alert">{error}</p>}
       <div className="vocab-toolbar">
         <input
           type="search"
@@ -90,7 +109,11 @@ export function VocabularyManagerPanel({
 
       <div className="vocab-list" data-testid="vocab-list">
         {visibleItems.map((item) => (
-          <article key={item.word_id} className="vocab-row" data-testid={`vocab-item-${item.word_id}`}>
+          <article
+            key={item.word_id}
+            className="vocab-row"
+            data-testid={`vocab-item-${item.word_id}`}
+          >
             <div className="vocab-row-header">
               <div>
                 <strong>{item.word}</strong> <span>({item.part_of_speech})</span>{' '}
@@ -101,6 +124,7 @@ export function VocabularyManagerPanel({
                   type="button"
                   className="btn-chip"
                   onClick={() => startEdit(item)}
+                  disabled={!enabled || busy}
                   data-testid={`btn-edit-${item.word_id}`}
                 >
                   Edit
@@ -108,7 +132,16 @@ export function VocabularyManagerPanel({
                 <button
                   type="button"
                   className="btn-chip"
-                  onClick={() => onDeleteItem(item.word_id)}
+                  disabled={!enabled || busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setError(null);
+                    void onDeleteItem(item.word_id)
+                      .catch((failure) =>
+                        setError(failure instanceof Error ? failure.message : 'Không thể xóa từ.'),
+                      )
+                      .finally(() => setBusy(false));
+                  }}
                   data-testid={`btn-delete-${item.word_id}`}
                 >
                   Delete
@@ -122,6 +155,7 @@ export function VocabularyManagerPanel({
                   type="text"
                   value={draftMeaning}
                   onChange={(e) => setDraftMeaning(e.target.value)}
+                  maxLength={300}
                   aria-label="Edit Vietnamese meaning"
                   data-testid="edit-meaning-input"
                 />
@@ -129,6 +163,7 @@ export function VocabularyManagerPanel({
                   type="text"
                   value={draftExample}
                   onChange={(e) => setDraftExample(e.target.value)}
+                  maxLength={500}
                   aria-label="Edit example sentence"
                   data-testid="edit-example-input"
                 />
@@ -136,6 +171,7 @@ export function VocabularyManagerPanel({
                   type="button"
                   className="btn-primary"
                   onClick={() => saveEdit(item)}
+                  disabled={!enabled || busy}
                   data-testid="btn-save-edit"
                 >
                   Save Correction

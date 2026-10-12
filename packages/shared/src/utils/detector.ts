@@ -95,7 +95,9 @@ const PRONOUN_QUESTION_PATTERNS: readonly RegExp[] = [
   /^what\s+about\s+(?:the\s+second\s+word|that\s+one)\b/i,
 ];
 
-function extractQuotedOrHighlightedCandidates(recentTurns: readonly ConversationContextTurn[]): string[] {
+function extractQuotedOrHighlightedCandidates(
+  recentTurns: readonly ConversationContextTurn[],
+): string[] {
   const lastAssistant = [...recentTurns].reverse().find((t) => t.speaker === 'assistant');
   if (!lastAssistant) {
     return [];
@@ -237,6 +239,17 @@ export function validateSaveVocabularyToolCall(
   }
 
   const args = parsed.data;
+  const trustedUserTurn = [...recentTurns].reverse().find((turn) => turn.speaker === 'user');
+  if (
+    !trustedUserTurn ||
+    normalizeText(args.source_excerpt) !== normalizeText(trustedUserTurn.text)
+  ) {
+    return {
+      allowed: false,
+      reason: 'source_excerpt_does_not_match_user_turn',
+      requiresClarification: false,
+    };
+  }
   const normalizedWord = normalizeText(args.word);
   if (PRONOUN_TARGETS.has(normalizedWord)) {
     return {
@@ -246,7 +259,7 @@ export function validateSaveVocabularyToolCall(
     };
   }
 
-  const decision = detectVocabularyIntent(args.source_excerpt, recentTurns);
+  const decision = detectVocabularyIntent(trustedUserTurn.text, recentTurns);
   if (decision.status === 'clarify') {
     return {
       allowed: false,
@@ -259,6 +272,28 @@ export function validateSaveVocabularyToolCall(
       allowed: false,
       reason: 'source_excerpt_lacks_explicit_intent',
       requiresClarification: false,
+    };
+  }
+
+  const isTranslationToEnglish =
+    /how\s+do\s+(?:i|you)\s+say\b|english\s+(?:word|term|phrase)\s+for\b|tiếng\s+anh.*nói\s+sao/i.test(
+      trustedUserTurn.text,
+    );
+  if (!isTranslationToEnglish && normalizeText(decision.targetWord ?? '') !== normalizedWord) {
+    return {
+      allowed: false,
+      reason: 'tool_target_does_not_match_user_question',
+      requiresClarification: true,
+    };
+  }
+  if (
+    isTranslationToEnglish &&
+    !normalizeText(args.meaning_vi).includes(normalizeText(decision.targetWord ?? ''))
+  ) {
+    return {
+      allowed: false,
+      reason: 'translation_does_not_match_user_question',
+      requiresClarification: true,
     };
   }
 

@@ -3,11 +3,21 @@
 Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript hoặc thông tin định danh cá nhân.
 
 ## [Unreleased]
+
 ### Added
+
 - 2026-10-12: Bộ tài liệu dự án, AGENTS.md, PROGRESS.md, script ghi tiến độ, Apps Script starter và hướng dẫn cấu hình/triển khai. **Chưa triển khai ứng dụng chạy thật.**
 
+### Fixed
+
+- 2026-10-12 M5-05: Voice Tutor nối micro PCM/Gemini/playback; Stop hủy tài nguyên và reconnect có budget. Mini App đăng nhập Telegram, dùng API lưu/sửa/xóa/ôn thật; bỏ dữ liệu mẫu và badge saved giả, hiển thị pending/error cùng retry event ổn định.
+- 2026-10-12 M5-05: Webhook retry sau lỗi không mất review; CRUD replay và chặn key collision; digest chỉ sent sau Telegram ack, bounded retry khi failed và giữ unknown để đối chiếu. Cron bổ sung tick 08:00–08:05; keyboard mới có version chặn thẻ cũ.
+- 2026-10-12 M5-05: CSV multiline/quote/CRLF và validation; guard đối chiếu transcript/target. Sheet schema v2 thêm result snapshot/claim token, migration chỉ append headers. Cần backup/migration và staging/live QA trước production; chưa deploy.
+
 ## Automated task completions
+
 <!-- scripts/Complete-Task.ps1 tự chèn dưới đây -->
+
 - 2026-10-12 10:26 +07:00 — M0-01: Git repo init (main), LF configured (.gitattributes), node v26.5.1, npm 11.17.0, git 2.55.0.windows.3, clasp 3.4.1, wrangler 4.149.0, .gitignore verified. Next: M0-03: Chốt ADR, workspace root & secret checks (M0-02 chờ user cấu hình tài khoản ngoài)
 - 2026-10-12 10:29 +07:00 — M0-03: Accepted ADR-001..006 in docs/14_DECISIONS.md, created workspace package.json, tsconfig.base.json, .prettierrc, .dev.vars.example, and passed Check-Secrets.ps1. Next: M1-01: Bootstrap React/Vite TS strict, lint, test, PWA/mobile permission UX
 - 2026-10-12 10:36 +07:00 — M1-01: npm run typecheck, lint, test (4/4 VoiceSessionPanel tests), build pass; apps/web & packages/shared bootstrapped with strict TS and mic permission/6-state UX. Next: M1-02 & M1-03: Gemini Live WebSocket client, reconnect/goAway handling, and 30-utterance save_vocabulary detector test suite
@@ -23,3 +33,5 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 - 2026-10-12 10:50 +07:00 — M4-02: Telegram webhook inline quiz callback (r:<word_id>:<rating>) & update_id/event_id deduplication verified in entry.test.ts and worker-gas-integration.test.ts. Next: M4-03
 - 2026-10-12 10:50 +07:00 — M4-03: Cron 08:00 +07 daily digest claim (DailyDispatchLog idempotency & /pause opt-out) verified in entry.test.ts and worker-gas-integration.test.ts (TC-12). Next: M4-04
 - 2026-10-12 10:50 +07:00 — M4-04: Mini App FlashcardReviewPanel & VocabularyManagerPanel with stats, offline notice, answer reveal & SRS grading verified in FlashcardReviewPanel.test.tsx. Next: M0-02 & M3-01: User cung cấp/cấu hình tài khoản Google/Cloudflare/Telegram để chạy M1-02 live audio & M5 deploy
+- 2026-10-12 10:57 +07:00 — M5-04: Review 9963ed1: typecheck/lint pass, 31 tests pass, build/secret scan pass; 7 regression probes reproduce R03-R09; source findings R01-R02; report docs/21_IMPLEMENTATION_REVIEW.md. Reopened affected feature tasks; no feature fixes or deployment.. Next: M3-04: noi auth/API persistence va pending/saved/error (R02); M1-02: noi PCM/Gemini/playback (R01); M4-02/M4-03: sua webhook/digest retry (R03/R04). Xem docs/21_IMPLEMENTATION_REVIEW.md.
+- 2026-10-12 11:23 +07:00 — M5-05: Sua R01-R09; App-Worker-GAS integration va audio/reconnect/CSV/CRUD/digest regression; 55 tests/12 files, typecheck workspace+tests, lint workspace+tests, production build, Wrangler dry-run va secret scan PASS. Schema v2 migration tested; docs/22_REVIEW_FIXES.md. Chua deploy/live QA.. Next: M0-02/M3-01: cau hinh staging, backup Sheet va migrateSchemaV2 theo docs/05_APPS_SCRIPT_SETUP.md; sau do nghiem thu M1-02/M3-04/M4/M5-02 tren dich vu va PC/Android/iOS that.

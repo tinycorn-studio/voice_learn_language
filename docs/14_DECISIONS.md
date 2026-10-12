@@ -3,6 +3,7 @@
 Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`, ghi context, alternatives, consequence, owner, date, status và link PR/task.
 
 ## ADR-001 — Telegram Mini App là auth/entrypoint production (One-User Allowlist)
+
 - Date: 2026-10-12
 - Status: Accepted (chốt tại M0-03)
 - Owner: Project Owner
@@ -14,6 +15,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Tradeoff: Phụ thuộc môi trường Telegram WebView ở production; cần xử lý kỹ quyền micro và user gesture trên iOS/Android WebView.
 
 ## ADR-002 — Google Sheets làm database v1 qua Repository Adapter
+
 - Date: 2026-10-12
 - Status: Accepted (chốt tại M0-03)
 - Owner: Project Owner
@@ -22,6 +24,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Tradeoff: Không có ACID transaction chuẩn và độ trễ cao hơn DB native; bắt buộc dùng `LockService.getScriptLock()` + bảng `Events` để đảm bảo idempotency, và sẵn sàng thay bằng Cloudflare D1 khi vượt quy mô cá nhân.
 
 ## ADR-003 — Bỏ n8n và Anki khỏi MVP
+
 - Date: 2026-10-12
 - Status: Accepted (chốt tại M0-03)
 - Owner: Project Owner
@@ -30,6 +33,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Tradeoff: Tự hiện thực và kiểm thử bộ lập lịch SRS cơ bản (Again/Hard/Good/Easy).
 
 ## ADR-004 — Quản lý Google Apps Script bằng Git + clasp
+
 - Date: 2026-10-12
 - Status: Accepted (chốt tại M0-03)
 - Owner: Project Owner
@@ -37,6 +41,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Risk & Mitigation: `.clasp.json` và `.clasprc.json` bị chặn hoàn toàn trong `.gitignore` và kiểm tra tự động qua `scripts/Check-Secrets.ps1`; cấm `clasp push --force` mặc định.
 
 ## ADR-005 — Kết nối trực tiếp Gemini Live API bằng Ephemeral Token
+
 - Date: 2026-10-12
 - Status: Accepted (chốt tại M0-03)
 - Owner: Project Owner
@@ -45,6 +50,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Tradeoff: Cần quản lý vòng đời phiên (reconnect, session resumption, goAway) ở phía client.
 
 ## ADR-006 — Deploy Topology & Phân tách Môi trường (Local / Staging / Production)
+
 - Date: 2026-10-12
 - Status: Accepted (chốt tại M0-03)
 - Owner: Project Owner
@@ -52,8 +58,16 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
   1. **Monorepo Workspaces:** Quản lý bằng npm workspaces tại root gồm `packages/shared`, `apps/web`, `apps/worker`, và thư mục `apps-script`.
   2. **Deploy Topology cuối:**
      - `apps/web`: Build tĩnh (Vite) triển khai trên Cloudflare Pages / Workers Static Assets (HTTPS mặc định phục vụ `getUserMedia` và Telegram Mini App).
-     - `apps/worker`: Triển khai trên Cloudflare Workers kèm Cron Trigger `0 1 * * *` (08:00 Asia/Ho_Chi_Minh).
+     - `apps/worker`: Triển khai trên Cloudflare Workers kèm Cron Trigger `0-5 1 * * *` (08:00–08:05 Asia/Ho_Chi_Minh, xem ADR-007).
      - `apps-script`: Triển khai thành Google Apps Script Web App (`Execute as: Me`, bảo vệ tầng ứng dụng bằng HMAC-SHA256 + timestamp window + `event_id` idempotency).
   3. **Environment Isolation:**
      - `local`: `.env` (chỉ biến `VITE_*`) và `apps/worker/.dev.vars` (gitignored, tạo từ `.dev.vars.example`).
      - `staging` / `production`: Tách biệt Worker environment, Google Sheet ID, Script deployment và Telegram Bot; toàn bộ khoá bí mật chỉ nạp qua `wrangler secret put` và Apps Script `Script Properties`.
+
+## ADR-007 — Durable mutation replay và kết quả gửi không chắc chắn
+
+- Date: 2026-10-12
+- Status: Accepted (M5-05)
+- Decision: giữ repository Sheets, thêm Events fingerprint/result snapshot và DailyDispatchLog claim_token. Mutation retry dùng cùng event/body; schema v2 nâng cấp chỉ append header. Digest chuyển claimed → sent/failed/unknown sau response Telegram; tối đa 3 lần cho failed qua tick Cron 08:00–08:05. Unknown và claim treo không tự gửi lại.
+- Rationale: isolate memory không bảo vệ retry qua Worker mới; Telegram sendMessage không hỗ trợ idempotency key nên timeout không chứng minh chưa gửi.
+- Tradeoff: unknown cần đối chiếu thủ công, không đảm bảo exactly-once tin nhắn. ScriptLock tuần tự hóa writers, không tạo transaction ACID qua nhiều tabs; lỗi giữa ghi business row và Events vẫn cần đối chiếu từ backup/log, tương lai có thể chuyển D1 nếu cần transaction. Queue chưa đồng bộ trên frontend chỉ ở memory và UI nói rõ giới hạn.

@@ -8,8 +8,8 @@
     "apps/*"
   ],
   "scripts": {
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.tests.json",
+    "lint": "npm run lint --workspaces --if-present && eslint tests",
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "npm run build --workspaces --if-present",

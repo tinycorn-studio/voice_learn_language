@@ -1,8 +1,8 @@
+import { z } from 'zod';
 import type { LiveTokenResponse } from '@voice-chat/shared';
 import { AppError } from '../domain/env.js';
 
-const GOOGLE_AUTH_TOKENS_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/auth_tokens';
+const GOOGLE_AUTH_TOKENS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/auth_tokens';
 
 /**
  * Mints a single-use (`uses: 1`), short-lived Gemini Live ephemeral token
@@ -45,6 +45,7 @@ export async function mintGeminiEphemeralToken(params: {
         'x-goog-api-key': params.geminiApiKey,
       },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(10000),
     });
   } catch {
     throw new AppError({
@@ -58,7 +59,8 @@ export async function mintGeminiEphemeralToken(params: {
   if (res.status === 429) {
     throw new AppError({
       code: 'RATE_LIMITED',
-      message: 'Gemini Free Tier quota or rate limit reached. Please wait before starting a new voice session.',
+      message:
+        'Gemini Free Tier quota or rate limit reached. Please wait before starting a new voice session.',
       status: 429,
       retryable: true,
     });
@@ -73,9 +75,15 @@ export async function mintGeminiEphemeralToken(params: {
     });
   }
 
-  const data = (await res.json()) as { name?: string; token?: string; expireTime?: string };
-  const tokenValue = data.token ?? data.name;
-  if (!tokenValue || typeof tokenValue !== 'string') {
+  const parsed = z
+    .object({
+      name: z.string().min(1).max(4000).optional(),
+      token: z.string().min(1).max(4000).optional(),
+      expireTime: z.string().datetime().optional(),
+    })
+    .safeParse(await res.json().catch(() => null));
+  const tokenValue = parsed.success ? (parsed.data.token ?? parsed.data.name) : undefined;
+  if (!parsed.success || !tokenValue) {
     throw new AppError({
       code: 'UPSTREAM_ERROR',
       message: 'Gemini token service returned an empty token payload',
@@ -86,6 +94,6 @@ export async function mintGeminiEphemeralToken(params: {
   return {
     token: tokenValue,
     model: normalizedModel,
-    expires_at: typeof data.expireTime === 'string' ? data.expireTime : expireAtIso,
+    expires_at: parsed.data.expireTime ?? expireAtIso,
   };
 }

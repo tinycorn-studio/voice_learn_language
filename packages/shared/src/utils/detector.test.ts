@@ -328,15 +328,18 @@ describe('M1-03 Vocabulary Intent Detector & Tool Call Validation (30 Fixtures)'
   });
 
   it('validates save_vocabulary tool call and produces structured sanitized output (TC-01)', () => {
-    const validation = validateSaveVocabularyToolCall({
-      word: ' Overwhelmed ',
-      lemma: 'overwhelm',
-      part_of_speech: 'Adjective',
-      sense_key: 'feeling unable to cope',
-      meaning_vi: 'quá tải, choáng ngợp',
-      example: 'I felt overwhelmed by the project deadline.',
-      source_excerpt: 'What does overwhelmed mean?',
-    });
+    const validation = validateSaveVocabularyToolCall(
+      {
+        word: ' Overwhelmed ',
+        lemma: 'overwhelm',
+        part_of_speech: 'Adjective',
+        sense_key: 'feeling unable to cope',
+        meaning_vi: 'quá tải, choáng ngợp',
+        example: 'I felt overwhelmed by the project deadline.',
+        source_excerpt: 'What does overwhelmed mean?',
+      },
+      [{ speaker: 'user', text: 'What does overwhelmed mean?' }],
+    );
 
     expect(validation.allowed).toBe(true);
     if (validation.allowed) {
@@ -353,11 +356,14 @@ describe('M1-03 Vocabulary Intent Detector & Tool Call Validation (30 Fixtures)'
   });
 
   it('rejects hallucinated save_vocabulary tool call on ordinary dialogue (TC-04)', () => {
-    const validation = validateSaveVocabularyToolCall({
-      word: 'overwhelmed',
-      meaning_vi: 'quá tải',
-      source_excerpt: 'I feel overwhelmed today.',
-    });
+    const validation = validateSaveVocabularyToolCall(
+      {
+        word: 'overwhelmed',
+        meaning_vi: 'quá tải',
+        source_excerpt: 'I feel overwhelmed today.',
+      },
+      [{ speaker: 'user', text: 'I feel overwhelmed today.' }],
+    );
 
     expect(validation.allowed).toBe(false);
     if (!validation.allowed) {
@@ -378,6 +384,7 @@ describe('M1-03 Vocabulary Intent Detector & Tool Call Validation (30 Fixtures)'
           speaker: 'assistant',
           text: 'She is both "diligent" and "gregarious".',
         },
+        { speaker: 'user', text: 'What does that mean?' },
       ],
     );
 
@@ -413,6 +420,40 @@ describe('M1-03 Vocabulary Intent Detector & Tool Call Validation (30 Fixtures)'
     expect(escapeSpreadsheetFormula('-1+2')).toBe("'-1+2");
     expect(escapeSpreadsheetFormula('@SUM(A1)')).toBe("'@SUM(A1)");
     expect(escapeSpreadsheetFormula('Normal meaning text')).toBe('Normal meaning text');
+  });
+
+  it('R09 rejects mismatched targets and invented source excerpts; accepts explicitly requested translation', () => {
+    const question = [{ speaker: 'user' as const, text: 'What does bank mean?' }];
+    expect(
+      validateSaveVocabularyToolCall(
+        { word: 'elephant', meaning_vi: 'voi', source_excerpt: question[0]!.text },
+        question,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      validateSaveVocabularyToolCall(
+        { word: 'elephant', meaning_vi: 'voi', source_excerpt: 'What does elephant mean?' },
+        question,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      validateSaveVocabularyToolCall({
+        word: 'bank',
+        meaning_vi: 'ngân hàng',
+        source_excerpt: question[0]!.text,
+      }).allowed,
+    ).toBe(false);
+    const translation = [{ speaker: 'user' as const, text: 'How do I say quá tải in English?' }];
+    expect(
+      validateSaveVocabularyToolCall(
+        {
+          word: 'overwhelmed',
+          meaning_vi: 'quá tải, choáng ngợp',
+          source_excerpt: translation[0]!.text,
+        },
+        translation,
+      ).allowed,
+    ).toBe(true);
   });
 
   it('formats UTC dates accurately in Asia/Ho_Chi_Minh (+07:00) across midnight (TC-13)', () => {

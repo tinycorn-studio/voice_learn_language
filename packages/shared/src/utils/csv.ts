@@ -1,10 +1,5 @@
-import {
-  PARTS_OF_SPEECH,
-  REVIEW_STATES,
-  type PartOfSpeech,
-  type ReviewState,
-  type VocabularyItem,
-} from '../contracts/api.js';
+import { z } from 'zod';
+import { vocabularyItemSchema, type VocabularyItem } from '../contracts/api.js';
 import { escapeSpreadsheetFormula } from './normalize.js';
 
 export const WORDS_CSV_HEADERS = [
@@ -40,16 +35,17 @@ function escapeCsvCell(raw: string | number): string {
   return str;
 }
 
-function parseCsvLine(line: string): string[] {
+function parseCsvRecords(text: string): string[][] {
+  const records: string[][] = [];
   const cells: string[] = [];
   let current = '';
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
     if (inQuotes) {
       if (ch === '"') {
-        if (line[i + 1] === '"') {
+        if (text[i + 1] === '"') {
           current += '"';
           i++;
         } else {
@@ -63,12 +59,20 @@ function parseCsvLine(line: string): string[] {
     } else if (ch === ',') {
       cells.push(current);
       current = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      cells.push(current);
+      if (cells.some((cell) => cell.length > 0)) records.push([...cells]);
+      cells.length = 0;
+      current = '';
     } else {
       current += ch;
     }
   }
+  if (inQuotes) throw new Error('CSV contains an unterminated quoted field');
   cells.push(current);
-  return cells;
+  if (cells.some((cell) => cell.length > 0)) records.push(cells);
+  return records;
 }
 
 function unescapeFormulaPrefix(value: string): string {
@@ -115,19 +119,18 @@ export function exportVocabularyToCsv(items: readonly VocabularyItem[]): string 
  * Imports and validates `VocabularyItem` rows from a CSV backup string (`M3-04`).
  */
 export function importVocabularyFromCsv(csvContent: string): VocabularyItem[] {
-  const rawLines = csvContent
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((l) => l.trim().length > 0);
-  if (rawLines.length <= 1) {
+  if (csvContent.length > 2_000_000) throw new Error('CSV backup exceeds 2MB');
+  const records = parseCsvRecords(csvContent.replace(/^\uFEFF/, ''));
+  if (records.length === 0) {
     return [];
   }
 
-  const headerCells = parseCsvLine(rawLines[0]!);
+  const headerCells = records[0]!;
   const indexMap = new Map<string, number>();
   headerCells.forEach((h, idx) => indexMap.set(h.trim(), idx));
+  if (indexMap.size !== headerCells.length) throw new Error('Duplicate CSV header');
 
-  for (const requiredCol of ['word_id', 'user_id', 'word', 'meaning_vi']) {
+  for (const requiredCol of WORDS_CSV_HEADERS) {
     if (!indexMap.has(requiredCol)) {
       throw new Error(`Missing required CSV header column: ${requiredCol}`);
     }
@@ -139,26 +142,26 @@ export function importVocabularyFromCsv(csvContent: string): VocabularyItem[] {
   };
 
   const out: VocabularyItem[] = [];
-  for (let i = 1; i < rawLines.length; i++) {
-    const cells = parseCsvLine(rawLines[i]!);
+  for (let i = 1; i < records.length; i++) {
+    const cells = records[i]!;
+    if (cells.length !== headerCells.length)
+      throw new Error(`CSV record ${i + 1} has an invalid column count`);
     const rawPos = getCell(cells, 'part_of_speech').trim().toLowerCase();
-    const pos: PartOfSpeech = (PARTS_OF_SPEECH as readonly string[]).includes(rawPos)
-      ? (rawPos as PartOfSpeech)
-      : 'unknown';
-
     const rawState = getCell(cells, 'review_state').trim().toLowerCase();
-    const reviewState: ReviewState = (REVIEW_STATES as readonly string[]).includes(rawState)
-      ? (rawState as ReviewState)
-      : 'new';
+    const numberCell = (column: string): number => {
+      const value = getCell(cells, column).trim();
+      if (!value) throw new Error(`CSV record ${i + 1} has an empty ${column}`);
+      return Number(value);
+    };
 
     const word = unescapeFormulaPrefix(getCell(cells, 'word'));
-    out.push({
+    const item = {
       word_id: getCell(cells, 'word_id'),
       user_id: getCell(cells, 'user_id'),
       word_key: getCell(cells, 'word_key'),
       word,
       lemma: unescapeFormulaPrefix(getCell(cells, 'lemma')) || word.toLowerCase(),
-      part_of_speech: pos,
+      part_of_speech: rawPos,
       sense_key: unescapeFormulaPrefix(getCell(cells, 'sense_key')) || 'default',
       meaning_vi: unescapeFormulaPrefix(getCell(cells, 'meaning_vi')),
       ipa: unescapeFormulaPrefix(getCell(cells, 'ipa')),
@@ -166,16 +169,30 @@ export function importVocabularyFromCsv(csvContent: string): VocabularyItem[] {
       source_excerpt: unescapeFormulaPrefix(getCell(cells, 'source_excerpt')),
       created_at: getCell(cells, 'created_at'),
       last_asked_at: getCell(cells, 'last_asked_at'),
-      times_asked: Math.max(1, Number(getCell(cells, 'times_asked') || '1')),
-      review_state: reviewState,
-      repetitions: Math.max(0, Number(getCell(cells, 'repetitions') || '0')),
-      interval_days: Math.max(0, Number(getCell(cells, 'interval_days') || '0')),
-      ease_factor: Math.min(3.0, Math.max(1.3, Number(getCell(cells, 'ease_factor') || '2.5'))),
+      times_asked: numberCell('times_asked'),
+      review_state: rawState,
+      repetitions: numberCell('repetitions'),
+      interval_days: numberCell('interval_days'),
+      ease_factor: numberCell('ease_factor'),
       due_at: getCell(cells, 'due_at'),
       last_reviewed_at: getCell(cells, 'last_reviewed_at'),
-      version: Math.max(1, Number(getCell(cells, 'version') || '1')),
+      version: numberCell('version'),
       deleted_at: getCell(cells, 'deleted_at'),
-    });
+    };
+    for (const column of [
+      'created_at',
+      'last_asked_at',
+      'due_at',
+      'last_reviewed_at',
+      'deleted_at',
+    ] as const) {
+      if ((column !== 'deleted_at' && column !== 'last_reviewed_at') || item[column] !== '') {
+        if (!z.string().datetime().safeParse(item[column]).success) {
+          throw new Error(`CSV record ${i + 1} has an invalid ${column}`);
+        }
+      }
+    }
+    out.push(vocabularyItemSchema.parse(item));
   }
   return out;
 }

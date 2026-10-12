@@ -1,163 +1,160 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  GeminiLiveSessionClient,
-  type VerifiedSaveVocabularyEvent,
-  type WebSocketLike,
-} from './gemini-live-client.js';
-import type { VoiceSessionState } from '@voice-chat/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { GeminiLiveSessionClient, type VerifiedSaveVocabularyEvent } from './gemini-live-client.js';
+import { TestWebSocket } from './test-websocket.js';
 
-class FakeWebSocket implements WebSocketLike {
-  public readyState = 1;
-  public sentFrames: string[] = [];
-  public closed = false;
-  public onopen: ((ev: unknown) => void) | null = null;
-  public onmessage: ((ev: { data: string }) => void) | null = null;
-  public onerror: ((ev: unknown) => void) | null = null;
-  public onclose: ((ev: { code?: number; reason?: string }) => void) | null = null;
-
-  public constructor(public readonly url: string) {}
-
-  public send(data: string): void {
-    this.sentFrames.push(data);
-  }
-
-  public close(): void {
-    this.closed = true;
-    this.readyState = 3;
-    this.onclose?.({ code: 1000 });
-  }
+const clients: GeminiLiveSessionClient[] = [];
+afterEach(() => {
+  clients.forEach((client) => client.stop());
+  clients.length = 0;
+  vi.useRealTimers();
+});
+function setup() {
+  const sockets: TestWebSocket[] = [];
+  const callbacks = {
+    onStateChange: vi.fn(),
+    onTranscript: vi.fn(),
+    onAudioChunk: vi.fn(),
+    onError: vi.fn(),
+    onSaveVocabulary: vi
+      .fn<(_event: VerifiedSaveVocabularyEvent) => Promise<{ ok: boolean }>>()
+      .mockResolvedValue({ ok: true }),
+  };
+  const client = new GeminiLiveSessionClient(callbacks, (url) => {
+    const ws = new TestWebSocket(url);
+    sockets.push(ws);
+    return ws;
+  });
+  clients.push(client);
+  return { client, sockets, callbacks };
 }
-
-describe('M1-02 & M1-03 GeminiLiveSessionClient', () => {
-  it('connects with ephemeral token, sends setup frame with save_vocabulary tool, and handles audio/transcriptions', async () => {
-    const sockets: FakeWebSocket[] = [];
-    const states: VoiceSessionState[] = [];
-    const transcripts: Array<{ speaker: string; text: string; isFinal: boolean }> = [];
-    const audioChunks: string[] = [];
-    const savedEvents: VerifiedSaveVocabularyEvent[] = [];
-
-    const client = new GeminiLiveSessionClient(
+const tool = {
+  toolCall: {
+    functionCalls: [
       {
-        onStateChange: (st) => states.push(st),
-        onTranscript: (speaker, text, isFinal) => transcripts.push({ speaker, text, isFinal }),
-        onAudioChunk: (chunk) => audioChunks.push(chunk),
-        onSaveVocabulary: vi.fn().mockImplementation(async (evt: VerifiedSaveVocabularyEvent) => {
-          savedEvents.push(evt);
-          return { ok: true };
-        }),
+        id: 'call-1',
+        name: 'save_vocabulary',
+        args: { word: 'bank', meaning_vi: 'ngân hàng', source_excerpt: 'What does bank mean?' },
       },
-      (url) => {
-        const ws = new FakeWebSocket(url);
-        sockets.push(ws);
-        return ws;
-      },
-    );
-
-    client.connect({ ephemeralToken: 'eph_test_token_123' });
-    expect(sockets.length).toBe(1);
+    ],
+  },
+};
+describe('M5-05 Live protocol, trusted transcript and reconnect', () => {
+  it('waits for setupComplete, sends PCM and text; validates and deduplicates tool frames', async () => {
+    const { client, sockets, callbacks } = setup();
+    client.connect({ ephemeralToken: 'synthetic-token' });
     const ws = sockets[0]!;
-    expect(ws.url).toContain('access_token=eph_test_token_123');
-
     ws.onopen?.({});
-    expect(states).toContain('listening');
-    expect(ws.sentFrames.length).toBe(1);
-    const setupMsg = JSON.parse(ws.sentFrames[0]!) as {
-      setup: { model: string; tools: Array<{ functionDeclarations: Array<{ name: string }> }> };
-    };
-    expect(setupMsg.setup.model).toBe('models/gemini-3.8-live');
-    expect(setupMsg.setup.tools[0]?.functionDeclarations[0]?.name).toBe('save_vocabulary');
-
-    // Simulate user final transcript + model audio + turnComplete
-    ws.onmessage?.({
-      data: JSON.stringify({
-        serverContent: {
-          inputTranscription: { text: 'What does overwhelmed mean?', finished: true },
-        },
-      }),
+    client.sendPcmAudioChunk('AAAA');
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0]!).setup.tools[0].functionDeclarations[0].name).toBe(
+      'save_vocabulary',
+    );
+    ws.emit({ setupComplete: {} });
+    await vi.waitFor(() => expect(callbacks.onStateChange).toHaveBeenLastCalledWith('listening'));
+    client.sendPcmAudioChunk('AAAA');
+    expect(JSON.parse(ws.sent[1]!).realtimeInput.audio.mimeType).toBe('audio/pcm;rate=16000');
+    expect(client.sendText('What does bank mean?')).toBe(true);
+    ws.emit(tool);
+    ws.emit(tool);
+    await vi.waitFor(() =>
+      expect(ws.sent.filter((frame) => frame.includes('functionResponses'))).toHaveLength(2),
+    );
+    expect(callbacks.onSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(callbacks.onSaveVocabulary.mock.calls[0]?.[0].event_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.parse(ws.sent.at(-1)!).toolResponse.functionResponses[0].response).toEqual({
+      saved: true,
     });
-    expect(states.at(-1)).toBe('thinking');
-
-    ws.onmessage?.({
-      data: JSON.stringify({
-        serverContent: {
-          modelTurn: {
-            parts: [{ inlineData: { data: 'AAAABBBB', mimeType: 'audio/pcm;rate=24000' } }],
-          },
-          outputTranscription: { text: 'Overwhelmed means feeling unable to cope.', finished: true },
-        },
-      }),
+  });
+  it('accumulates streamed transcript before tool validation and handles PCM playback', async () => {
+    const { client, sockets, callbacks } = setup();
+    client.connect({ ephemeralToken: 'synthetic-token' });
+    const ws = sockets[0]!;
+    ws.emit({ serverContent: { inputTranscription: { text: 'What does ' } } });
+    ws.emit({ serverContent: { inputTranscription: { text: 'bank mean?' } } });
+    ws.emit(tool);
+    ws.emit({
+      serverContent: {
+        modelTurn: { parts: [{ inlineData: { data: 'AAAA', mimeType: 'audio/pcm;rate=24000' } }] },
+        outputTranscription: { text: 'A bank is a financial institution.' },
+        turnComplete: true,
+      },
     });
-    expect(states.at(-1)).toBe('speaking');
-    expect(audioChunks).toEqual(['AAAABBBB']);
-
-    // Simulate valid save_vocabulary toolCall and duplicate frame
-    const toolCallFrame = JSON.stringify({
+    await vi.waitFor(() => expect(callbacks.onSaveVocabulary).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(callbacks.onAudioChunk).toHaveBeenCalledWith('AAAA', 'audio/pcm;rate=24000'),
+    );
+    expect(callbacks.onTranscript).toHaveBeenCalledWith('user', 'What does bank mean?', true);
+  });
+  it('R09 blocks hallucinated target or forged source and sends saved:false', async () => {
+    const { client, sockets, callbacks } = setup();
+    client.connect({ ephemeralToken: 'synthetic-token' });
+    client.recordTurnContext({ speaker: 'user', text: 'What does bank mean?' });
+    sockets[0]!.emit({
       toolCall: {
         functionCalls: [
           {
-            id: 'call_abc123456789',
-            name: 'save_vocabulary',
-            args: {
-              word: 'overwhelmed',
-              part_of_speech: 'adjective',
-              meaning_vi: 'quá tải, choáng ngợp',
-              source_excerpt: 'What does overwhelmed mean?',
-            },
+            ...tool.toolCall.functionCalls[0]!,
+            args: { word: 'elephant', meaning_vi: 'voi', source_excerpt: 'What does bank mean?' },
           },
         ],
       },
     });
-    ws.onmessage?.({ data: toolCallFrame });
-    ws.onmessage?.({ data: toolCallFrame });
-
-    await vi.waitFor(() => {
-      expect(savedEvents.length).toBe(1);
-    });
-    expect(savedEvents[0]?.word).toBe('overwhelmed');
-  });
-
-  it('automatically reconnects with sessionResumption handle upon receiving goAway', () => {
-    const sockets: FakeWebSocket[] = [];
-    const states: VoiceSessionState[] = [];
-
-    const client = new GeminiLiveSessionClient(
-      {
-        onStateChange: (st) => states.push(st),
-        onTranscript: () => undefined,
-        onAudioChunk: () => undefined,
-        onSaveVocabulary: async () => ({ ok: true }),
-      },
-      (url) => {
-        const ws = new FakeWebSocket(url);
-        sockets.push(ws);
-        return ws;
-      },
+    await vi.waitFor(() => expect(sockets[0]!.sent).toHaveLength(1));
+    expect(callbacks.onSaveVocabulary).not.toHaveBeenCalled();
+    expect(JSON.parse(sockets[0]!.sent[0]!).toolResponse.functionResponses[0].response.saved).toBe(
+      false,
     );
-
-    client.connect({ ephemeralToken: 'eph_1' });
-    sockets[0]!.onopen?.({});
-
-    // Server sends resumption handle update then goAway
-    sockets[0]!.onmessage?.({
-      data: JSON.stringify({
-        sessionResumptionUpdate: { newHandle: 'resume_handle_xyz', resumable: true },
-      }),
-    });
-    expect(client.getResumptionHandle()).toBe('resume_handle_xyz');
-
-    sockets[0]!.onmessage?.({
-      data: JSON.stringify({ goAway: { timeLeft: '5s' } }),
-    });
-
-    expect(sockets.length).toBe(2);
-    sockets[1]!.onopen?.({});
-    const reconnectSetup = JSON.parse(sockets[1]!.sentFrames[0]!) as {
-      setup: { sessionResumption?: { handle?: string } };
-    };
-    expect(reconnectSetup.setup.sessionResumption?.handle).toBe('resume_handle_xyz');
-
-    client.stop();
-    expect(sockets[1]!.closed).toBe(true);
-    expect(states.at(-1)).toBe('idle');
+  });
+  it.each(['goAway', 'unexpected-close'])(
+    'R07 resumes after %s and cancels scheduled reconnect on Stop',
+    async (cause) => {
+      vi.useFakeTimers();
+      const { client, sockets } = setup();
+      client.connect({ ephemeralToken: 'synthetic-token' });
+      sockets[0]!.emit({
+        sessionResumptionUpdate: { newHandle: 'resume-handle', resumable: true },
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      if (cause === 'goAway') sockets[0]!.emit({ goAway: { timeLeft: '5s' } });
+      else sockets[0]!.close(1006);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(sockets).toHaveLength(2);
+      sockets[1]!.onopen?.({});
+      expect(JSON.parse(sockets[1]!.sent[0]!).setup.sessionResumption.handle).toBe('resume-handle');
+      sockets[1]!.close(1006);
+      client.stop();
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(sockets).toHaveLength(2);
+    },
+  );
+  it('refreshes a spent token when no handle exists and stops after bounded reconnect failures', async () => {
+    vi.useFakeTimers();
+    const { client, sockets, callbacks } = setup();
+    const refresh = vi
+      .fn()
+      .mockResolvedValue({
+        token: 'new-token',
+        model: 'models/gemini-3.8-live',
+        expires_at: new Date(Date.now() + 60000).toISOString(),
+      });
+    client.connect({ ephemeralToken: 'old-token', getFreshToken: refresh });
+    sockets[0]!.close(1006);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sockets[1]?.url).toContain('new-token');
+    for (let index = 1; index <= 4; index++) {
+      sockets[index]!.close(1006);
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    expect(callbacks.onError).toHaveBeenCalled();
+    expect(sockets).toHaveLength(5);
+  });
+  it('parses ArrayBuffer frames and reports invalid payloads without leaking frame content', async () => {
+    const { client, sockets, callbacks } = setup();
+    client.connect({ ephemeralToken: 'synthetic-token' });
+    sockets[0]!.onmessage?.({ data: new TextEncoder().encode('{"setupComplete":{}}').buffer });
+    await vi.waitFor(() => expect(callbacks.onStateChange).toHaveBeenLastCalledWith('listening'));
+    sockets[0]!.onmessage?.({ data: 'not-json-synthetic-secret' });
+    await vi.waitFor(() => expect(callbacks.onError).toHaveBeenCalled());
+    expect(callbacks.onError.mock.calls[0]?.[0]).not.toContain('synthetic-secret');
   });
 });

@@ -1,13 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  computeTelegramInitDataHash,
-  issueSessionToken,
-} from './auth/telegram-auth.js';
-import {
-  handleScheduledCron,
-  handleWorkerRequest,
-  SecurityStateStore,
-} from './entry.js';
+import { computeTelegramInitDataHash, issueSessionToken } from './auth/telegram-auth.js';
+import { handleScheduledCron, handleWorkerRequest, SecurityStateStore } from './entry.js';
 import type { WorkerEnv } from './domain/env.js';
 
 const TEST_ENV: WorkerEnv = {
@@ -158,19 +151,21 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
       nowEpochSeconds: fixedNowSec,
     });
 
-    const fakeFetch = vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const urlStr = String(input);
-      expect(urlStr).toBe('https://generativelanguage.googleapis.com/v1beta/auth_tokens');
-      const sentBody = JSON.parse(String(init?.body)) as { uses: number };
-      expect(sentBody.uses).toBe(1);
-      return new Response(
-        JSON.stringify({
-          name: 'ephemeral_tok_single_use_xyz',
-          expireTime: new Date(fixedNowMs + 1200_000).toISOString(),
-        }),
-        { status: 200 },
-      );
-    });
+    const fakeFetch = vi
+      .fn()
+      .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = String(input);
+        expect(urlStr).toBe('https://generativelanguage.googleapis.com/v1beta/auth_tokens');
+        const sentBody = JSON.parse(String(init?.body)) as { uses: number };
+        expect(sentBody.uses).toBe(1);
+        return new Response(
+          JSON.stringify({
+            name: 'ephemeral_tok_single_use_xyz',
+            expireTime: new Date(fixedNowMs + 1200_000).toISOString(),
+          }),
+          { status: 200 },
+        );
+      });
 
     const store = new SecurityStateStore();
 
@@ -222,9 +217,9 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
       review_state: 'review',
       duplicate_event: false,
     });
-    const fakeFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 }),
-    );
+    const fakeFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
     // 1. Missing/wrong secret header -> 401
     const badSecretRes = await handleWorkerRequest(
@@ -263,6 +258,7 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
           listDue: vi.fn(),
           recordReview: recordReviewSpy,
           claimDailyDigest: vi.fn(),
+          finishDailyDigest: vi.fn(),
           updateUserPreferences: vi.fn(),
         },
       },
@@ -286,6 +282,7 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
           listDue: vi.fn(),
           recordReview: recordReviewSpy,
           claimDailyDigest: vi.fn(),
+          finishDailyDigest: vi.fn(),
           updateUserPreferences: vi.fn(),
         },
       },
@@ -296,15 +293,18 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
   });
 
   it('M2-04 & M4-03: handleScheduledCron sends 1 digest at 08:00 +07 (01:00 UTC) and respects opt-out / duplicate claims (TC-12)', async () => {
-    const fakeFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, result: { message_id: 42 } }), { status: 200 }),
-    );
+    const fakeFetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, result: { message_id: 42 } }), { status: 200 }),
+      );
 
     const claimSpy = vi
       .fn()
       .mockResolvedValueOnce({
         dispatch_id: '2026-10-12|telegram:777888999',
         already_dispatched: false,
+        claim_token: 'test-claim-token',
         notifications_enabled: true,
         telegram_chat_id: '777888999',
         due_cards: [
@@ -345,6 +345,7 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
       listDue: vi.fn(),
       recordReview: vi.fn(),
       claimDailyDigest: claimSpy,
+      finishDailyDigest: vi.fn().mockResolvedValue({ updated: true }),
       updateUserPreferences: vi.fn(),
     };
 

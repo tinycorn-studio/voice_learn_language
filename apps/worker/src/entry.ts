@@ -3,6 +3,7 @@ import {
   liveTokenRequestSchema,
   reviewSubmitRequestSchema,
   telegramAuthRequestSchema,
+  telegramUpdateSchema,
   vocabularyCreateRequestSchema,
   vocabularyListQuerySchema,
   vocabularyUpdateRequestSchema,
@@ -17,12 +18,7 @@ import {
   verifyTelegramInitData,
   verifyTelegramWebhookSecret,
 } from './auth/telegram-auth.js';
-import {
-  AppError,
-  jsonEnvelopeResponse,
-  logStructured,
-  type WorkerEnv,
-} from './domain/env.js';
+import { AppError, jsonEnvelopeResponse, logStructured, type WorkerEnv } from './domain/env.js';
 import type { ReviewRepository, VocabularyRepository } from './domain/repositories.js';
 
 export interface WorkerDependencies {
@@ -38,12 +34,34 @@ export interface WorkerDependencies {
 export class SecurityStateStore {
   private readonly liveTokenHits = new Map<string, number[]>();
   private readonly processedUpdateIds = new Set<number>();
+  private readonly pendingUpdates = new Map<number, Promise<Response>>();
 
-  public checkLiveTokenRateLimit(
-    userId: string,
-    nowMs: number,
-    maxPerMinute = 5,
-  ): void {
+  /** Cache only completed updates; repository event IDs protect retries across isolates. */
+  public async processTelegramUpdate(
+    updateId: number,
+    requestId: string,
+    process: () => Promise<Response>,
+  ): Promise<Response> {
+    if (this.processedUpdateIds.has(updateId)) {
+      return jsonEnvelopeResponse(
+        { ok: true, data: { duplicate_update: true }, request_id: requestId },
+        200,
+      );
+    }
+    const pending = this.pendingUpdates.get(updateId);
+    if (pending) return (await pending).clone();
+    const work = process();
+    this.pendingUpdates.set(updateId, work);
+    try {
+      const response = await work;
+      if (response.ok) this.markTelegramUpdateProcessed(updateId);
+      return response.clone();
+    } finally {
+      this.pendingUpdates.delete(updateId);
+    }
+  }
+
+  public checkLiveTokenRateLimit(userId: string, nowMs: number, maxPerMinute = 5): void {
     const windowStart = nowMs - 60_000;
     const history = (this.liveTokenHits.get(userId) ?? []).filter((ts) => ts > windowStart);
     if (history.length >= maxPerMinute) {
@@ -104,8 +122,7 @@ export async function handleWorkerRequest(
   deps: WorkerDependencies = {},
   securityStore: SecurityStateStore = defaultSecurityStore,
 ): Promise<Response> {
-  const requestId =
-    request.headers.get('x-request-id')?.trim().slice(0, 64) || crypto.randomUUID();
+  const requestId = request.headers.get('x-request-id')?.trim().slice(0, 64) || crypto.randomUUID();
   const corsHeaders = resolveCorsHeaders(request, env);
 
   if (request.method === 'OPTIONS') {
@@ -190,174 +207,154 @@ export async function handleWorkerRequest(
         env.TELEGRAM_WEBHOOK_SECRET,
       );
 
-      const update = (await parseRequestJson(request)) as {
-        update_id?: number;
-        message?: {
-          chat?: { id?: number };
-          from?: { id?: number };
-          text?: string;
-        };
-        callback_query?: {
-          id?: string;
-          from?: { id?: number };
-          message?: { chat?: { id?: number } };
-          data?: string;
-        };
-      };
-
-      if (typeof update.update_id !== 'number') {
+      const parsedUpdate = telegramUpdateSchema.safeParse(await parseRequestJson(request));
+      if (!parsedUpdate.success) {
         throw new AppError({
           code: 'INVALID_ARGUMENT',
-          message: 'Missing Telegram update_id',
+          message: 'Invalid Telegram update',
           status: 400,
         });
       }
 
-      // Deduplicate Telegram retries by update_id (`M2-02`, TC-09)
-      if (!securityStore.markTelegramUpdateProcessed(update.update_id)) {
-        return jsonEnvelopeResponse(
-          {
-            ok: true,
-            data: { duplicate_update: true },
-            request_id: requestId,
-          },
-          200,
-        );
-      }
+      const update = parsedUpdate.data;
+      return await securityStore.processTelegramUpdate(update.update_id, requestId, async () => {
+        const ownerNumericId = Number(env.OWNER_TELEGRAM_ID.trim());
+        const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
 
-      const ownerNumericId = Number(env.OWNER_TELEGRAM_ID.trim());
-      const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
-
-      if (update.callback_query) {
-        const cb = update.callback_query;
-        if (cb.from?.id !== ownerNumericId) {
-          throw new AppError({
-            code: 'FORBIDDEN',
-            message: 'Callback sender is not authorized owner',
-            status: 403,
-          });
-        }
-        const cbData = cb.data ?? '';
-        const match = /^r:([a-zA-Z0-9:_-]{2,64}):(again|hard|good|easy)$/.exec(cbData);
-        if (!match || !match[1] || !match[2]) {
-          throw new AppError({
-            code: 'INVALID_ARGUMENT',
-            message: 'Malformed callback_data payload',
-            status: 400,
-          });
-        }
-
-        const wordId = match[1];
-        const rating = match[2] as ReviewRating;
-        const eventId = `tgcb_${update.update_id}_${wordId}`.slice(0, 80);
-        const result = await reviewRepo.recordReview(
-          `telegram:${ownerNumericId}`,
-          requestId,
-          {
-            event_id: eventId.length >= 12 ? eventId : `${eventId}_review`,
-            word_id: wordId,
-            rating,
-          },
-          new Date(nowMs).toISOString(),
-        );
-
-        if (cb.id) {
-          await botClient.answerCallbackQuery({
-            callbackQueryId: cb.id,
-            text: `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${result.interval_days} ngày.`,
-          });
-        }
-
-        return jsonEnvelopeResponse(
-          {
-            ok: true,
-            data: { handled: 'callback_query', review: result },
-            request_id: requestId,
-          },
-          200,
-        );
-      }
-
-      if (update.message) {
-        const msg = update.message;
-        if (msg.from?.id !== ownerNumericId) {
-          throw new AppError({
-            code: 'FORBIDDEN',
-            message: 'Message sender is not authorized owner',
-            status: 403,
-          });
-        }
-        const text = (msg.text ?? '').trim();
-        const chatId = String(msg.chat?.id ?? ownerNumericId);
-        const userId = `telegram:${ownerNumericId}`;
-
-        if (text.startsWith('/pause')) {
-          await reviewRepo.updateUserPreferences(
-            userId,
-            requestId,
-            `tgcmd_pause_${update.update_id}`,
-            { telegram_chat_id: chatId, notifications_enabled: false },
-          );
-          await botClient.sendMessage({
-            chatId,
-            text: '⏸ Đã tạm dừng gửi nhắc ôn từ vựng hàng ngày. Gõ /start để bật lại.',
-          });
-          return jsonEnvelopeResponse(
-            { ok: true, data: { handled: 'pause' }, request_id: requestId },
-            200,
-          );
-        }
-
-        if (text.startsWith('/start')) {
-          await reviewRepo.updateUserPreferences(
-            userId,
-            requestId,
-            `tgcmd_start_${update.update_id}`,
-            { telegram_chat_id: chatId, notifications_enabled: true },
-          );
-          await botClient.sendMessage({
-            chatId,
-            text: '👋 Chào mừng bạn! Đã bật thông báo ôn từ vựng lúc 08:00 sáng (UTC+7). Gõ /review để ôn ngay.',
-          });
-          return jsonEnvelopeResponse(
-            { ok: true, data: { handled: 'start' }, request_id: requestId },
-            200,
-          );
-        }
-
-        if (text.startsWith('/review')) {
-          const due = await reviewRepo.listDue(userId, requestId, 5);
-          const first = due.items[0];
-          if (!first) {
-            await botClient.sendMessage({
-              chatId,
-              text: '🎉 Hiện tại không có từ vựng nào đến hạn ôn tập!',
-            });
-          } else {
-            await botClient.sendMessage({
-              chatId,
-              text: TelegramBotClient.formatDigestMessage(
-                formatLocalDateAsiaHoChiMinh(new Date(nowMs)),
-                due.items,
-              ),
-              inlineKeyboard: TelegramBotClient.buildQuizKeyboard(first.word_id),
+        if (update.callback_query) {
+          const cb = update.callback_query;
+          if (cb.from?.id !== ownerNumericId) {
+            throw new AppError({
+              code: 'FORBIDDEN',
+              message: 'Callback sender is not authorized owner',
+              status: 403,
             });
           }
+          const cbData = cb.data ?? '';
+          const match = /^r:([a-zA-Z0-9_-]{2,64}):(again|hard|good|easy)(?::([1-9]\d{0,9}))?$/.exec(
+            cbData,
+          );
+          if (!match || !match[1] || !match[2]) {
+            throw new AppError({
+              code: 'INVALID_ARGUMENT',
+              message: 'Malformed callback_data payload',
+              status: 400,
+            });
+          }
+
+          const wordId = match[1];
+          const rating = match[2] as ReviewRating;
+          const eventId = `tgcb_${update.update_id}_${wordId}`.slice(0, 80);
+          const result = await reviewRepo.recordReview(
+            `telegram:${ownerNumericId}`,
+            requestId,
+            {
+              event_id: eventId.length >= 12 ? eventId : `${eventId}_review`,
+              word_id: wordId,
+              rating,
+              ...(match[3] ? { version: Number(match[3]) } : {}),
+            },
+            new Date(nowMs).toISOString(),
+          );
+
+          if (cb.id) {
+            await botClient.answerCallbackQuery({
+              callbackQueryId: cb.id,
+              text: `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${result.interval_days} ngày.`,
+            });
+          }
+
           return jsonEnvelopeResponse(
             {
               ok: true,
-              data: { handled: 'review', due_count: due.items.length },
+              data: { handled: 'callback_query', review: result },
               request_id: requestId,
             },
             200,
           );
         }
-      }
 
-      return jsonEnvelopeResponse(
-        { ok: true, data: { handled: 'ignored' }, request_id: requestId },
-        200,
-      );
+        if (update.message) {
+          const msg = update.message;
+          if (msg.from?.id !== ownerNumericId) {
+            throw new AppError({
+              code: 'FORBIDDEN',
+              message: 'Message sender is not authorized owner',
+              status: 403,
+            });
+          }
+          const text = (msg.text ?? '').trim();
+          const chatId = String(msg.chat?.id ?? ownerNumericId);
+          const userId = `telegram:${ownerNumericId}`;
+
+          if (text.startsWith('/pause')) {
+            await reviewRepo.updateUserPreferences(
+              userId,
+              requestId,
+              `tgcmd_pause_${update.update_id}`,
+              { telegram_chat_id: chatId, notifications_enabled: false },
+            );
+            await botClient.sendMessage({
+              chatId,
+              text: '⏸ Đã tạm dừng gửi nhắc ôn từ vựng hàng ngày. Gõ /start để bật lại.',
+            });
+            return jsonEnvelopeResponse(
+              { ok: true, data: { handled: 'pause' }, request_id: requestId },
+              200,
+            );
+          }
+
+          if (text.startsWith('/start')) {
+            await reviewRepo.updateUserPreferences(
+              userId,
+              requestId,
+              `tgcmd_start_${update.update_id}`,
+              { telegram_chat_id: chatId, notifications_enabled: true },
+            );
+            await botClient.sendMessage({
+              chatId,
+              text: '👋 Chào mừng bạn! Đã bật thông báo ôn từ vựng lúc 08:00 sáng (UTC+7). Gõ /review để ôn ngay.',
+            });
+            return jsonEnvelopeResponse(
+              { ok: true, data: { handled: 'start' }, request_id: requestId },
+              200,
+            );
+          }
+
+          if (text.startsWith('/review')) {
+            const due = await reviewRepo.listDue(userId, requestId, 5);
+            const first = due.items[0];
+            if (!first) {
+              await botClient.sendMessage({
+                chatId,
+                text: '🎉 Hiện tại không có từ vựng nào đến hạn ôn tập!',
+              });
+            } else {
+              await botClient.sendMessage({
+                chatId,
+                text: TelegramBotClient.formatDigestMessage(
+                  formatLocalDateAsiaHoChiMinh(new Date(nowMs)),
+                  due.items,
+                ),
+                inlineKeyboard: TelegramBotClient.buildQuizKeyboard(first.word_id, first.version),
+              });
+            }
+            return jsonEnvelopeResponse(
+              {
+                ok: true,
+                data: { handled: 'review', due_count: due.items.length },
+                request_id: requestId,
+              },
+              200,
+            );
+          }
+        }
+
+        return jsonEnvelopeResponse(
+          { ok: true, data: { handled: 'ignored' }, request_id: requestId },
+          200,
+        );
+      });
     }
 
     // All remaining `/api/v1/*` routes require a verified Bearer session token
@@ -488,8 +485,7 @@ export async function handleWorkerRequest(
       }
 
       if (request.method === 'DELETE') {
-        const eventId =
-          url.searchParams.get('event_id')?.trim() || `del_${requestId.slice(0, 48)}`;
+        const eventId = url.searchParams.get('event_id')?.trim() || `del_${requestId.slice(0, 48)}`;
         const deleted = await vocabRepo.softDelete(session.userId, requestId, wordId, eventId);
         return jsonEnvelopeResponse(
           {
@@ -617,7 +613,13 @@ export async function handleScheduledCron(
   const reviewRepo = deps.reviewRepo ?? gasAdapter;
   const userId = `telegram:${env.OWNER_TELEGRAM_ID.trim()}`;
 
-  const claim = await reviewRepo.claimDailyDigest(userId, requestId, localDate, 10);
+  const claim = await reviewRepo.claimDailyDigest(
+    userId,
+    requestId,
+    localDate,
+    10,
+    new Date(scheduledTimeMs).toISOString(),
+  );
   if (claim.already_dispatched) {
     return {
       dispatched: false,
@@ -647,11 +649,24 @@ export async function handleScheduledCron(
 
   const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
   const firstCard = claim.due_cards[0]!;
+  if (!claim.claim_token)
+    throw new AppError({
+      code: 'UPSTREAM_ERROR',
+      message: 'Missing digest claim token',
+      status: 502,
+    });
   const chatId = claim.telegram_chat_id || env.OWNER_TELEGRAM_ID.trim();
   const sendResult = await botClient.sendMessage({
     chatId,
     text: TelegramBotClient.formatDigestMessage(localDate, claim.due_cards),
-    inlineKeyboard: TelegramBotClient.buildQuizKeyboard(firstCard.word_id),
+    inlineKeyboard: TelegramBotClient.buildQuizKeyboard(firstCard.word_id, firstCard.version),
+  });
+
+  await reviewRepo.finishDailyDigest(userId, requestId, {
+    dispatch_id: claim.dispatch_id,
+    claim_token: claim.claim_token,
+    status: sendResult.ok ? 'sent' : sendResult.outcome === 'unknown' ? 'unknown' : 'failed',
+    ...(sendResult.messageId !== undefined ? { message_id: sendResult.messageId } : {}),
   });
 
   return {

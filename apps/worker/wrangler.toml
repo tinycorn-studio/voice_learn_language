@@ -1,0 +1,13 @@
+name = "voice-chat-learn-language-worker"
+main = "src/entry.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+ENVIRONMENT = "production"
+GEMINI_MODEL = "models/gemini-3.8-live"
+ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
+
+# Cloudflare Cron runs in UTC: 01:00 UTC = 08:00 Asia/Ho_Chi_Minh (docs/06_CLOUDFLARE_SETUP.md)
+[triggers]
+crons = ["0 1 * * *"]

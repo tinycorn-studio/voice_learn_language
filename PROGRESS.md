@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-12 10:38 +07:00
+> Updated: 2026-10-12 10:43 +07:00
 > Phase: M1 — Voice proof of concept (IN_PROGRESS)
-> Đang thực hiện: M1-02 (BLOCKED)
-> Next action: M2-01: Bootstrap Cloudflare Worker TS, API validation, health, structured logging
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: M3-02..M3-04: Apps Script full CRUD, HMAC integration tests & CSV export/import
 > Blockers: Chưa xác thực credentials thật (Google/Cloudflare/Telegram) cho M0-02; các task local/code/test có thể thực hiện trước.
 > Important: Repo đã khởi tạo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -21,10 +21,10 @@
 - [x] M1-03 — Function calling `save_vocabulary` với detector rule; unit tests và manual test 10 câu.
 
 ## Milestone M2 — Cloudflare backend/auth
-- [ ] M2-01 — Bootstrap Cloudflare Worker TS, API validation, health, structured logging.
-- [ ] M2-02 — Xác thực Mini App initData, xác thực Telegram webhook, allowlist.
-- [ ] M2-03 — `/api/v1/live-token`: ephemeral token, rate limit + CORS allowlist.
-- [ ] M2-04 — Cron trigger UTC, queue/retry/error mapping, CI checks.
+- [x] M2-01 — Bootstrap Cloudflare Worker TS, API validation, health, structured logging.
+- [x] M2-02 — Xác thực Mini App initData, xác thực Telegram webhook, allowlist.
+- [x] M2-03 — `/api/v1/live-token`: ephemeral token, rate limit + CORS allowlist.
+- [x] M2-04 — Cron trigger UTC, queue/retry/error mapping, CI checks.
 
 ## Milestone M3 — Sheets + Apps Script sync
 - [ ] M3-01 — Thiết kế/tạo sheet tabs và Script Properties; clasp liên kết dự án an toàn.
@@ -67,6 +67,14 @@
 | 2026-10-12 10:38 +07:00 | M1-03 | DONE | 30/30 utterance fixtures pass (0 FP, 0 FN), save_vocabulary tool call validation & UI integration tested in detector.test.ts and VoiceSessionPanel.test.tsx | M2-01..M2-04: Bootstrap Cloudflare Worker TS, Telegram HMAC auth, ephemeral token, Cron & CI |
 
 | 2026-10-12 10:38 +07:00 | M1-02 | BLOCKED | GeminiLiveSessionClient (setup, 16kHz PCM, goAway, sessionResumption) implemented & unit-tested; live Gemini audio & iOS WebView test blocked on M0-02 GEMINI_API_KEY | M2-01: Bootstrap Cloudflare Worker TS, API validation, health, structured logging |
+
+| 2026-10-12 10:43 +07:00 | M2-01 | DONE | apps/worker bootstrapped, /health + /api/v1/* Zod validation, structured logs with request_id, 200/400/401/403/429 tested in entry.test.ts | M2-02 |
+
+| 2026-10-12 10:43 +07:00 | M2-02 | DONE | Telegram Mini App initData HMAC-SHA256 WebAppData + auth_date TTL + OWNER_TELEGRAM_ID allowlist + webhook secret & update_id dedupe verified in entry.test.ts (TC-08, TC-09) | M2-03 |
+
+| 2026-10-12 10:43 +07:00 | M2-03 | DONE | POST /api/v1/live-token single-use ephemeral token issuer, per-user rate limit (429), Cache-Control no-store, CORS allowlist verified in entry.test.ts | M2-04 |
+
+| 2026-10-12 10:43 +07:00 | M2-04 | DONE | Cron trigger 0 1 * * * (08:00 +07) scheduled handler tested in entry.test.ts (TC-12) and .github/workflows/ci.yml added | M3-02..M3-04: Apps Script full CRUD, HMAC integration tests & CSV export/import |
 
 ## Current blockers / risks
 - Free tier Gemini: cần kiểm tra model/quota của project thực trước triển khai; không đảm bảo free không giới hạn.

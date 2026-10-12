@@ -34,6 +34,7 @@ Remove-Variable token,webhookSecret,body
 - Bot chỉ gửi tin cho user đã bắt đầu chat; `/pause` đặt `notifications_enabled=false`.
 
 ## 5. Troubleshooting
+- Mini App báo lỗi kết nối: xem [runbook kiểm tra API/CORS và timeout WebView](23_TELEGRAM_CONNECTION.md); kiểm tra bundle đang public, không kết luận lỗi mạng chỉ từ thông báo UI.
 - Webhook im lặng: URL HTTPS, `getWebhookInfo` last_error_message, secret header, allowlist user, Worker 2xx.
 - 401 Mini App: WebApp initData thiếu/expired (chạy từ browser thường) hoặc HMAC sai; test trong Telegram.
 - Bot không tự gửi được: user chưa `/start` hoặc block bot, `chat_id` không hợp lệ.

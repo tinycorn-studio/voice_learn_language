@@ -17,6 +17,7 @@ import {
 } from '../features/vocabulary/services/vocabulary-save-queue.js';
 import { FlashcardReviewPanel } from '../features/review/components/FlashcardReviewPanel.js';
 import { VocabularyManagerPanel } from '../features/vocabulary/components/VocabularyManagerPanel.js';
+import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 
 interface AppProps {
   api?: LearningApiClient;
@@ -38,6 +39,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const [activeTab, setActiveTab] = useState<'voice' | 'review' | 'vocabulary'>('voice');
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loginAttempt, setLoginAttempt] = useState(0);
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<QueuedVocabularyEntry[]>([]);
@@ -93,7 +95,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       cancelled = true;
       refreshVersion.current++;
     };
-  }, [api, refresh]);
+  }, [api, refresh, loginAttempt]);
 
   const saveVocabulary = useCallback(
     async (event: VerifiedSaveVocabularyEvent) => {
@@ -183,8 +185,20 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       {error && (
         <div role="alert" className="voice-error-banner">
           {error} {authenticated && <button onClick={() => void refresh()}>Tải lại dữ liệu</button>}
+          {!authenticated && !loading && (
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                setLoginAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Thử kết nối lại
+            </button>
+          )}
         </div>
       )}
+      <ApiDiagnosticsPanel api={api} />
       {!authenticated && !loading && (
         <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}

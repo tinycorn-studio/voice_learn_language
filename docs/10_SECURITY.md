@@ -33,3 +33,9 @@ Google Apps Script public Web App `doPost` không phải server HTTP linh hoạt
 
 ## Security test set
 - Fake/old/tampered initData; wrong webhook header; invalid body/HMAC/replay; inject `=IMPORTXML(...)`; long strings; duplicate event; session bound to wrong user; unauthorized token issuance; CORS; secret scanning bundles.
+
+## Chẩn đoán Mini App (M5-07)
+
+- Chỉ giữ tối đa 30 API attempts trong memory; không persist vào browser storage hay gửi collector. Failure log console dùng cùng whitelist metadata; người dùng chủ động sao chép báo cáo theo `docs/23_TELEGRAM_CONNECTION.md`.
+- Không truyền raw Request/Response/Error vào logger. Loại body, token/initData/headers, query, word/event/user ID, PII và transcript/audio; route được đổi thành template. Origin chỉ scheme/host/port, platform/build và exception name có whitelist. Request ID là correlation ngẫu nhiên, không dùng cho auth/idempotency.
+- Regression kiểm không lộ synthetic secrets/PII từ config URL, body/envelope, exception và Telegram context; kiểm bounded retention, timeout/stream/JSON/API/schema và clipboard fallback.

@@ -54,6 +54,10 @@
 | M5-03 | observability/runbook         | Recovery test for bot token, GAS rollback, worker rollback, Sheets backup/restore, quota exhaustion                                                      |
 | M5-04 | Review triển khai Antigravity | Đối chiếu source/spec, chạy typecheck/lint/test/build và secret scan; báo cáo lỗi có vị trí và bằng chứng tái hiện; cập nhật task cần mở lại             |
 | M5-05 | Sửa R01–R09                   | API/auth/UI/PCM/playback nối thật; regression tests cho retry, digest, CRUD, reconnect, detector và CSV; gates local pass; ghi rõ live QA chưa thực hiện |
+| M5-06 | Chẩn đoán kết nối Mini App | URL cấu hình sai được phát hiện, timeout tương thích WebView, có thể thử đăng nhập lại sau lỗi; regression và local gates pass; runbook API/CORS ghi rõ giới hạn kiểm chứng live |
+| M5-07 | Log chẩn đoán kết nối | Mỗi API attempt có request ID/code/status/phase/duration và context whitelist; health probe không auth, UI sao chép log trên iOS, bounded memory; regression privacy/timeout/network/schema và local gates pass; kiểm bundle public, giữ giới hạn DNS/TLS/CORS |
+| M5-08 | Native fetch receiver | Tái hiện lỗi receiver trước sửa trong browser, regression trước/sau; gọi native fetch với global receiver, giữ DI/tests và privacy; local gates pass, frontend production được kiểm chứng; live Telegram auth vẫn cần user QA |
+| M5-09 | Worker → GAS 503 | Tái hiện runtime Workers native với adapter thật, fix/regression/log whitelist, local gates và dry-run pass; chuẩn bị package Worker reviewable, chỉ deploy/cấp quyền sau xác nhận riêng; config/schema/live QA không suy ra từ mock |
 
 ## M6 — Optional (không chặn release)
 

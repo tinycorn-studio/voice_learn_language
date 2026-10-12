@@ -1,0 +1,11 @@
+# PLACEHOLDERS ONLY — Copy sang apps/worker/.dev.vars khi chạy local (đã gitignore)
+ENVIRONMENT=development
+GEMINI_API_KEY=replace_with_local_test_key
+GEMINI_MODEL=models/gemini-3.8-live
+TELEGRAM_BOT_TOKEN=replace_with_test_bot_token
+TELEGRAM_WEBHOOK_SECRET=replace_with_random_alphanumeric_secret
+OWNER_TELEGRAM_ID=123456789
+SESSION_SIGNING_SECRET=replace_with_random_32_byte_hex_secret
+GAS_SHARED_SECRET=replace_with_random_32_byte_hex_secret
+GAS_EXEC_URL=https://script.google.com/macros/s/REPLACE_WITH_DEPLOYMENT_ID/exec
+ALLOWED_ORIGIN=http://localhost:5173

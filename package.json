@@ -1,0 +1,37 @@
+{
+  "name": "voice-chat-learn-language",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice English learning assistant with Gemini Live API, Cloudflare Workers, Google Sheets/Apps Script, and Telegram SRS",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "npm run build --workspaces --if-present",
+    "check:secrets": "powershell -ExecutionPolicy Bypass -File ./scripts/Check-Secrets.ps1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.22.0",
+    "jsdom": "^26.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.1",
+    "vite": "^6.2.2",
+    "vitest": "^3.0.8"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  }
+}

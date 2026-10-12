@@ -82,4 +82,28 @@ describe('M1-01 VoiceSessionPanel & AudioSessionController', () => {
     expect(out[0]).toBeGreaterThan(16000);
     expect(out[0]).toBeLessThan(16500);
   });
+
+  it('saves explicit word query, ignores ordinary dialogue, and clarifies ambiguous referent in UI', () => {
+    const detected: Array<{ word: string; excerpt: string }> = [];
+    render(
+      <VoiceSessionPanel
+        onWordDetected={(word, excerpt) => detected.push({ word, excerpt })}
+      />,
+    );
+
+    const input = screen.getByTestId('utterance-input') as HTMLInputElement;
+    const sendBtn = screen.getByTestId('btn-send-utterance');
+
+    // 1. Ordinary sentence -> no saved badge
+    fireEvent.change(input, { target: { value: 'I feel overwhelmed today.' } });
+    fireEvent.click(sendBtn);
+    expect(screen.queryByTestId('saved-word-badge')).toBeNull();
+    expect(detected.length).toBe(0);
+
+    // 2. Explicit inquiry -> creates 1 saved badge
+    fireEvent.change(input, { target: { value: 'What does overwhelmed mean?' } });
+    fireEvent.click(sendBtn);
+    expect(screen.getAllByTestId('saved-word-badge').length).toBe(1);
+    expect(detected).toEqual([{ word: 'overwhelmed', excerpt: 'What does overwhelmed mean?' }]);
+  });
 });

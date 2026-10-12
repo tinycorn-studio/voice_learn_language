@@ -76,11 +76,10 @@ export interface ConversationContextTurn {
 const PRONOUN_TARGETS = new Set(['that', 'it', 'this', 'that word', 'this word', 'the word']);
 
 const DIRECT_PATTERNS: readonly RegExp[] = [
-  /what\s+does\s+["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s+mean\b/i,
-  /what(?:'s|\s+is)\s+the\s+meaning\s+of\s+["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?(?:[?.!]|$)/i,
+  /what\s+does\s+(?:the\s+(?:word|phrase|idiom|term)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s+mean\b/i,
+  /what(?:'s|\s+is)\s+the\s+meaning\s+of\s+(?:the\s+(?:word|phrase|idiom|term)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?(?:[?.!]|$)/i,
   /what\s+is\s+["'“”‘’]([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]\s+in\s+vietnamese\b/i,
-  /what\s+does\s+the\s+(?:word|phrase|idiom)\s+["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s+mean\b/i,
-  /can\s+you\s+(?:define|explain)\s+(?:the\s+(?:word|phrase)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?(?:\s+for\s+me|\s+to\s+me)?(?:[?.!]|$)/i,
+  /can\s+you\s+(?:define|explain)\s+(?:the\s+(?:word|phrase|idiom|term)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?(?:\s+for\s+me|\s+to\s+me)?(?:[?.!]|$)/i,
   /define\s+["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?(?:[?.!]|$)/i,
   /["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s+nghĩa\s+là\s+gì/i,
   /nghĩa\s+của\s+từ\s+["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s+là\s+gì/i,

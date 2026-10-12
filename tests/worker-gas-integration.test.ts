@@ -6,9 +6,9 @@ import type { WorkerEnv } from '../apps/worker/src/domain/env.js';
 
 const ENV: WorkerEnv = {
   ENVIRONMENT: 'production',
-  GEMINI_API_KEY: 'AIzaSyFakeKeyForIntegrationTestsOnly123456',
+  GEMINI_API_KEY: 'test_only_gemini_key_for_integration_tests',
   GEMINI_MODEL: 'models/gemini-3.8-live',
-  TELEGRAM_BOT_TOKEN: '123456789:AAFakeTelegramBotTokenForIntegrationTest',
+  TELEGRAM_BOT_TOKEN: 'test_only_telegram_bot_token_for_integration',
   TELEGRAM_WEBHOOK_SECRET: 'webhook_secret_xyz_123',
   OWNER_TELEGRAM_ID: '777888999',
   SESSION_SIGNING_SECRET: 'session_secret_key_for_worker_gas_integration',

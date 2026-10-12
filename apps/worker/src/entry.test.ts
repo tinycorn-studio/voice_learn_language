@@ -12,9 +12,9 @@ import type { WorkerEnv } from './domain/env.js';
 
 const TEST_ENV: WorkerEnv = {
   ENVIRONMENT: 'production',
-  GEMINI_API_KEY: 'AIzaSyFakeTestKey_DoNotExposeInResponses12345',
+  GEMINI_API_KEY: 'test_only_gemini_key_do_not_expose_in_response',
   GEMINI_MODEL: 'models/gemini-3.8-live',
-  TELEGRAM_BOT_TOKEN: '123456789:AAFakeTelegramBotTokenForTestingOnly123',
+  TELEGRAM_BOT_TOKEN: 'test_only_telegram_bot_token_for_unit_tests',
   TELEGRAM_WEBHOOK_SECRET: 'tg_webhook_secret_token_test_99',
   OWNER_TELEGRAM_ID: '777888999',
   SESSION_SIGNING_SECRET: 'session_signing_secret_32_bytes_test_key_001',

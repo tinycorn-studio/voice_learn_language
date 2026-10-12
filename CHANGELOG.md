@@ -6,6 +6,15 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Added
 
+- 2026-10-12 18:35 +07:00 M0-02 (IN_PROGRESS): Sửa triệt để lỗi Google Apps Script Web App 404 (bổ sung cấu hình webapp trong manifest appsscript.json, bổ sung doGet health probe trong Code.gs, deploy Version 5). Thêm hệ thống telemetry/diagnostic logs: Worker nhận client logs (/api/v1/client-logs) và dependency diagnostics (/api/v1/diag báo gas_status=connected); Web Mini App bổ sung panel kiểm tra trực quan "Nhật ký & Kiểm tra kết nối" kèm nút Ping máy chủ và Sao chép log. Gửi thông báo và cập nhật nút Mini App v20261012c trên Telegram.
+- 2026-10-12 15:00 +07:00 M0-02 (IN_PROGRESS): clasp staging login thành công; pull source Google vào backup riêng và đối chiếu project chỉ có hàm mẫu. Chưa push, tạo schema hoặc deploy.
+
+- 2026-10-12 M0-02 (IN_PROGRESS): Xác minh Apps Script API đã On; mở OAuth clasp staging với credential file riêng được gitignore, giữ nguyên credential cũ. Dừng trước consent bổ sung quyền đọc log, chờ người dùng duyệt; chưa push/deploy.
+
+- 2026-10-12 14:54 +07:00 M0-02 (IN_PROGRESS): Nhận diện Sheet/Apps Script staging do người dùng tạo; chuẩn bị mapping clasp local được gitignore. Chưa OAuth/pull/push/deploy; xác minh Settings/AI Studio còn bị auto-review lỗi 429.
+
+- 2026-10-12 14:43 +07:00 M0-02 (IN_PROGRESS): Xác minh đăng nhập Cloudflare; kiểm tra Workers & Pages còn pending do bộ xét duyệt tự động lỗi 429. Chưa tạo app hoặc deploy.
+
 - 2026-10-12 M0-02 (IN_PROGRESS): Chuẩn bị Worker staging tách tên/secrets khỏi production, tắt Cron lúc khởi tạo; thêm runbook đăng nhập, phê duyệt OAuth/secrets/deploy, Sheet FSRS v3 và CI/CD. Chưa tạo tài nguyên hoặc triển khai online.
 
 - 2026-10-12 M4-FSRS: Nâng cấp toàn diện FSRS Spaced Repetition với thư viện chính thức `ts-fsrs@^5.4.2`; kiến trúc Authoritative Backend Scheduling trên Cloudflare Worker; Schema v3 tách bạch bảng `Cards`, `Reviews` (snapshot + `review_log_json`), và `Settings`; API xem trước `/api/v1/reviews/:cardId/preview`, chấm điểm `/api/v1/reviews/submit`, thống kê `/api/v1/reviews/stats`; dynamic interval badges trên giao diện FlashcardReviewPanel; script di trú `migrateSchemaV3_` (dry-run & apply) và fallback tương thích ngược.

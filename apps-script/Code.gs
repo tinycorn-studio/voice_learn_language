@@ -217,8 +217,24 @@ function migrateSchemaV3_(ss, isDryRun) {
 }
 
 
+/** GET handler for Web App health check & configuration status probe. */
+function doGet(e) {
+  var props = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty('SHEET_ID');
+  var ownerUserId = props.getProperty('OWNER_USER_ID');
+  var sharedSecret = props.getProperty('GAS_SHARED_SECRET');
+  return jsonResponse_({
+    ok: true,
+    service: 'voice-chat-gas',
+    configured: Boolean(sheetId && ownerUserId && sharedSecret),
+    sheet_status: sheetId ? 'configured' : 'missing',
+    owner: ownerUserId ? ownerUserId : 'missing'
+  });
+}
+
 /** Entry point: only HMAC-signed Worker requests may access or mutate the spreadsheet. */
 function doPost(e) {
+
   try {
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse_({ ok: false, error: { code: 'EMPTY_BODY', message: 'Empty request body' } });
@@ -1464,4 +1480,42 @@ function appendMapped_(sheet, headers, entry) {
     if (headers[k]) row[headers[k] - 1] = entry[k];
   });
   sheet.appendRow(row);
+}
+
+/**
+ * Tiện ích 1-Click: Cấu hình nhanh Script Properties và tự động tạo các Tab Schema v3 trên Google Sheet.
+ * Người dùng chỉ cần chọn hàm này và bấm "Run" (Chạy) trên Apps Script Editor!
+ */
+function runQuickSetup() {
+  var props = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty('SHEET_ID');
+
+  if (!sheetId) {
+    try {
+      var activeSs = SpreadsheetApp.getActiveSpreadsheet();
+      if (activeSs) {
+        sheetId = activeSs.getId();
+      }
+    } catch (e) {}
+  }
+
+  if (!sheetId) {
+    // Tự động tạo một file Google Sheet mới trên Google Drive nếu chưa có
+    var newSs = SpreadsheetApp.create('VoiceChatLearnLanguage');
+    sheetId = newSs.getId();
+    Logger.log('>>> ĐÃ TỰ ĐỘNG TẠO FILE GOOGLE SHEET MỚI TẠI: ' + newSs.getUrl());
+  }
+
+  props.setProperty('SHEET_ID', sheetId);
+  if (!props.getProperty('GAS_SHARED_SECRET')) {
+    props.setProperty('GAS_SHARED_SECRET', 'replace_with_gas_shared_secret');
+  }
+  props.setProperty('OWNER_USER_ID', props.getProperty('OWNER_USER_ID') || 'telegram:889395521');
+
+  props.setProperty('MAX_EVENT_AGE_SECONDS', '300');
+  props.setProperty('SCHEMA_VERSION', '3');
+
+  setupSheets();
+  Logger.log('>>> THÀNH CÔNG: Đã khởi tạo đầy đủ 7 Tab Schema v3 trên Google Sheet ID: ' + sheetId);
+  Logger.log('>>> LINK GOOGLE SHEET CỦA BẠN: https://docs.google.com/spreadsheets/d/' + sheetId + '/edit');
 }

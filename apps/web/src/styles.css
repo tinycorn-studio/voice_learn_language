@@ -362,3 +362,61 @@ body {
   border-radius: 0.75rem;
   padding: 0.85rem 1rem;
 }
+
+.diag-panel {
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.diag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  color: #38bdf8;
+}
+
+.diag-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.diag-ping-badge {
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.4rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  font-size: 0.8rem;
+}
+
+.diag-console {
+  background: #020617;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.diag-log-row {
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.diag-log-info { color: #93c5fd; }
+.diag-log-warn { color: #fde047; }
+.diag-log-error { color: #f87171; }

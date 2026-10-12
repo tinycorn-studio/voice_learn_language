@@ -64,6 +64,45 @@ export class LearningApiClient {
     return this.authenticating;
   }
 
+  public getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  public async postClientLog(entry: {
+    level: 'info' | 'warn' | 'error';
+    message: string;
+    details?: unknown;
+  }): Promise<void> {
+    try {
+      await this.fetchFn(`${this.baseUrl.replace(/\/$/, '')}/api/v1/client-logs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(entry),
+        cache: 'no-store',
+      });
+    } catch {
+      // Best effort reporting
+    }
+  }
+
+  public async pingHealth(): Promise<{ ok: boolean; status: number; latencyMs: number; error?: string }> {
+    const start = Date.now();
+    try {
+      const response = await this.fetchFn(`${this.baseUrl.replace(/\/$/, '')}/health`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      return { ok: response.ok, status: response.status, latencyMs: Date.now() - start };
+    } catch (err) {
+      return {
+        ok: false,
+        status: 0,
+        latencyMs: Date.now() - start,
+        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      };
+    }
+  }
+
   private async send<T>(
     path: string,
     method: string,
@@ -72,25 +111,41 @@ export class LearningApiClient {
     token?: string,
   ): Promise<T> {
     let response: Response;
+    const url = `${this.baseUrl.replace(/\/$/, '')}${path}`;
     try {
-      response = await this.fetchFn(`${this.baseUrl.replace(/\/$/, '')}${path}`, {
-        method,
-        headers: {
-          'content-type': 'application/json',
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(20000),
-        cache: 'no-store',
-      });
-    } catch {
-      throw new ApiClientError('Không thể kết nối máy chủ. Hãy kiểm tra mạng và thử lại.', true);
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 20000) : null;
+      try {
+        response = await this.fetchFn(url, {
+          method,
+          headers: {
+            'content-type': 'application/json',
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          ...(controller ? { signal: controller.signal } : {}),
+          cache: 'no-store',
+        });
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    } catch (networkErr) {
+      const detail =
+        networkErr instanceof Error ? `${networkErr.name}: ${networkErr.message}` : String(networkErr);
+      throw new ApiClientError(
+        `Không thể kết nối máy chủ (${url} -> ${detail}). Hãy kiểm tra mạng và thử lại.`,
+        true,
+      );
     }
     let raw: unknown;
     try {
       raw = await response.json();
     } catch {
-      throw new ApiClientError('Máy chủ trả về dữ liệu không hợp lệ.', false, response.status);
+      throw new ApiClientError(
+        `Máy chủ trả về dữ liệu không hợp lệ (HTTP ${response.status} ${response.statusText}).`,
+        false,
+        response.status,
+      );
     }
     const envelope = z
       .discriminatedUnion('ok', [

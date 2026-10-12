@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-12 10:43 +07:00
+> Updated: 2026-10-12 10:50 +07:00
 > Phase: M1 — Voice proof of concept (IN_PROGRESS)
 > Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M3-02..M3-04: Apps Script full CRUD, HMAC integration tests & CSV export/import
+> Next action: M0-02 & M3-01: User cung cấp/cấu hình tài khoản Google/Cloudflare/Telegram để chạy M1-02 live audio & M5 deploy
 > Blockers: Chưa xác thực credentials thật (Google/Cloudflare/Telegram) cho M0-02; các task local/code/test có thể thực hiện trước.
 > Important: Repo đã khởi tạo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -28,15 +28,15 @@
 
 ## Milestone M3 — Sheets + Apps Script sync
 - [ ] M3-01 — Thiết kế/tạo sheet tabs và Script Properties; clasp liên kết dự án an toàn.
-- [ ] M3-02 — Worker ký HMAC → Apps Script validate → upsert Words/Events idempotent.
-- [ ] M3-03 — API list/search/edit/delete vocab, xử lý trùng nghĩa và công thức Sheet.
-- [ ] M3-04 — Integration/E2E: hỏi → lưu; retry; mất mạng; import/export CSV.
+- [x] M3-02 — Worker ký HMAC → Apps Script validate → upsert Words/Events idempotent.
+- [x] M3-03 — API list/search/edit/delete vocab, xử lý trùng nghĩa và công thức Sheet.
+- [x] M3-04 — Integration/E2E: hỏi → lưu; retry; mất mạng; import/export CSV.
 
 ## Milestone M4 — Ôn tập SRS & Telegram
-- [ ] M4-01 — SRS engine (Again/Hard/Good/Easy), nextDue, timezone, unit tests.
-- [ ] M4-02 — Telegram Bot webhook inline quiz + answer callback; update Reviews/Words.
-- [ ] M4-03 — Cron nhắc ôn lúc 08:00 UTC+7 với idempotency/opt-out.
-- [ ] M4-04 — Telegram Mini App flashcards, stats, onboarding; accessible UX.
+- [x] M4-01 — SRS engine (Again/Hard/Good/Easy), nextDue, timezone, unit tests.
+- [x] M4-02 — Telegram Bot webhook inline quiz + answer callback; update Reviews/Words.
+- [x] M4-03 — Cron nhắc ôn lúc 08:00 UTC+7 với idempotency/opt-out.
+- [x] M4-04 — Telegram Mini App flashcards, stats, onboarding; accessible UX.
 
 ## Milestone M5 — Release/Operations
 - [ ] M5-01 — Production deploy Worker/web/Apps Script, kiểm tra quyền và secret.
@@ -75,6 +75,22 @@
 | 2026-10-12 10:43 +07:00 | M2-03 | DONE | POST /api/v1/live-token single-use ephemeral token issuer, per-user rate limit (429), Cache-Control no-store, CORS allowlist verified in entry.test.ts | M2-04 |
 
 | 2026-10-12 10:43 +07:00 | M2-04 | DONE | Cron trigger 0 1 * * * (08:00 +07) scheduled handler tested in entry.test.ts (TC-12) and .github/workflows/ci.yml added | M3-02..M3-04: Apps Script full CRUD, HMAC integration tests & CSV export/import |
+
+| 2026-10-12 10:50 +07:00 | M3-01 | BLOCKED | setupSheets() helper implemented in apps-script/Code.gs; live clasp push & Script Properties blocked on user SHEET_ID and SCRIPT_ID | M0-02 & M3-01: Cấu hình Google Sheet/Script ID, Gemini API Key, Telegram Bot Token |
+
+| 2026-10-12 10:50 +07:00 | M3-02 | DONE | Worker HMAC-SHA256 <-> apps-script/Code.gs doPost verified in tests/worker-gas-integration.test.ts (TC-05 3x retry idempotency, TC-07 signature check, TC-10 formula guard) | M3-03 |
+
+| 2026-10-12 10:50 +07:00 | M3-03 | DONE | Vocabulary list/search/update/soft-delete & multi-sense separation (TC-06) + version conflict (409) verified in worker-gas-integration.test.ts | M3-04 |
+
+| 2026-10-12 10:50 +07:00 | M3-04 | DONE | E2E ask -> save -> retry queue (TC-14) & CSV export/import roundtrip verified in worker-gas-integration.test.ts, engine.test.ts, and FlashcardReviewPanel.test.tsx | M4-01 |
+
+| 2026-10-12 10:50 +07:00 | M4-01 | DONE | Deterministic SRS engine (Again/Hard/Good/Easy) verified against all 8 test vectors from docs/16_SRS.md including UTC/+07 midnight rollover (TC-13) in engine.test.ts | M4-02 |
+
+| 2026-10-12 10:50 +07:00 | M4-02 | DONE | Telegram webhook inline quiz callback (r:<word_id>:<rating>) & update_id/event_id deduplication verified in entry.test.ts and worker-gas-integration.test.ts | M4-03 |
+
+| 2026-10-12 10:50 +07:00 | M4-03 | DONE | Cron 08:00 +07 daily digest claim (DailyDispatchLog idempotency & /pause opt-out) verified in entry.test.ts and worker-gas-integration.test.ts (TC-12) | M4-04 |
+
+| 2026-10-12 10:50 +07:00 | M4-04 | DONE | Mini App FlashcardReviewPanel & VocabularyManagerPanel with stats, offline notice, answer reveal & SRS grading verified in FlashcardReviewPanel.test.tsx | M0-02 & M3-01: User cung cấp/cấu hình tài khoản Google/Cloudflare/Telegram để chạy M1-02 live audio & M5 deploy |
 
 ## Current blockers / risks
 - Free tier Gemini: cần kiểm tra model/quota của project thực trước triển khai; không đảm bảo free không giới hạn.

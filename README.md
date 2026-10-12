@@ -8,9 +8,13 @@
 Ứng dụng luyện hội thoại tiếng Anh bằng giọng nói sử dụng Gemini Live API, tự nhận diện yêu cầu học từ (vd. *What does overwhelmed mean?*), ghi từ vào Google Sheets qua Apps Script, và ôn tập bằng Telegram Bot/Telegram Mini App với Spaced Repetition. Ưu tiên free tier, không tự vận hành VPS hay máy tính 24/7, bảo mật và dễ duy trì qua nhiều phiên coding-agent.
 
 ## Mức độ sẵn sàng
-- ✅ Bộ tài liệu, quy tắc làm việc, tiến trình, kịch bản setup, Apps Script starter được chuẩn bị.
-- ⬜ Chưa setup Google, Cloudflare, Telegram; chưa cung cấp API key/token.
-- ⬜ Chưa hiện thực frontend, Worker, Telegram, SRS hay tích hợp end-to-end.
+- ✅ Bộ tài liệu, quy tắc làm việc (`AGENTS.md`), tiến trình (`PROGRESS.md`), kịch bản setup đã khởi tạo.
+- ✅ Đã hiện thực đầy đủ source code & pass toàn bộ 31 automated tests (`typecheck`, `lint`, `test`, `build`):
+  - `packages/shared`: Zod contracts, bộ phát hiện từ vựng (`detectVocabularyIntent` đạt 30/30 mẫu câu 0 FP / 0 FN), bộ lập lịch SRS (`Again/Hard/Good/Easy`), xuất/nhập CSV, chống formula injection.
+  - `apps/web`: React + Vite + TypeScript strict, giao diện Voice Tutor (6 trạng thái, quản lý quyền micro, `GeminiLiveSessionClient` hỗ trợ `goAway`/`sessionResumption`), Flashcards SRS & quản lý từ vựng.
+  - `apps/worker`: Cloudflare Worker TypeScript strict, xác thực Telegram Mini App `initData` HMAC-SHA256, cấp ephemeral token `uses: 1`, ký HMAC-SHA256 tới Apps Script, Telegram webhook inline quiz, Cron `0 1 * * *` (08:00 UTC+7).
+  - `apps-script/Code.gs`: Xác thực chữ ký HMAC, `LockService`, idempotency `event_id`, đầy đủ 8 actions CRUD/SRS/Digest và hàm `setupSheets()`.
+- ⬜ Chờ cấu hình tài khoản & khoá bí mật thật (`M0-02`, `M3-01`) để chạy nghiệm thu thiết bị thật & triển khai production (`M1-02`, `M5`).
 - ⚠️ Giá, quota, tên model và lệnh CLI có thể đổi; kiểm tra tài liệu nguồn trước mỗi đợt triển khai.
 
 ## Công nghệ dự kiến
@@ -40,14 +44,13 @@ VoiceChatLearnLanguage/
   README.md
   docs/                      # Specifications, runbooks, milestone, ADR
   apps-script/               # Mã Google Apps Script có thể push bằng clasp
-  scripts/                   # PowerShell tự động mở/đóng phiên
-  apps/web/                  # SẼ TẠO M1: React/Vite Mini App/PWA
-  apps/worker/               # SẼ TẠO M2: Cloudflare Worker TypeScript
-  packages/shared/           # SẼ TẠO M2: Zod schema/types dùng chung
-  tests/                     # SẼ TẠO dần: integration/e2e fixtures
-  .github/workflows/         # SẼ TẠO M2: lint/test/build CI
+  scripts/                   # PowerShell tự động mở/đóng phiên & quét secret
+  apps/web/                  # React/Vite Mini App/PWA (Voice, Flashcards, Vocab)
+  apps/worker/               # Cloudflare Worker TypeScript (Auth, Token, Webhook, Cron)
+  packages/shared/           # Zod schema, intent detector, SRS engine, CSV utils
+  tests/                     # Integration/E2E tests (Worker <-> Apps Script VM harness)
+  .github/workflows/         # CI gate (typecheck, lint, test, build)
 ```
-Không tạo sẵn `apps/web` rỗng vì CLI khởi tạo Vite có thể từ chối ghi đè thư mục không trống.
 
 ## Khởi động nhanh (Windows PowerShell)
 ```powershell

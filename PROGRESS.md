@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-12 10:29 +07:00
-> Phase: M0 — Khởi tạo (IN_PROGRESS)
+> Updated: 2026-10-12 10:36 +07:00
+> Phase: M1 — Voice proof of concept (IN_PROGRESS)
 > Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M1-01: Bootstrap React/Vite TS strict, lint, test, PWA/mobile permission UX
+> Next action: M1-02 & M1-03: Gemini Live WebSocket client, reconnect/goAway handling, and 30-utterance save_vocabulary detector test suite
 > Blockers: Chưa xác thực credentials thật (Google/Cloudflare/Telegram) cho M0-02; các task local/code/test có thể thực hiện trước.
 > Important: Repo đã khởi tạo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -16,7 +16,7 @@
 - [x] M0-03 — Kiểm tra rules, branch protection, workspace, secrets ignore, chọn deploy topology cuối.
 
 ## Milestone M1 — Voice proof of concept (local)
-- [ ] M1-01 — Bootstrap React/Vite TS strict, lint, test, PWA/mobile permission UX.
+- [x] M1-01 — Bootstrap React/Vite TS strict, lint, test, PWA/mobile permission UX.
 - [ ] M1-02 — Realtime microphone → Gemini Live → loa + transcript; ngắt/kết nối lại.
 - [ ] M1-03 — Function calling `save_vocabulary` với detector rule; unit tests và manual test 10 câu.
 
@@ -61,6 +61,8 @@
 | 2026-10-12 10:29 +07:00 | M0-02 | BLOCKED | Awaiting user external account credentials (Google AI Studio key, Sheet ID, Script ID, Cloudflare login, BotFather token) | M1-01: Bootstrap apps/web React/Vite TS strict & packages/shared |
 
 | 2026-10-12 10:29 +07:00 | M0-03 | DONE | Accepted ADR-001..006 in docs/14_DECISIONS.md, created workspace package.json, tsconfig.base.json, .prettierrc, .dev.vars.example, and passed Check-Secrets.ps1 | M1-01: Bootstrap React/Vite TS strict, lint, test, PWA/mobile permission UX |
+
+| 2026-10-12 10:36 +07:00 | M1-01 | DONE | npm run typecheck, lint, test (4/4 VoiceSessionPanel tests), build pass; apps/web & packages/shared bootstrapped with strict TS and mic permission/6-state UX | M1-02 & M1-03: Gemini Live WebSocket client, reconnect/goAway handling, and 30-utterance save_vocabulary detector test suite |
 
 ## Current blockers / risks
 - Free tier Gemini: cần kiểm tra model/quota của project thực trước triển khai; không đảm bảo free không giới hạn.

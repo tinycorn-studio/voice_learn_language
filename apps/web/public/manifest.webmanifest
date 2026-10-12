@@ -1,0 +1,10 @@
+{
+  "name": "VoiceChat Learn English",
+  "short_name": "VoiceChat",
+  "description": "Luyện hội thoại tiếng Anh thời gian thực với Gemini Live và ôn từ vựng SRS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait"
+}

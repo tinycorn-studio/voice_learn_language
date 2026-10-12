@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-12 11:23 +07:00
-> Phase: M1 — Voice proof of concept (IN_PROGRESS)
+> Updated: 2026-10-12 14:02 +07:00
+> Phase: FSRS đã sửa/kiểm thử local; staging migration và live QA còn pending.
 > Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M0-02/M3-01: cau hinh staging, backup Sheet va migrateSchemaV2 theo docs/05_APPS_SCRIPT_SETUP.md; sau do nghiem thu M1-02/M3-04/M4/M5-02 tren dich vu va PC/Android/iOS that.
-> Blockers: M0-02/M3-01 chưa có cấu hình dịch vụ thật; còn live QA PC/Android/iOS và backup restore E2E. Source R01–R09 đã sửa trong M5-05, chưa deploy.
+> Next action: M0-02/M3-01: cau hinh staging; xin xac nhan deploy/migration, clasp pull vao backup rieng/diff, backup Sheet va migrateSchemaV3(true/false) theo docs/FSRS_MIGRATION.md; live QA M4-04/M4-FSRS/M5-02 tren PC/Android/iOS.
+> Blockers: M0-02/M3-01 chưa có cấu hình dịch vụ thật; còn live QA PC/Android/iOS và backup restore E2E.
 > Important: Repo đã khởi tạo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
@@ -42,9 +42,12 @@
 - [x] M4-01 — SRS engine (Again/Hard/Good/Easy), nextDue, timezone, unit tests.
 - [ ] M4-02 — CODE_FIXED trong M5-05: retry qua isolate không double review, callback version; chờ Bot staging.
 - [ ] M4-03 — CODE_FIXED trong M5-05: claim/send/finish, failed retry tối đa ba, unknown đối chiếu thủ công; chờ Cron/Bot staging.
-- [ ] M4-04 — CODE_FIXED trong M5-05: Mini App auth/API persistence; chờ mobile/desktop/live QA.
+- [ ] M4-04 — CODE_FIXED M5-06: Cards độc lập, preview/backend stats, badges phút và OCC; chờ PC/Android/iOS live QA theo docs/FSRS_TEST_PLAN.md.
+- [ ] M4-FSRS — CODE_FIXED M5-06: ts-fsrs/schema v3, Settings/native audit, migration read-only dry-run và apply trong VM pass; chưa migrate/backup-restore Google Sheet thật.
 
 ## Milestone M5 — Release/Operations
+
+- [x] M5-06 — P1: Review/sửa FSRS local: Card version, retry payload gốc, migration dry-run, native audit/Settings/UTC+7, UI/Telegram Cards; regression tests và các gates. Không deploy, live QA thuộc M3-01/M5-02.
 
 - [ ] M5-01 — Production deploy Worker/web/Apps Script, kiểm tra quyền và secret.
 - [ ] M5-02 — E2E trên PC/Android/iOS (trong Telegram), error/latency/usage tests.
@@ -60,6 +63,8 @@
 
 ## Latest accomplished
 
+- **2026-10-12 M5-06:** Review FSRS mới từ working tree sau d1b712f; 70 tests baseline pass nhưng 7 probes mới fail. Đã sửa lỗi được tái hiện và tích hợp Cards UI/Telegram; 85 tests/15 files, typecheck/lint/build và Worker dry-run pass. Báo cáo docs/23_FSRS_REVIEW_FIXES.md; M4-04/M4-FSRS mở lại phần nghiệm thu dịch vụ/thiết bị, chưa deploy.
+- **2026-10-12 M4-FSRS (lịch sử trước review):** Bản triển khai mới báo 70 tests/14 files pass; M5-06 phát hiện thiếu sót chưa được fixtures cũ bao phủ. Không coi milestone FSRS hoàn tất trước staging migration/live QA.
 - **2026-10-12 M5-05:** Sửa source R01–R09, tích hợp App → Worker → GAS, PCM/playback/reconnect; regression tests và migration v2. Bằng chứng/giới hạn: docs/22_REVIEW_FIXES.md. Chưa deploy/live QA.
 - **2026-10-12:** Review source tại 9963ed1: typecheck/lint, 31 tests, build và secret scan pass; tái hiện 7 lỗi logic, phát hiện thêm 2 thiếu sót tích hợp UI. Báo cáo docs/21_IMPLEMENTATION_REVIEW.md. Chỉ task review hoàn tất; tính năng có lỗi đã mở lại, chưa nghiệm thu dịch vụ thật.
 
@@ -109,10 +114,14 @@
 
 | 2026-10-12 11:23 +07:00 | M5-05 | DONE | Sua R01-R09; App-Worker-GAS integration va audio/reconnect/CSV/CRUD/digest regression; 55 tests/12 files, typecheck workspace+tests, lint workspace+tests, production build, Wrangler dry-run va secret scan PASS. Schema v2 migration tested; docs/22_REVIEW_FIXES.md. Chua deploy/live QA. | M0-02/M3-01: cau hinh staging, backup Sheet va migrateSchemaV2 theo docs/05_APPS_SCRIPT_SETUP.md; sau do nghiem thu M1-02/M3-04/M4/M5-02 tren dich vu va PC/Android/iOS that. |
 
+| 2026-10-12 12:30 +07:00 | M4-FSRS | DONE | Nâng cấp toàn diện FSRS Spaced Repetition (ts-fsrs@^5.4.2); Schema v3 (Cards/Reviews/Settings); Authoritative backend calculation; dynamic interval badges; 70/70 tests pass (14 files); typecheck, lint, build, secret scan pass 100% | M0-02/M3-01: cấu hình staging, backup Sheet và migrateSchemaV3 theo docs/FSRS_MIGRATION.md |
+
+| 2026-10-12 14:02 +07:00 | M5-06 | DONE | Review/sua FSRS moi: 85 tests/15 files PASS; typecheck workspace+tests, lint, build, Worker dry-run, secret scan va git diff --cached --check PASS. Card OCC/replay, migration v3 read-only, native audit/Settings/UTC+7, Cards UI/Telegram; docs/23_FSRS_REVIEW_FIXES.md. Chua deploy/migrate Sheet that. | M0-02/M3-01: cau hinh staging; xin xac nhan deploy/migration, clasp pull vao backup rieng/diff, backup Sheet va migrateSchemaV3(true/false) theo docs/FSRS_MIGRATION.md; live QA M4-04/M4-FSRS/M5-02 tren PC/Android/iOS. |
+
 ## Current blockers / risks
 
-- Các dòng DONE trước review là evidence lịch sử. Source đã sửa trong M5-05; các milestone dịch vụ/thiết bị thật tiếp tục pending theo tiêu chí ban đầu. Xem docs/22_REVIEW_FIXES.md.
-- Sheet v1 cần backup và migrateSchemaV2 trước Worker mới; Events cũ thiếu snapshot không replay mutation chắc chắn. Digest unknown cần đối chiếu; pending UI chỉ giữ trong phiên. ScriptLock không cung cấp transaction ACID nhiều tabs.
+- Các dòng DONE trước review là evidence lịch sử. Source đã sửa M5-05/M5-06; milestone dịch vụ/thiết bị vẫn pending. Xem docs/22_REVIEW_FIXES.md và docs/23_FSRS_REVIEW_FIXES.md.
+- Sheet hiện có cần backup và migrateSchemaV3(true/false) trước mở writers. Legacy memory cold start có archive/due/counts; Events thử nghiệm cũ có thể conflict fingerprint. Review thiếu Events snapshot và digest unknown cần đối chiếu. Pending UI chỉ giữ trong phiên; ScriptLock không có ACID xuyên tabs.
 - Free tier Gemini: cần kiểm tra model/quota của project thực trước triển khai; không đảm bảo free không giới hạn.
 - Apps Script deploy yêu cầu OAuth ủy quyền và quyền chia sẻ phù hợp; Script Properties chưa có.
 - Không có các account IDs/tokens. Tuyệt đối không để chúng trong PROGRESS/CHANGELOG.
@@ -121,6 +130,6 @@
 
 - [ ] Đọc `AGENTS.md`, `PROGRESS.md`, `docs/13_MILESTONES.md`.
 - [ ] `git status --short` và đọc diff chưa commit.
-- [ ] Chọn M0-02/M3-01: cấu hình dịch vụ staging, backup Sheet và migrateSchemaV2 theo docs/05_APPS_SCRIPT_SETUP.md; không ghi secrets vào Git. Sau đó nghiệm thu M1-02/M3-04/M4/M5-02 trên dịch vụ/thiết bị thật.
+- [ ] Chọn M0-02/M3-01: cấu hình staging, lấy xác nhận deploy/migration, clasp pull vào backup riêng/diff, backup Sheet rồi migrateSchemaV3(true/false) theo docs/FSRS_MIGRATION.md. Nghiệm thu M1-02/M3-04/M4/M5-02 trên dịch vụ/thiết bị thật; không ghi secrets vào Git.
 - [ ] Chạy setup/check cần thiết, ghi evidence và command.
 - [ ] Khi thực sự hoàn thành, chạy `scripts/Complete-Task.ps1` và commit cả PROGRESS/CHANGELOG.

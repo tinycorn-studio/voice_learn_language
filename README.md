@@ -1,7 +1,7 @@
 # VoiceChatLearnLanguage
 
 > BỘ KẾ HOẠCH VÀ TÀI LIỆU TRIỂN KHAI — 12/10/2026 (UTC+7)  
-> **Trạng thái:** documentation/planning; chưa kết nối tài khoản thật, chưa có sản phẩm hoạt động.  
+> **Trạng thái:** source và integration tests local; chưa nghiệm thu tài khoản/thiết bị thật hoặc triển khai production.
 > **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
 ## Mục tiêu
@@ -15,7 +15,7 @@
   - `packages/shared`: Zod contracts, bộ phát hiện từ vựng (`detectVocabularyIntent` đạt 30/30 mẫu câu 0 FP / 0 FN), bộ lập lịch SRS (`Again/Hard/Good/Easy`), xuất/nhập CSV, chống formula injection.
   - `apps/web`: đăng nhập Telegram qua Worker, dữ liệu API thật, PCM AudioWorklet → Gemini trực tiếp → playback, reconnect có budget/Stop; Flashcards và CRUD lưu backend rồi mới báo thành công. Không có dữ liệu mẫu; mở ngoài Mini App chưa được xác thực.
   - `apps/worker`: xác thực Telegram `initData`, ephemeral token `uses:1`, HMAC Apps Script, webhook retry và Cron `0-5 1 * * *` (08:00–08:05 UTC+7) với tối đa ba send attempts khi lỗi xác định.
-  - `apps-script/Code.gs`: HMAC, `LockService`, mutation replay và unique key, 9 actions CRUD/SRS/Digest/preferences, schema v2 và `migrateSchemaV2()` cho Sheet v1.
+  - `apps-script/Code.gs`: HMAC, `LockService`, mutation replay/unique key; schema v3 Words/Cards/Reviews/Settings. FSRS có lịch từng Card độc lập, preview backend, retry/OCC và native audit; xem [review FSRS](docs/23_FSRS_REVIEW_FIXES.md).
 - ⬜ Chờ cấu hình tài khoản & khoá bí mật thật (`M0-02`, `M3-01`) để chạy nghiệm thu thiết bị thật & triển khai production (`M1-02`, `M5`).
 - ⚠️ Giá, quota, tên model và lệnh CLI có thể đổi; kiểm tra tài liệu nguồn trước mỗi đợt triển khai.
 
@@ -69,7 +69,7 @@ Get-Content .\PROGRESS.md
 
 Nếu PowerShell không cho chạy script, dùng `powershell -ExecutionPolicy Bypass -File .\scripts\Start-Session.ps1` cho phiên chạy đó; không cần thay đổi policy toàn hệ thống.
 
-Frontend đọc `VITE_API_BASE_URL` từ `.env.local` ở root (copy `.env.example`, chỉ public vars). Worker giữ secret riêng theo docs setup. `npm run build` tạo web assets; kiểm bundle Worker riêng bằng `wrangler deploy --dry-run --config apps/worker/wrangler.toml --outdir .artifacts/worker`. Lệnh dry-run không triển khai. Sheet đang dùng schema v1 cần backup/migration theo [runbook](docs/05_APPS_SCRIPT_SETUP.md) trước khi chạy Worker mới.
+Frontend đọc `VITE_API_BASE_URL` từ `.env.local` ở root (copy `.env.example`, chỉ public vars). Worker giữ secret riêng theo docs setup. `npm run build` tạo web assets; kiểm bundle Worker riêng bằng `wrangler deploy --dry-run --config apps/worker/wrangler.toml --outdir .artifacts/worker`. Lệnh dry-run không triển khai. Sheet hiện có cần backup và `migrateSchemaV3(true/false)` theo [runbook FSRS](docs/FSRS_MIGRATION.md) trước khi mở writers của Worker mới.
 
 ## Chốt yêu cầu sản phẩm
 
@@ -77,8 +77,8 @@ Frontend đọc `VITE_API_BASE_URL` từ `.env.local` ở root (copy `.env.examp
 - Lưu từ theo ý định rõ ràng; chặn từ trùng (lemma + loại từ + nghĩa), giữ ngữ cảnh; hỗ trợ hỏi “What does that mean?” dựa trên lượt ngay trước.
 - Từ mới phải lưu ngay cả khi Telegram/Anki không hoạt động (chưa cần Anki).
 - 1 bộ từ theo timezone `Asia/Ho_Chi_Minh` (UTC+7), sự kiện lưu thời gian UTC ISO8601.
-- SRS MVP với Again/Hard/Good/Easy; trạng thái và thuật toán mô tả trong `docs/16_SRS.md`.
+- Thuật toán **FSRS Spaced Repetition** hiện đại chuẩn Anki sử dụng thư viện chính thức `ts-fsrs` (`^5.4.2`), tách biệt thực thể `Words`, `Cards`, `Reviews` (Schema v3). Xem [docs/FSRS_ENGINE.md](docs/FSRS_ENGINE.md), [docs/FSRS_MIGRATION.md](docs/FSRS_MIGRATION.md), [docs/FSRS_TEST_PLAN.md](docs/FSRS_TEST_PLAN.md), và [docs/16_SRS.md](docs/16_SRS.md).
 
 ## Lưu ý thực tế
 
-Đây là **bộ quy hoạch và scaffold** — không tuyên bố đã triển khai chạy thật. Mọi key, id, URL phải tự cấu hình; không commit credential thật. Chi phí $0 chỉ đúng nếu usage nằm trong quota Free Tier; xem `docs/17_COSTS_AND_LIMITS.md`.
+Source đã kiểm thử local; nghiệm thu dịch vụ thật vẫn chờ cấu hình. Mọi key, id, URL phải tự cấu hình; không commit credential thật. Chi phí $0 chỉ đúng nếu usage nằm trong quota Free Tier; xem `docs/17_COSTS_AND_LIMITS.md`.

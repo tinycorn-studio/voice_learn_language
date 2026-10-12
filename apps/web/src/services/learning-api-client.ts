@@ -1,13 +1,19 @@
 import { z } from 'zod';
 import {
   apiErrorDetailSchema,
+  dueReviewCardSchema,
   liveTokenResponseSchema,
+  reviewPreviewResponseSchema,
+  reviewStatsResponseSchema,
   reviewSubmitResponseSchema,
   telegramAuthResponseSchema,
   vocabularyCreateResponseSchema,
   vocabularyItemSchema,
   vocabularyListResponseSchema,
   type LiveTokenResponse,
+  type DueReviewCard,
+  type ReviewPreviewResponse,
+  type ReviewStatsResponse,
   type ReviewSubmitRequest,
   type ReviewSubmitResponse,
   type TelegramAuthResponse,
@@ -61,7 +67,7 @@ export class LearningApiClient {
   private async send<T>(
     path: string,
     method: string,
-    schema: z.ZodType<T>,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     body?: unknown,
     token?: string,
   ): Promise<T> {
@@ -110,7 +116,7 @@ export class LearningApiClient {
   private async authorized<T>(
     path: string,
     method: string,
-    schema: z.ZodType<T>,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     body?: unknown,
   ): Promise<T> {
     const session = await this.authenticate();
@@ -165,7 +171,26 @@ export class LearningApiClient {
     );
   }
   public submitReview(input: ReviewSubmitRequest): Promise<ReviewSubmitResponse> {
-    return this.authorized('/api/v1/reviews', 'POST', reviewSubmitResponseSchema, input);
+    return this.authorized('/api/v1/reviews/submit', 'POST', reviewSubmitResponseSchema, input);
+  }
+  public async listDueReviews(): Promise<DueReviewCard[]> {
+    return (
+      await this.authorized(
+        '/api/v1/reviews/due?limit=50',
+        'GET',
+        z.object({ items: z.array(dueReviewCardSchema) }),
+      )
+    ).items;
+  }
+  public previewReview(cardId: string): Promise<ReviewPreviewResponse> {
+    return this.authorized(
+      `/api/v1/reviews/${encodeURIComponent(cardId)}/preview`,
+      'GET',
+      reviewPreviewResponseSchema,
+    );
+  }
+  public getReviewStats(): Promise<ReviewStatsResponse> {
+    return this.authorized('/api/v1/reviews/stats', 'GET', reviewStatsResponseSchema);
   }
   public mintLiveToken(): Promise<LiveTokenResponse> {
     return this.authorized('/api/v1/live-token', 'POST', liveTokenResponseSchema, {

@@ -25,7 +25,8 @@ function clampEase(ease: number): number {
 }
 
 /**
- * Pure deterministic Spaced Repetition engine implementing `docs/16_SRS.md` v1.
+ * @deprecated Legacy SM-2 fixtures only. Production uses fsrs-engine.ts (ADR-008).
+ * Pure deterministic Spaced Repetition engine implementing the former SRS v1.
  *
  * Rules (`docs/16_SRS.md`):
  * - `again`: repetitions = 0, interval = 10 minutes (stored as `intervalDays = 0` for sub-day learning),

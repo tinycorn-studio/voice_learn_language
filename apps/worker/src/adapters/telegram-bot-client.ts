@@ -85,7 +85,7 @@ export class TelegramBotClient {
     }
     return [
       [
-        { text: 'Again (10m)', callback_data: `r:${wordId}:again:${version}` },
+        { text: 'Again (quên)', callback_data: `r:${wordId}:again:${version}` },
         { text: 'Hard', callback_data: `r:${wordId}:hard:${version}` },
         { text: 'Good', callback_data: `r:${wordId}:good:${version}` },
         { text: 'Easy', callback_data: `r:${wordId}:easy:${version}` },

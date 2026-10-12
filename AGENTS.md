@@ -26,6 +26,14 @@
 - Boundary validation bắt buộc tại mọi API, webhook, function call, output AI và input Sheets. Không tin model-generated JSON là hợp lệ.
 - Idempotency `event_id`, uniqueness `user_id + lemma + part_of_speech + sense_key`. Google Sheet cần `LockService.getScriptLock()` cho thao tác read-modify-write; không tin `appendRow` là atomic upsert.
 - `UTC ISO8601` tại lớp dữ liệu, timezone `Asia/Ho_Chi_Minh` khi hiển thị và chọn lịch gửi thông báo. Cron Cloudflare dùng UTC.
+- **Quy tắc FSRS Spaced Repetition**:
+  - Nghiêm cấm tự viết lại công thức FSRS thủ công (stability, difficulty, retrievability, interval). Bắt buộc dùng thư viện chính thức `ts-fsrs` (`@open-spaced-repetition/ts-fsrs`).
+  - Tính toán lịch ôn tập FSRS có thẩm quyền (authoritative scheduling) bắt buộc chạy ở backend tin cậy (`@voice-chat/shared` / Worker / Apps Script). Frontend chỉ gọi preview và submit, không tự tính toán để ghi đè lịch lên server.
+  - Tách bạch thực thể từ vựng (`Words`) và trạng thái thẻ ôn (`Cards`). Một mục từ vựng có thể gắn với nhiều Card độc lập.
+  - Lịch sử ôn tập (`Reviews`) là append-only, lưu đầy đủ snapshot trạng thái (`previous_state`, `next_state`, `due_at`, `stability`, `difficulty`, `review_log_json`). Không xem log là thông tin tạm thời.
+  - Đảm bảo ngữ nghĩa đánh giá 4 nút FSRS: `Again` (quên), `Hard` (nhớ khó khăn — tuyệt đối không coi là fail), `Good` (nhớ bình thường), `Easy` (nhớ dễ dàng).
+  - Cấu hình FSRS (`desired_retention = 0.90`, `maximum_interval`) phải tập trung tại một nguồn duy nhất (Single Source of Truth), validate cấu hình trước khi nạp vào scheduler.
+
 
 ## 3. QUY CHUẨN ĐẶT TÊN / FORMAT
 - Tên file TS `kebab-case.ts[x]`, component React `PascalCase`, function/variable `camelCase`, type/interface `PascalCase`, constant `SCREAMING_SNAKE_CASE`, route `/api/v1/kebab-case`.

@@ -36,24 +36,26 @@
 | M3-03 | Word CRUD + API contract                | User can list/search/edit/delete; tests include 2 meanings of one word, owner isolation                  |
 | M3-04 | E2E persist + backup                    | Live query stored once; retry tested; CSV export restore; fallback on GAS unavailable                    |
 
-## M4 — SRS + Telegram review (L)
+## M4 — FSRS Spaced Repetition + Telegram Review (L)
 
-| Task  | Deliverable              | Definition of Done                                                                          |
-| ----- | ------------------------ | ------------------------------------------------------------------------------------------- |
-| M4-01 | deterministic SRS domain | Again/Hard/Good/Easy unit fixtures pass, UTC safe; overdue/day rollover tested              |
-| M4-02 | Telegram Bot / callback  | Valid callback marked, duplicate update no double progress, malformed callback fails safely |
-| M4-03 | scheduled daily reminder | One digest/day/user at ~08:00 +07; zero reminders on opt-out; Cron retry does not spam      |
-| M4-04 | Mini App flashcards      | Mobile/desktop review, loading/error/offline UX, accessibility labels, progress statistics  |
+| Task    | Deliverable                | Definition of Done                                                                                                     |
+| ------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| M4-01   | deterministic FSRS domain  | Tích hợp `ts-fsrs@^5.4.2`; Again/Hard/Good/Easy unit fixtures pass 100%, UTC safe; Hard không fail recall              |
+| M4-02   | Telegram Bot / callback    | Callback `r:wordId:rating` ghi nhận FSRS, duplicate update không nhân đôi progress, malformed callback fails safely    |
+| M4-03   | scheduled daily reminder   | One digest/day/user tại ~08:00 +07; zero reminders on opt-out; Cron retry không spam                                   |
+| M4-04   | Mini App & Web FSRS review | Giao diện flashcards hiển thị interval badges (1m, 10m, 1d, 4d), gọi FSRS preview API, offline/error UX, thống kê FSRS |
+| M4-FSRS | Schema V3 & backend engine | Tách bảng `Cards`, `Reviews` append-only kèm `review_log_json`, `Settings`; migration V3 an toàn không sinh trùng lặp  |
 
 ## M5 — Release/production quality (M)
 
-| Task  | Deliverable                   | Definition of Done                                                                                                                                       |
-| ----- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M5-01 | prod deploy                   | Worker/Web/GAS versions recorded, key/permissions reviewed, secrets only in managers                                                                     |
-| M5-02 | full QA matrix                | PC Chrome, Android Chrome/Telegram, iOS Telegram/Safari: audio focus, mic, lifecycle, 3 key flows pass                                                   |
-| M5-03 | observability/runbook         | Recovery test for bot token, GAS rollback, worker rollback, Sheets backup/restore, quota exhaustion                                                      |
-| M5-04 | Review triển khai Antigravity | Đối chiếu source/spec, chạy typecheck/lint/test/build và secret scan; báo cáo lỗi có vị trí và bằng chứng tái hiện; cập nhật task cần mở lại             |
-| M5-05 | Sửa R01–R09                   | API/auth/UI/PCM/playback nối thật; regression tests cho retry, digest, CRUD, reconnect, detector và CSV; gates local pass; ghi rõ live QA chưa thực hiện |
+| Task  | Deliverable                   | Definition of Done                                                                                                                                                                                                                                |
+| ----- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M5-01 | prod deploy                   | Worker/Web/GAS versions recorded, key/permissions reviewed, secrets only in managers                                                                                                                                                              |
+| M5-02 | full QA matrix                | PC Chrome, Android Chrome/Telegram, iOS Telegram/Safari: audio focus, mic, lifecycle, 3 key flows pass                                                                                                                                            |
+| M5-03 | observability/runbook         | Recovery test for bot token, GAS rollback, worker rollback, Sheets backup/restore, quota exhaustion                                                                                                                                               |
+| M5-04 | Review triển khai Antigravity | Đối chiếu source/spec, chạy typecheck/lint/test/build và secret scan; báo cáo lỗi có vị trí và bằng chứng tái hiện; cập nhật task cần mở lại                                                                                                      |
+| M5-05 | Sửa R01–R09                   | API/auth/UI/PCM/playback nối thật; regression tests cho retry, digest, CRUD, reconnect, detector và CSV; gates local pass; ghi rõ live QA chưa thực hiện                                                                                          |
+| M5-06 | Review và sửa FSRS mới        | Card version độc lập; replay payload gốc; migration dry-run read-only và nâng v1/v2; Settings/native audit/UTC+7 đúng; UI/Telegram dùng Card ID; regression tests và các gate local pass. Live migration/thiết bị thuộc M3-01/M5-02, chưa deploy. |
 
 ## M6 — Optional (không chặn release)
 

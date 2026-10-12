@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReviewRating, ReviewSubmitRequest, VocabularyItem } from '@voice-chat/shared';
+import type {
+  DueReviewCard,
+  ReviewRating,
+  ReviewStatsResponse,
+  ReviewSubmitRequest,
+  VocabularyItem,
+} from '@voice-chat/shared';
 import { initTelegramEnvironment } from '../integrations/telegram/telegram-adapter.js';
 import { ApiClientError, LearningApiClient } from '../services/learning-api-client.js';
 import {
@@ -37,6 +43,8 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   );
   const [activeTab, setActiveTab] = useState<'voice' | 'review' | 'vocabulary'>('voice');
   const [words, setWords] = useState<VocabularyItem[]>([]);
+  const [dueCards, setDueCards] = useState<DueReviewCard[]>([]);
+  const [reviewStats, setReviewStats] = useState<ReviewStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,9 +56,15 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
     try {
-      const items = await api.listVocabulary();
+      const [items, cards, stats] = await Promise.all([
+        api.listVocabulary(),
+        api.listDueReviews(),
+        api.getReviewStats(),
+      ]);
       if (version === refreshVersion.current) {
         setWords(items);
+        setDueCards(cards);
+        setReviewStats(stats);
         setError(null);
       }
     } catch (failure) {
@@ -58,6 +72,15 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         setError(failure instanceof Error ? failure.message : 'Không thể tải từ vựng.');
     }
   }, [api]);
+  const preview = useCallback((id: string) => api.previewReview(id), [api]);
+  useEffect(() => {
+    if (!authenticated || activeTab !== 'review') return;
+    void refresh();
+    const timer = setInterval(() => {
+      void refresh();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [authenticated, activeTab, refresh]);
   const queue = useMemo(
     () =>
       new VocabularySaveQueue(async (input) => {
@@ -116,32 +139,22 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       voiceFactory(() => api.mintLiveToken(), { ...callbacks, onSaveVocabulary: saveVocabulary }),
     [api, saveVocabulary, voiceFactory],
   );
-  const grade = async (wordId: string, rating: ReviewRating, eventId: string) => {
-    const card = words.find((word) => word.word_id === wordId);
+  const grade = async (
+    cardId: string,
+    rating: ReviewRating,
+    eventId: string,
+    expectedVersion: number,
+  ) => {
     // A lost acknowledgement must retry the identical version, even after a refresh.
     const input = reviews.current.get(eventId) ?? {
       event_id: eventId,
-      word_id: wordId,
+      card_id: cardId,
       rating,
-      ...(card ? { version: card.version } : {}),
+      expected_version: expectedVersion,
     };
     reviews.current.set(eventId, input);
     const result = await api.submitReview(input);
-    setWords((previous) =>
-      previous.map((word) =>
-        word.word_id === wordId
-          ? {
-              ...word,
-              due_at: result.next_due_at,
-              interval_days: result.interval_days,
-              repetitions: result.repetitions,
-              ease_factor: result.ease_factor,
-              review_state: result.review_state,
-              version: Math.max(word.version, (input.version ?? word.version) + 1),
-            }
-          : word,
-      ),
-    );
+    setDueCards((previous) => previous.filter((card) => card.card_id !== result.card_id));
     reviews.current.delete(eventId);
     await refresh();
   };
@@ -249,7 +262,13 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         <VoiceSessionPanel sessionFactory={sessionFactory} enabled={authenticated && !loading} />
       )}
       {activeTab === 'review' && (
-        <FlashcardReviewPanel items={words} onGrade={grade} enabled={authenticated && !loading} />
+        <FlashcardReviewPanel
+          items={dueCards}
+          onGrade={grade}
+          onPreview={preview}
+          stats={reviewStats}
+          enabled={authenticated && !loading}
+        />
       )}
       {activeTab === 'vocabulary' && (
         <VocabularyManagerPanel

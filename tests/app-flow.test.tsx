@@ -69,7 +69,7 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
         dropFirstWriteResponse = false;
         throw new Error('lost response after commit');
       }
-      if (dropFirstReviewResponse && String(url).endsWith('/api/v1/reviews')) {
+      if (dropFirstReviewResponse && String(url).endsWith('/api/v1/reviews/submit')) {
         dropFirstReviewResponse = false;
         throw new Error('lost review acknowledgement');
       }
@@ -161,15 +161,41 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
     fireEvent.click(screen.getByTestId('btn-save-edit'));
     await waitFor(() => expect(screen.queryByTestId('edit-meaning-input')).toBeNull());
     expect(screen.getByTestId('vocab-list').textContent).toContain('ngân hàng thương mại');
+    const cardsSheet = gas.spreadsheet.getSheetByName('Cards')!;
+    const reverseCard = [...cardsSheet.rows[1]!];
+    reverseCard[cardsSheet.rows[0]!.indexOf('card_id')] = 'c_reverse_bank';
+    reverseCard[cardsSheet.rows[0]!.indexOf('card_type')] = 'vi_to_en';
+    cardsSheet.appendRow(reverseCard);
     fireEvent.click(screen.getByTestId('tab-review'));
+    await waitFor(() =>
+      expect(screen.getByTestId('stat-due-words').querySelector('strong')?.textContent).toBe('2'),
+    );
     fireEvent.click(screen.getByTestId('btn-reveal-answer'));
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-rate-good') as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByTestId('btn-rate-good'));
     await waitFor(() =>
       expect(screen.getByTestId('offline-review-banner').textContent).toContain('Chưa xác nhận'),
     );
     fireEvent.click(screen.getByTestId('btn-rate-good'));
-    await waitFor(() => expect(screen.queryByTestId('flashcard-active')).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByTestId('flashcard-word').textContent).toBe('ngân hàng thương mại'),
+    );
+    expect(cardsSheet.rows[1]![cardsSheet.rows[0]!.indexOf('reps')]).toBe(1);
+    expect(cardsSheet.rows[2]![cardsSheet.rows[0]!.indexOf('reps')]).toBe(0);
     expect(gas.spreadsheet.getSheetByName('Reviews')?.getLastRow()).toBe(2);
+    // The next card may render while the previous ACK/refresh is still pending.
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-reveal-answer') as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByTestId('btn-reveal-answer'));
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-rate-easy') as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByTestId('btn-rate-easy'));
+    await waitFor(() => expect(screen.queryByTestId('flashcard-active')).toBeNull());
+    expect(gas.spreadsheet.getSheetByName('Reviews')?.getLastRow()).toBe(3);
     view.unmount();
     render(<App api={makeApi()} />);
     await waitFor(() => expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(1)'));

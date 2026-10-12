@@ -256,7 +256,9 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
         nowMs: () => fixedNowMs,
         reviewRepo: {
           listDue: vi.fn(),
+          preview: vi.fn(),
           recordReview: recordReviewSpy,
+          getStats: vi.fn(),
           claimDailyDigest: vi.fn(),
           finishDailyDigest: vi.fn(),
           updateUserPreferences: vi.fn(),
@@ -280,12 +282,15 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
         nowMs: () => fixedNowMs,
         reviewRepo: {
           listDue: vi.fn(),
+          preview: vi.fn(),
           recordReview: recordReviewSpy,
+          getStats: vi.fn(),
           claimDailyDigest: vi.fn(),
           finishDailyDigest: vi.fn(),
           updateUserPreferences: vi.fn(),
         },
       },
+
       store,
     );
     expect(dupRes.status).toBe(200);
@@ -343,7 +348,9 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
 
     const mockReviewRepo = {
       listDue: vi.fn(),
+      preview: vi.fn(),
       recordReview: vi.fn(),
+      getStats: vi.fn(),
       claimDailyDigest: claimSpy,
       finishDailyDigest: vi.fn().mockResolvedValue({ updated: true }),
       updateUserPreferences: vi.fn(),

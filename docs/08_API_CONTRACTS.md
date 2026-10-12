@@ -55,11 +55,82 @@ Query bắt buộc `?event_id=uuid`. Soft delete `deleted_at`, loại khỏi l�
 
 ## GET /api/v1/reviews/due (M4)
 
-`?limit=10` → next due items (randomized with fairness cap). Response cards `{review_id, word_id, front, back?, due_at}`; don't leak answers in quiz frontend until appropriate reveal.
+`?limit=10` (1–50) → `{items: DueReviewCard[]}`. Mỗi item có review_id, card_id, card_type, word_id, word/lemma/part_of_speech/meaning_vi/example/source_excerpt, due_at, review_state, repetitions, interval_days, ease_factor, version; trường FSRS state, due_at_utc, stability/difficulty, scheduled_days, reps/lapses, row_version. State là chuỗi New/Learning/Review/Relearning, không phải enum số. Version ở danh sách này là **Card version**; Words.version dùng riêng CRUD.
 
-## POST /api/v1/reviews (M4)
+Một Word có nhiều Cards có thể xuất hiện nhiều lần với card_id khác nhau. Chỉ Cards thuộc Word active, không suspended và đã đến hạn. Response không có total_due; xem stats cho tổng. UI chỉ hiện đáp án sau reveal.
 
-Request `{ "event_id":"uuid", "word_id":"w_...", "rating":"again|hard|good|easy", "version":1 }`; `reviewed_at` optional, thời gian server là nguồn chuẩn. Response `{review_id,word_id,next_due_at,interval_days,repetitions,ease_factor,review_state,duplicate_event}`. Cùng event/body trả snapshot cũ và `duplicate_event:true`, không tính lại SRS. Version optional cho tương thích callback cũ; UI và keyboard mới luôn gửi version để chặn thẻ cũ.
+## GET /api/v1/reviews/:cardId/preview (M4)
+
+Response data:
+
+```json
+{
+  "card_id": "c_w_123",
+  "word_id": "w_123",
+  "row_version": 2,
+  "preview": {
+    "again": {
+      "rating": "again",
+      "state": "Learning",
+      "next_due_at": "2026-10-12T01:01:00.000Z",
+      "interval_days": 0,
+      "stability": 1,
+      "difficulty": 5
+    },
+    "hard": {
+      "rating": "hard",
+      "state": "Learning",
+      "next_due_at": "2026-10-12T01:06:00.000Z",
+      "interval_days": 0,
+      "stability": 2,
+      "difficulty": 5
+    },
+    "good": {
+      "rating": "good",
+      "state": "Learning",
+      "next_due_at": "2026-10-12T01:10:00.000Z",
+      "interval_days": 0,
+      "stability": 3,
+      "difficulty": 5
+    },
+    "easy": {
+      "rating": "easy",
+      "state": "Review",
+      "next_due_at": "2026-10-16T01:00:00.000Z",
+      "interval_days": 4,
+      "stability": 4,
+      "difficulty": 5
+    }
+  }
+}
+```
+
+Ví dụ chỉ minh họa cấu trúc, không phải fixtures interval/weights cố định. Client định dạng next_due_at; không suy 1m/10m từ interval_days=0. Preview không ghi dữ liệu. Card đã xóa/suspended không preview được.
+
+## POST /api/v1/reviews/submit (M4)
+
+Alias legacy: POST /api/v1/reviews.
+
+```json
+{
+  "event_id": "1c11d5a4-92a8-4bcc-b3fa-f03c9ce2c4b1",
+  "card_id": "c_w_123",
+  "rating": "good",
+  "expected_version": 2
+}
+```
+
+- Rating: again/hard/good/easy. Backend là nguồn lịch duy nhất.
+- Có ít nhất card_id hoặc word_id. Word alias dùng Card mặc định/đầu tiên; client mới luôn gửi card_id. Nếu có cả hai phải cùng Word.
+- expected_version là Card.row_version, version là alias legacy; không dùng Words.version. Client mới luôn gửi expected_version; nếu legacy không gửi, Worker đọc version hiện tại và GAS vẫn khóa/kiểm OCC.
+- reviewed_at có trong schema tương thích nhưng Worker dùng thời gian server, không tin thời gian client.
+- Response data có review_id, card_id, word_id, next_due_at, interval_days, repetitions, ease_factor, review_state, state, stability, difficulty, reps, lapses, row_version, idempotent_replay, duplicate_event. review_state legacy ánh xạ Relearning → learning; state FSRS vẫn Relearning.
+- Cùng event và client payload trả snapshot cũ với replay/duplicate=true, không tính lại; đổi Card/Word/rating/expected_version/version trên cùng event trả 409. Thời gian server/config đổi không ảnh hưởng replay.
+- Stale Card trả 409; Word edit không làm stale Card. Hai events chấm cùng version chỉ một được ghi. Review tồn tại thiếu Events snapshot trả 409 để đối chiếu, không báo thành công từ dữ liệu hiện tại.
+
+## GET /api/v1/reviews/stats (M4)
+
+Response data: `{due_today,completed_today,new_cards,learning_cards,review_cards,relearning_cards,total_active_cards,total_reviews_count}`, các số nguyên không âm. Ngày theo UTC+7; due_today gồm overdue và thẻ đến hạn trước cuối ngày. Completed_today/total_reviews_count đếm review events (có thể nhiều lần trên một Card); active totals loại Word đã xóa và thẻ suspended.
 
 ## POST /telegram/webhook (private, external Bot API)
 
@@ -71,11 +142,20 @@ Verify secret header, request size and update_id before any side-effect. HTTP 20
 { "payload": "<EXACT_JSON_STRING>", "signature": "BASE64URL_HMAC_SHA256(payload)" }
 ```
 
-`payload` schema: `{action, event_id, issued_at, user_id, data, request_id}`. Actions: `vocabulary.upsert`, `vocabulary.list`, `vocabulary.update`, `vocabulary.delete`, `review.listDue`, `review.record`, `review.claimDigest`, `review.finishDigest`, `user.preferences`. Response GAS `{ok:boolean,data?:{},error?:{code,message}}`; Worker validate schema từng action và translates status.
+`payload` schema: `{action, event_id, issued_at, user_id, data, request_id}`.
+Actions hỗ trợ:
 
-`review.claimDigest.data`: `{local_date,limit,now_iso}` → `{dispatch_id,already_dispatched,notifications_enabled,telegram_chat_id,due_cards,claim_token?}`. `review.finishDigest.data`: `{dispatch_id,claim_token,status:"sent|failed|unknown",message_id?}` → `{updated:true}`. Chỉ Worker được ký hai action này. Xem schema v2 và runbook migration.
+- Từ vựng: `vocabulary.upsert`, `vocabulary.list`, `vocabulary.update`, `vocabulary.delete`
+- Thẻ FSRS: `card.get`
+- Ôn tập FSRS: `review.listDue`, `review.record`, `review.lookup`, `review.stats`
+- Thông báo: `review.claimDigest`, `review.finishDigest`
+- Cài đặt: `user.preferences`
 
-Telegram callback mới: `r:<word_id>:<rating>:<version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.
+Response GAS `{ok:boolean,data?:{},error?:{code,message}}`; Worker validate schema từng action và translates status.
+
+`review.claimDigest.data`: `{local_date,limit,now_iso}` → `{dispatch_id,already_dispatched,notifications_enabled,telegram_chat_id,due_cards,claim_token?}`. `review.finishDigest.data`: `{dispatch_id,claim_token,status:"sent|failed|unknown",message_id?}` → `{updated:true}`. Chỉ Worker được ký hai action này. Xem schema v2/v3 và runbook migration.
+
+Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.
 
 ## Contract testing
 

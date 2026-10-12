@@ -1,18 +1,48 @@
 import { useEffect, useState } from 'react';
-import { type ReviewRating, type VocabularyItem } from '@voice-chat/shared';
+import {
+  type DueReviewCard,
+  type ReviewPreviewResponse,
+  type ReviewRating,
+  type ReviewStatsResponse,
+  type VocabularyItem,
+} from '@voice-chat/shared';
 
 export interface FlashcardReviewPanelProps {
-  items: VocabularyItem[];
-  onGrade: (wordId: string, rating: ReviewRating, eventId: string) => Promise<void>;
+  items: (VocabularyItem | DueReviewCard)[];
+  onGrade: (
+    cardIdOrWordId: string,
+    rating: ReviewRating,
+    eventId: string,
+    expectedVersion: number,
+  ) => Promise<void>;
+  onPreview?: (cardIdOrWordId: string) => Promise<ReviewPreviewResponse | null>;
   enabled?: boolean;
+  stats?: ReviewStatsResponse | null;
+}
+
+function formatIntervalBadge(nextDueAt?: string, now = Date.now()): string | null {
+  if (!nextDueAt) return null;
+  const minutes = Math.max(1, Math.round((Date.parse(nextDueAt) - now) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  const days = Math.round(minutes / 1440);
+  if (days === 1) return '1d';
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.round(days / 30)}mo`;
+  return `${Math.round(days / 365)}y`;
 }
 
 export function FlashcardReviewPanel({
   items,
   onGrade,
+  onPreview,
   enabled = true,
+  stats,
 }: FlashcardReviewPanelProps) {
   const [revealedWordId, setRevealedWordId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<ReviewPreviewResponse | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [reviewedTodayCount, setReviewedTodayCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +50,7 @@ export function FlashcardReviewPanel({
     wordId: string;
     rating: ReviewRating;
     eventId: string;
+    version: number;
   } | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
   useEffect(() => {
@@ -27,29 +58,71 @@ export function FlashcardReviewPanel({
     return () => clearInterval(timer);
   }, []);
 
-  const activeItems = items.filter((it) => it.deleted_at === '' && it.review_state !== 'suspended');
+  const activeItems = items.filter(
+    (it) => (!('deleted_at' in it) || it.deleted_at === '') && it.review_state !== 'suspended',
+  );
   const dueCards = activeItems.filter((it) => {
     const ms = Date.parse(it.due_at);
     return !Number.isFinite(ms) || ms <= nowMs;
   });
 
   const currentCard = dueCards[0] ?? null;
-  const isRevealed = currentCard !== null && revealedWordId === currentCard.word_id;
+  const targetId = currentCard
+    ? (('card_id' in currentCard ? currentCard.card_id : undefined) ?? currentCard.word_id)
+    : null;
+  const version = currentCard
+    ? (('row_version' in currentCard ? currentCard.row_version : undefined) ?? currentCard.version)
+    : 1;
+  const isRevealed = currentCard !== null && revealedWordId === targetId;
+  const reverse = currentCard && 'card_type' in currentCard && currentCard.card_type === 'vi_to_en';
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreviewData(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+    if (isRevealed && targetId && onPreview) {
+      setPreviewLoading(true);
+      void onPreview(targetId)
+        .then((res) => {
+          if (!cancelled) {
+            if (
+              !res ||
+              res.card_id !== targetId ||
+              (res.row_version !== undefined && res.row_version !== version)
+            )
+              throw new Error('Thẻ đã thay đổi. Hãy tải lại dữ liệu trước khi ôn.');
+            setPreviewData(res);
+          }
+        })
+        .catch((failure) => {
+          if (!cancelled)
+            setPreviewError(failure instanceof Error ? failure.message : 'Không thể xem lịch ôn.');
+        })
+        .finally(() => {
+          if (!cancelled) setPreviewLoading(false);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [isRevealed, targetId, version, onPreview]);
 
   const handleGrade = async (rating: ReviewRating) => {
-    if (!currentCard || busy || !enabled) {
+    if ((!currentCard && !pending) || busy || !enabled) {
       return;
     }
     const operation = pending ?? {
-      wordId: currentCard.word_id,
+      wordId: targetId!,
       rating,
       eventId: crypto.randomUUID(),
+      version,
     };
     setPending(operation);
     setBusy(true);
     setError(null);
     try {
-      await onGrade(operation.wordId, operation.rating, operation.eventId);
+      await onGrade(operation.wordId, operation.rating, operation.eventId, operation.version);
       setPending(null);
       setRevealedWordId(null);
       setReviewedTodayCount((count) => count + 1);
@@ -64,22 +137,27 @@ export function FlashcardReviewPanel({
     <section className="voice-panel" aria-label="Spaced Repetition Flashcards">
       <div className="stats-grid" role="region" aria-label="Learning Progress Statistics">
         <div className="stat-card" data-testid="stat-total-words">
-          <span className="stat-label">Tổng số từ</span>
-          <strong className="stat-value">{activeItems.length}</strong>
+          <span className="stat-label">Tổng số thẻ</span>
+          <strong className="stat-value">{stats?.total_active_cards ?? activeItems.length}</strong>
         </div>
         <div className="stat-card" data-testid="stat-due-words">
-          <span className="stat-label">Đến hạn ôn</span>
-          <strong className="stat-value">{dueCards.length}</strong>
+          <span className="stat-label">Cần ôn trong ngày</span>
+          <strong className="stat-value">{stats?.due_today ?? dueCards.length}</strong>
         </div>
         <div className="stat-card" data-testid="stat-reviewed-today">
-          <span className="stat-label">Đã ôn phiên này</span>
-          <strong className="stat-value">{reviewedTodayCount}</strong>
+          <span className="stat-label">{stats ? 'Đã ôn hôm nay' : 'Đã ôn phiên này'}</span>
+          <strong className="stat-value">{stats?.completed_today ?? reviewedTodayCount}</strong>
         </div>
       </div>
 
       {error && (
         <div className="voice-clarify-banner" role="status" data-testid="offline-review-banner">
           {error} Chưa xác nhận lưu kết quả. Nhấn lại mức đánh giá để thử cùng sự kiện.
+          {pending && (
+            <button disabled={busy} onClick={() => void handleGrade(pending.rating)}>
+              Thử gửi lại kết quả
+            </button>
+          )}
         </div>
       )}
 
@@ -95,7 +173,7 @@ export function FlashcardReviewPanel({
           <div className="flashcard-front">
             <span className="flashcard-pos">{currentCard.part_of_speech}</span>
             <h2 className="flashcard-word" data-testid="flashcard-word">
-              {currentCard.word}
+              {reverse ? currentCard.meaning_vi : currentCard.word}
             </h2>
             {currentCard.source_excerpt && (
               <p className="flashcard-context">“{currentCard.source_excerpt}”</p>
@@ -107,7 +185,8 @@ export function FlashcardReviewPanel({
               type="button"
               className="btn-primary"
               aria-label="Reveal flashcard meaning and example"
-              onClick={() => setRevealedWordId(currentCard.word_id)}
+              onClick={() => setRevealedWordId(targetId)}
+              disabled={busy || !enabled}
               data-testid="btn-reveal-answer"
             >
               Show Answer
@@ -115,7 +194,8 @@ export function FlashcardReviewPanel({
           ) : (
             <div className="flashcard-back" data-testid="flashcard-back">
               <p className="flashcard-meaning">
-                <strong>Nghĩa:</strong> {currentCard.meaning_vi}
+                <strong>{reverse ? 'Tiếng Anh:' : 'Nghĩa:'}</strong>{' '}
+                {reverse ? currentCard.word : currentCard.meaning_vi}
               </p>
               {currentCard.example && (
                 <p className="flashcard-example">
@@ -124,14 +204,30 @@ export function FlashcardReviewPanel({
               )}
 
               <div className="srs-buttons" role="group" aria-label="Rate memory recall">
-                {(
-                  [
-                    { rating: 'again', label: 'Again (10m)' },
-                    { rating: 'hard', label: 'Hard' },
-                    { rating: 'good', label: 'Good' },
-                    { rating: 'easy', label: 'Easy' },
-                  ] as const
-                ).map((btn) => (
+                {previewLoading && <p role="status">Đang xem lịch ôn...</p>}
+                {previewError && <p role="alert">{previewError}</p>}
+                {[
+                  {
+                    rating: 'again' as const,
+                    defaultLabel: 'Again',
+                    badge: formatIntervalBadge(previewData?.preview.again?.next_due_at),
+                  },
+                  {
+                    rating: 'hard' as const,
+                    defaultLabel: 'Hard',
+                    badge: formatIntervalBadge(previewData?.preview.hard?.next_due_at),
+                  },
+                  {
+                    rating: 'good' as const,
+                    defaultLabel: 'Good',
+                    badge: formatIntervalBadge(previewData?.preview.good?.next_due_at),
+                  },
+                  {
+                    rating: 'easy' as const,
+                    defaultLabel: 'Easy',
+                    badge: formatIntervalBadge(previewData?.preview.easy?.next_due_at),
+                  },
+                ].map((btn) => (
                   <button
                     key={btn.rating}
                     type="button"
@@ -139,11 +235,19 @@ export function FlashcardReviewPanel({
                     aria-label={`Rate ${btn.rating}`}
                     onClick={() => handleGrade(btn.rating)}
                     disabled={
-                      !enabled || busy || (pending !== null && pending.rating !== btn.rating)
+                      !enabled ||
+                      busy ||
+                      (pending !== null
+                        ? pending.rating !== btn.rating || pending.wordId !== targetId
+                        : previewLoading ||
+                          previewError !== null ||
+                          (onPreview !== undefined && previewData === null))
                     }
                     data-testid={`btn-rate-${btn.rating}`}
                   >
-                    {btn.label}
+                    {btn.badge
+                      ? `${btn.rating.charAt(0).toUpperCase() + btn.rating.slice(1)} (${btn.badge})`
+                      : btn.defaultLabel}
                   </button>
                 ))}
               </div>

@@ -2,7 +2,7 @@
 
 > BỘ KẾ HOẠCH VÀ TÀI LIỆU TRIỂN KHAI — 12/10/2026 (UTC+7)  
 > **Trạng thái:** documentation/planning; chưa kết nối tài khoản thật, chưa có sản phẩm hoạt động.  
-> **Đường dẫn đích Windows:** `D:\Games\Projects\VoiceChatLearnLanguage`
+> **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
 ## Mục tiêu
 Ứng dụng luyện hội thoại tiếng Anh bằng giọng nói sử dụng Gemini Live API, tự nhận diện yêu cầu học từ (vd. *What does overwhelmed mean?*), ghi từ vào Google Sheets qua Apps Script, và ôn tập bằng Telegram Bot/Telegram Mini App với Spaced Repetition. Ưu tiên free tier, không tự vận hành VPS hay máy tính 24/7, bảo mật và dễ duy trì qua nhiều phiên coding-agent.
@@ -51,8 +51,8 @@ Không tạo sẵn `apps/web` rỗng vì CLI khởi tạo Vite có thể từ ch
 
 ## Khởi động nhanh (Windows PowerShell)
 ```powershell
-# Sau khi giải nén gói vào D:\Games\Projects\VoiceChatLearnLanguage
-Set-Location 'D:\Games\Projects\VoiceChatLearnLanguage'
+# Sau khi giải nén gói vào D:\Profile\VoiceChatLearnLanguage
+Set-Location 'D:\Profile\VoiceChatLearnLanguage'
 Get-Content .\PROGRESS.md
 .\scripts\Start-Session.ps1
 # làm lần lượt theo docs/03_SETUP_WINDOWS.md và docs/13_MILESTONES.md

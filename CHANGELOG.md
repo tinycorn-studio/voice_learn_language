@@ -8,3 +8,4 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ## Automated task completions
 <!-- scripts/Complete-Task.ps1 tự chèn dưới đây -->
+- 2026-10-12 10:26 +07:00 — M0-01: Git repo init (main), LF configured (.gitattributes), node v26.5.1, npm 11.17.0, git 2.55.0.windows.3, clasp 3.4.1, wrangler 4.149.0, .gitignore verified. Next: M0-03: Chốt ADR, workspace root & secret checks (M0-02 chờ user cấu hình tài khoản ngoài)

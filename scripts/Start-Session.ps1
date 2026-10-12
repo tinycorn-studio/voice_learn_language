@@ -10,8 +10,12 @@ Write-Host ''
 Get-Content (Join-Path $projectRoot 'PROGRESS.md') -Encoding UTF8 | Select-Object -First 15
 Write-Host ''
 if (Get-Command git -ErrorAction SilentlyContinue) {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     $inside = git rev-parse --is-inside-work-tree 2>$null
-    if ($LASTEXITCODE -eq 0 -and $inside -eq 'true') {
+    $gitExit = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    if ($gitExit -eq 0 -and $inside -eq 'true') {
         Write-Host 'Git status:' -ForegroundColor Yellow
         git status --short
         Write-Host 'Recent commits:' -ForegroundColor Yellow

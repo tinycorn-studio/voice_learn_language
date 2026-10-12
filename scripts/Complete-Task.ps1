@@ -24,8 +24,8 @@ if ($Evidence -match '(?i)(AIza|bot[0-9]{6,}:|xox[baprs]-|sk-[a-zA-Z0-9])') {
 }
 
 $escapedId = [regex]::Escape($TaskId)
-$pattern = New-Object System.Text.RegularExpressions.Regex "(?m)^- \[ \] $escapedId(?=\s+—)"
-$alreadyDone = [regex]::IsMatch($progress, "(?m)^- \[x\] $escapedId(?=\s+—)")
+$pattern = New-Object System.Text.RegularExpressions.Regex "(?m)^- \[ \] $escapedId(?=\s+\u2014)"
+$alreadyDone = [regex]::IsMatch($progress, "(?m)^- \[x\] $escapedId(?=\s+\u2014)")
 if ($alreadyDone) { throw "Task $TaskId already marked DONE. Do not double-count." }
 if (-not $pattern.IsMatch($progress)) { throw "Task $TaskId not found in unchecked task list." }
 $progress = $pattern.Replace($progress, "- [x] $TaskId", 1)
@@ -35,15 +35,17 @@ catch { $tz = [System.TimeZoneInfo]::FindSystemTimeZoneById('Asia/Bangkok') }
 $now = [System.TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $tz).ToString('yyyy-MM-dd HH:mm') + ' +07:00'
 $logEvidence = $Evidence.Replace('|', '/').Replace("`r", ' ').Replace("`n", ' ')
 $logNext = $Next.Replace('|', '/').Replace("`r", ' ').Replace("`n", ' ')
+$emDash = [char]0x2014
+$inProgressClosed = "> $([char]0x0110)ang th$([char]0x1EF1)c hi$([char]0x1EC7)n: Ch$([char]0x01B0)a c$([char]0x00F3) (task g$([char]0x1EA7)n nh$([char]0x1EA5)t $([char]0x0111)$([char]0x00E3) $([char]0x0111)$([char]0x00F3)ng)"
 
 $progress = [regex]::Replace($progress, '(?m)^> Updated:.*$', "> Updated: $now", 1)
-$progress = [regex]::Replace($progress, '(?m)^> Đang thực hiện:.*$', '> Đang thực hiện: Chưa có (task gần nhất đã đóng)', 1)
+$progress = [regex]::Replace($progress, '(?m)^> \u0110ang th\u1EF1c hi\u1EC7n:.*$', $inProgressClosed, 1)
 $progress = [regex]::Replace($progress, '(?m)^> Next action:.*$', "> Next action: $logNext", 1)
 $activityRow = "| $now | $TaskId | DONE | $logEvidence | $logNext |"
 $activitySection = '## Current blockers / risks'
 if (-not $progress.Contains($activitySection)) { throw 'PROGRESS.md activity section marker missing' }
 $progress = $progress.Replace($activitySection, "$activityRow`n`n$activitySection")
-$changelog = $changelog.TrimEnd() + "`n- $now — ${TaskId}: $logEvidence. Next: $logNext`n"
+$changelog = $changelog.TrimEnd() + "`n- $now $emDash ${TaskId}: $logEvidence. Next: $logNext`n"
 
 # Write both files atomically per file; review git diff and commit both with code.
 [System.IO.File]::WriteAllText($progressFile, $progress, (New-Object System.Text.UTF8Encoding($false)))

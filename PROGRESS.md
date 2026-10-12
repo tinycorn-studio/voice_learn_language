@@ -1,17 +1,17 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-12 09:50 +07:00  
-> Phase: M0 — Khởi tạo (NOT STARTED)  
-> Đang thực hiện: Chưa có  
-> Next action: M0-01 tạo repo Git ở Windows, kiểm tra Node/npm/Git/PowerShell; M0-02 chuẩn bị tài khoản Google/Telegram/Cloudflare (KHÔNG chia sẻ secrets).  
-> Blockers: Chưa truy cập máy Windows, chưa xác thực credentials; chưa chạy test hoặc deploy nào.  
-> Important: Bộ file này do ChatGPT tạo ở môi trường tạm; chưa ghi được trực tiếp vào ổ D:. Sau khi giải nén, người dùng cần xác nhận đường dẫn/khởi tạo Git.
+> Updated: 2026-10-12 10:26 +07:00
+> Phase: M0 — Khởi tạo (IN_PROGRESS)
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: M0-03: Chốt ADR, workspace root & secret checks (M0-02 chờ user cấu hình tài khoản ngoài)
+> Blockers: Chưa xác thực credentials thật (Google/Cloudflare/Telegram) cho M0-02; các task local/code/test có thể thực hiện trước.
+> Important: Repo đã khởi tạo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
 `[ ]` Pending/In Progress/Blocked — xem tình trạng ở log bên dưới. `[x]` Done **chỉ sau khi đã đạt Acceptance Criteria và ghi evidence**.
 
 ## Milestone M0 — Setup, an toàn, tiêu chuẩn
-- [ ] M0-01 — Tạo Git repo, cài Node LTS, Git, Wrangler/clasp; check versions.
+- [x] M0-01 — Tạo Git repo, cài Node LTS, Git, Wrangler/clasp; check versions.
 - [ ] M0-02 — Tạo/kiểm tra Google AI Studio, Apps Script, Google Sheet, Cloudflare, BotFather; cấu hình environment và quota alert.
 - [ ] M0-03 — Kiểm tra rules, branch protection, workspace, secrets ignore, chọn deploy topology cuối.
 
@@ -55,6 +55,8 @@
 | Time (UTC+7) | Task | State | Evidence / results | Next |
 |---|---|---|---|---|
 | 2026-10-12 09:50 | DOC-INIT | DOCS PREPARED | Đã tạo tài liệu và script; chưa chạy integration | M0-01 |
+
+| 2026-10-12 10:26 +07:00 | M0-01 | DONE | Git repo init (main), LF configured (.gitattributes), node v26.5.1, npm 11.17.0, git 2.55.0.windows.3, clasp 3.4.1, wrangler 4.149.0, .gitignore verified | M0-03: Chốt ADR, workspace root & secret checks (M0-02 chờ user cấu hình tài khoản ngoài) |
 
 ## Current blockers / risks
 - Free tier Gemini: cần kiểm tra model/quota của project thực trước triển khai; không đảm bảo free không giới hạn.

@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-12 14:02 +07:00
+> Updated: 2026-10-12 14:16 +07:00
 > Phase: FSRS đã sửa/kiểm thử local; staging migration và live QA còn pending.
-> Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M0-02/M3-01: cau hinh staging; xin xac nhan deploy/migration, clasp pull vao backup rieng/diff, backup Sheet va migrateSchemaV3(true/false) theo docs/FSRS_MIGRATION.md; live QA M4-04/M4-FSRS/M5-02 tren PC/Android/iOS.
-> Blockers: M0-02/M3-01 chưa có cấu hình dịch vụ thật; còn live QA PC/Android/iOS và backup restore E2E.
+> Đang thực hiện: M0-02 — IN_PROGRESS: chuẩn bị môi trường online staging riêng, kiểm tra tài khoản/quota; người dùng đã đồng ý đăng nhập và tạo tài nguyên staging mới. OAuth/secrets/webhook/deploy cần xác nhận riêng.
+> Next action: Chủ tài khoản đăng nhập Cloudflare trong tab đã mở; tự tạo Sheet/Script staging private rồi gửi URL hoặc chờ bộ xét duyệt Google Sheets phục hồi. AI Studio cần xử lý lỗi permission denied/520 trước tạo project staging và kiểm quota. Sau đó xác nhận OAuth/secrets/deploy cụ thể; M3-01 theo docs/24_ONLINE_STAGING.md và FSRS_MIGRATION.md.
+> Blockers: AI Studio đã login nhưng báo permission denied/520; mở Sheets bị automatic approval review lỗi 429, hành động chưa thực hiện. Cloudflare chờ login; chưa có bot/Sheet/Script staging và secrets. Live QA PC/Android/iOS, backup restore E2E còn pending.
 > Important: Repo đã khởi tạo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
@@ -118,7 +118,11 @@
 
 | 2026-10-12 14:02 +07:00 | M5-06 | DONE | Review/sua FSRS moi: 85 tests/15 files PASS; typecheck workspace+tests, lint, build, Worker dry-run, secret scan va git diff --cached --check PASS. Card OCC/replay, migration v3 read-only, native audit/Settings/UTC+7, Cards UI/Telegram; docs/23_FSRS_REVIEW_FIXES.md. Chua deploy/migrate Sheet that. | M0-02/M3-01: cau hinh staging; xin xac nhan deploy/migration, clasp pull vao backup rieng/diff, backup Sheet va migrateSchemaV3(true/false) theo docs/FSRS_MIGRATION.md; live QA M4-04/M4-FSRS/M5-02 tren PC/Android/iOS. |
 
+| 2026-10-12 14:16 +07:00 | M0-02 | IN_PROGRESS | Branch feat/M0-02-online-staging; typecheck/lint, 85 tests/15 files, build, staging Worker dry-run, tracked secret scan, public bundle scan và diff check PASS. Người dùng đã login Google và chọn tự tạo Sheet/Script; Cloudflare ở login. AI Studio lỗi permission denied/520; mở Sheets bị auto-review lỗi 429. Chưa tạo tài nguyên/deploy/OAuth/secrets. docs/24_ONLINE_STAGING.md | Chờ URL Sheet/Script private mới và login Cloudflare; xử lý AI Studio; xác nhận cụ thể quyền/secrets/deploy, rồi M3-01 schema v3/clasp. |
+
 ## Current blockers / risks
+
+- M0-02 phiên online staging: người dùng đã đồng ý login và tạo tài nguyên staging mới; chưa phê duyệt OAuth/secrets/webhook/deploy. AI Studio lỗi permission denied/520, Google Sheets bị bộ xét duyệt tự động lỗi 429; Cloudflare chờ login. Chi tiết và thứ tự tiếp tục: docs/24_ONLINE_STAGING.md.
 
 - Các dòng DONE trước review là evidence lịch sử. Source đã sửa M5-05/M5-06; milestone dịch vụ/thiết bị vẫn pending. Xem docs/22_REVIEW_FIXES.md và docs/23_FSRS_REVIEW_FIXES.md.
 - Sheet hiện có cần backup và migrateSchemaV3(true/false) trước mở writers. Legacy memory cold start có archive/due/counts; Events thử nghiệm cũ có thể conflict fingerprint. Review thiếu Events snapshot và digest unknown cần đối chiếu. Pending UI chỉ giữ trong phiên; ScriptLock không có ACID xuyên tabs.

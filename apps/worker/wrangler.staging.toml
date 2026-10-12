@@ -1,0 +1,15 @@
+# Separate Worker and secret bindings; never use production secrets here.
+name = "voice-chat-learn-language-worker-staging"
+main = "src/entry.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+ENVIRONMENT = "staging"
+GEMINI_MODEL = "models/gemini-3.8-live"
+# Replace with the verified Pages origin before remote deployment.
+ALLOWED_ORIGIN = "https://voice-chat-learn-language-staging.pages.dev"
+
+# Enable scheduled reminders only after signed GAS and Telegram smoke tests.
+[triggers]
+crons = []

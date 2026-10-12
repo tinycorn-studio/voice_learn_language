@@ -6,6 +6,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Added
 
+- 2026-10-12 M0-02 (IN_PROGRESS): Chuẩn bị Worker staging tách tên/secrets khỏi production, tắt Cron lúc khởi tạo; thêm runbook đăng nhập, phê duyệt OAuth/secrets/deploy, Sheet FSRS v3 và CI/CD. Chưa tạo tài nguyên hoặc triển khai online.
+
 - 2026-10-12 M4-FSRS: Nâng cấp toàn diện FSRS Spaced Repetition với thư viện chính thức `ts-fsrs@^5.4.2`; kiến trúc Authoritative Backend Scheduling trên Cloudflare Worker; Schema v3 tách bạch bảng `Cards`, `Reviews` (snapshot + `review_log_json`), và `Settings`; API xem trước `/api/v1/reviews/:cardId/preview`, chấm điểm `/api/v1/reviews/submit`, thống kê `/api/v1/reviews/stats`; dynamic interval badges trên giao diện FlashcardReviewPanel; script di trú `migrateSchemaV3_` (dry-run & apply) và fallback tương thích ngược.
 - 2026-10-12: Bộ tài liệu dự án, AGENTS.md, PROGRESS.md, script ghi tiến độ, Apps Script starter và hướng dẫn cấu hình/triển khai. **Chưa triển khai ứng dụng chạy thật.**
 

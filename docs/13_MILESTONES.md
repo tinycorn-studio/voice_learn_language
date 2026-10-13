@@ -55,7 +55,10 @@
 | M5-03 | observability/runbook         | Recovery test for bot token, GAS rollback, worker rollback, Sheets backup/restore, quota exhaustion                                                                                                                                               |
 | M5-04 | Review triển khai Antigravity | Đối chiếu source/spec, chạy typecheck/lint/test/build và secret scan; báo cáo lỗi có vị trí và bằng chứng tái hiện; cập nhật task cần mở lại                                                                                                      |
 | M5-05 | Sửa R01–R09                   | API/auth/UI/PCM/playback nối thật; regression tests cho retry, digest, CRUD, reconnect, detector và CSV; gates local pass; ghi rõ live QA chưa thực hiện                                                                                          |
-| M5-06 | Review và sửa FSRS mới        | Card version độc lập; replay payload gốc; migration dry-run read-only và nâng v1/v2; Settings/native audit/UTC+7 đúng; UI/Telegram dùng Card ID; regression tests và các gate local pass. Live migration/thiết bị thuộc M3-01/M5-02, chưa deploy. |
+| M5-06 | Review FSRS & Kết nối Mini App | Card version độc lập, replay payload gốc, migration dry-run read-only, Settings/native audit/UTC+7; URL cấu hình sai được phát hiện, timeout tương thích WebView, thử đăng nhập lại sau lỗi; regression tests và các gate local pass |
+| M5-07 | Log chẩn đoán kết nối         | Mỗi API attempt có request ID/code/status/phase/duration và context whitelist; health probe không auth, UI sao chép log trên iOS, bounded memory; regression privacy/timeout/network/schema và local gates pass; kiểm bundle public, giữ giới hạn DNS/TLS/CORS |
+| M5-08 | Native fetch receiver         | Tái hiện lỗi receiver trước sửa trong browser, regression trước/sau; gọi native fetch với global receiver, giữ DI/tests và privacy; local gates pass, frontend production được kiểm chứng; live Telegram auth vẫn cần user QA |
+| M5-09 | Worker → GAS 503              | Tái hiện runtime Workers native với adapter thật, fix/regression/log whitelist, local gates và dry-run pass; chuẩn bị package Worker reviewable, chỉ deploy/cấp quyền sau xác nhận riêng; config/schema/live QA không suy ra từ mock |
 
 ## M6 — Optional (không chặn release)
 

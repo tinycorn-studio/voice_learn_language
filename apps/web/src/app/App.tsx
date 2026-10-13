@@ -23,6 +23,7 @@ import {
 } from '../features/vocabulary/services/vocabulary-save-queue.js';
 import { FlashcardReviewPanel } from '../features/review/components/FlashcardReviewPanel.js';
 import { VocabularyManagerPanel } from '../features/vocabulary/components/VocabularyManagerPanel.js';
+import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 
 interface AppProps {
   api?: LearningApiClient;
@@ -36,8 +37,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     () =>
       suppliedApi ??
       new LearningApiClient(
-        import.meta.env['VITE_API_BASE_URL'] ||
-          'https://voice-chat-learn-language-worker.voice-chat-learn-language.workers.dev',
+        import.meta.env['VITE_API_BASE_URL'] ?? '',
         () => initTelegramEnvironment().rawInitData,
       ),
     [suppliedApi],
@@ -47,31 +47,14 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const [dueCards, setDueCards] = useState<DueReviewCard[]>([]);
   const [reviewStats, setReviewStats] = useState<ReviewStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loginAttempt, setLoginAttempt] = useState(0);
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<QueuedVocabularyEntry[]>([]);
   const [retrying, setRetrying] = useState(false);
-  const [logs, setLogs] = useState<Array<{ id: string; timestamp: string; level: 'info' | 'warn' | 'error'; message: string }>>([]);
-  const [pingResult, setPingResult] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
   const deletes = useRef(new Map<string, string>());
   const reviews = useRef(new Map<string, ReviewSubmitRequest>());
   const refreshVersion = useRef(0);
-
-  const addLog = useCallback(
-    (level: 'info' | 'warn' | 'error', message: string, details?: unknown) => {
-      const now = new Intl.DateTimeFormat('vi-VN', {
-        timeZone: 'Asia/Ho_Chi_Minh',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }).format(new Date());
-      setLogs((prev) => [{ id: crypto.randomUUID(), timestamp: now, level, message }, ...prev.slice(0, 49)]);
-      void api.postClientLog({ level, message, details });
-    },
-    [api],
-  );
 
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
@@ -89,37 +72,10 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       }
     } catch (failure) {
       if (version === refreshVersion.current) {
-        const msg = failure instanceof Error ? failure.message : 'Không thể tải từ vựng.';
-        setError(msg);
-        addLog('error', `Lỗi tải dữ liệu: ${msg}`);
+        setError(failure instanceof Error ? failure.message : 'Không thể tải từ vựng.');
       }
     }
-  }, [api, addLog]);
-
-  const handlePing = useCallback(async () => {
-    setPingResult('Đang kiểm tra kết nối...');
-    addLog('info', 'Bắt đầu ping máy chủ...');
-    const res = await api.pingHealth();
-    if (res.ok) {
-      const msg = `✅ Máy chủ online! Độ trễ: ${res.latencyMs}ms (HTTP ${res.status})`;
-      setPingResult(msg);
-      addLog('info', msg);
-    } else {
-      const msg = `❌ Kết nối thất bại: ${res.error || `HTTP ${res.status}`} (${res.latencyMs}ms)`;
-      setPingResult(msg);
-      addLog('error', msg);
-    }
-  }, [api, addLog]);
-
-  const handleCopyLogs = useCallback(() => {
-    const text = logs
-      .map((l) => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`)
-      .join('\n');
-    void navigator.clipboard?.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [logs]);
+  }, [api]);
 
   const preview = useCallback((id: string) => api.previewReview(id), [api]);
 
@@ -148,35 +104,27 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     [api],
   );
 
-  const authAttempt = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const env = initTelegramEnvironment();
-    addLog('info', `Init WebApp: isMiniApp=${env.isTelegramMiniApp}, initDataLen=${env.rawInitData.length}, platform=${env.platform}`);
-    addLog('info', `Target Worker: ${api.getBaseUrl()}`);
-    if (!env.rawInitData) {
-      addLog('warn', 'Telegram initData trống. Hãy đảm bảo mở ứng dụng từ Bot Telegram.');
-    }
-    try {
-      addLog('info', 'Đang gửi xác thực đến Worker...');
-      const session = await api.authenticate();
-      setAuthenticated(true);
-      addLog('info', `Đăng nhập thành công! User ID: ${session.user_id}`);
-      await refresh();
-      addLog('info', 'Đã tải thành công danh sách từ vựng & flashcards.');
-    } catch (failure) {
-      const msg = failure instanceof Error ? failure.message : 'Đăng nhập thất bại.';
-      setError(msg);
-      addLog('error', `Lỗi xác thực: ${msg}`);
-      setShowLogs(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [api, addLog, refresh]);
-
   useEffect(() => {
-    void authAttempt();
-  }, [authAttempt]);
+    let cancelled = false;
+    void api
+      .authenticate()
+      .then(async () => {
+        if (cancelled) return;
+        setAuthenticated(true);
+        await refresh();
+      })
+      .catch((failure) => {
+        if (!cancelled)
+          setError(failure instanceof Error ? failure.message : 'Đăng nhập thất bại.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      refreshVersion.current++;
+    };
+  }, [api, refresh, loginAttempt]);
 
   const saveVocabulary = useCallback(
     async (event: VerifiedSaveVocabularyEvent) => {
@@ -256,49 +204,23 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       {error && (
         <div role="alert" className="voice-error-banner">
           {error} {authenticated && <button onClick={() => void refresh()}>Tải lại dữ liệu</button>}
+          {!authenticated && !loading && (
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                setLoginAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Thử kết nối lại
+            </button>
+          )}
         </div>
       )}
+      <ApiDiagnosticsPanel api={api} />
       {!authenticated && !loading && (
-        <p>Nếu gặp lỗi, hãy bấm <strong>Kiểm tra máy chủ (Ping)</strong> hoặc <strong>Thử kết nối lại</strong> bên dưới.</p>
+        <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}
-
-      <section className="diag-panel" aria-label="System diagnostics">
-        <div className="diag-header">
-          <span>🛠️ Nhật ký & Kiểm tra kết nối</span>
-          <button
-            type="button"
-            className="btn-chip"
-            onClick={() => setShowLogs((s) => !s)}
-          >
-            {showLogs ? 'Thu gọn' : 'Xem chi tiết'}
-          </button>
-        </div>
-        {pingResult && <div className="diag-ping-badge">{pingResult}</div>}
-        <div className="diag-actions">
-          <button type="button" className="btn-chip" onClick={() => void handlePing()}>
-            🔍 Kiểm tra máy chủ (Ping)
-          </button>
-          <button type="button" className="btn-chip" onClick={() => void authAttempt()}>
-            🔄 Thử kết nối lại
-          </button>
-          <button type="button" className="btn-chip" onClick={handleCopyLogs}>
-            {copied ? '✅ Đã sao chép' : '📋 Sao chép log'}
-          </button>
-        </div>
-        {showLogs && (
-          <div className="diag-console" role="log" aria-live="polite">
-            {logs.length === 0 ? (
-              <span className="diag-log-info">Chưa có log sự kiện.</span>
-            ) : (
-              logs.map((log) => (
-                <div key={log.id} className={`diag-log-row diag-log-${log.level}`}>
-                  [{log.timestamp}] [{log.level.toUpperCase()}] {log.message}
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </section>
 
       <nav className="app-tabs" aria-label="Main sections">
         {(

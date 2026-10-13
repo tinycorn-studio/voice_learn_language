@@ -1,6 +1,6 @@
 # 08 — API Contract v1
 
-> Contracts thiết kế, chưa có implementation Worker. Mọi endpoint trừ `/health` và Telegram webhook yêu cầu Telegram Mini App verified session. **Không** tin `user_id` từ request body là auth. Khi code M2/M3 tạo Zod schemas trong `packages/shared` và OpenAPI nếu cần.
+> Implementation Worker tại `apps/worker/src/entry.ts`, Zod schemas trong `packages/shared`. `/health` không yêu cầu auth; auth Telegram nhận initData để xác minh, webhook dùng secret header, các route dữ liệu dùng verified session. **Không** tin `user_id` từ request body là auth. Trạng thái nghiệm thu production xem `PROGRESS.md`.
 
 ## Global conventions
 
@@ -10,6 +10,9 @@
 - HTTP errors: 400 INVALID_ARGUMENT, 401 UNAUTHENTICATED, 403 FORBIDDEN, 409 CONFLICT, 429 RATE_LIMITED, 502 UPSTREAM_ERROR, 503 UNAVAILABLE, 504 TIMEOUT.
 - Client auth: `Authorization: Bearer <short-lived-server-issued-session>` sau `POST /api/v1/auth/telegram` với raw `initData`. Không dùng client-supplied user_id.
 - `event_id`: UUIDv4; one event retry reuse same value. Durations seconds, times RFC3339 UTC ISO. All data validated with strict limits.
+- M5-07: frontend tạo `X-Request-Id: web-<24 hex>` mới cho mỗi lần gọi API, kể cả retry; đây là mã chẩn đoán, không thay `event_id` idempotency. Worker hiện có echo mã này trong envelope và response header, `api_error` ghi cùng mã. CORS đã cho phép `x-request-id`; frontend đọc envelope vì response header chưa được expose qua CORS.
+- Probe `GET /health` không gửi authorization, initData, body hoặc custom header để không tạo preflight. Response data hiện có `{status:"healthy",service:"voice-chat-worker",version,timestamp}`; chỉ xác nhận Worker reachable, không xác nhận Gemini/Sheets/auth. Probe có client ID nội bộ và server UUID riêng trong log.
+- M5-09 (local, chưa deploy): `gas_fetch_failed` là log nội bộ cho exception khi Worker fetch GAS, giữ cùng request_id với API response. Metadata action/phase/reason (`ILLEGAL_INVOCATION`, `TIMEOUT`, `FETCH_FAILED`)/exception name whitelist/duration/http_status null; không ghi endpoint/body/signature/secret/user ID/raw error. Public API giữ 503 `UNAVAILABLE` và thông báo cố định, không mở endpoint debug.
 
 ## POST /api/v1/auth/telegram
 

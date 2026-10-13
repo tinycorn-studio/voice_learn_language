@@ -114,15 +114,21 @@ function addClientLog(entry: Omit<ClientLogEntry, 'id'>): void {
 
 function resolveCorsHeaders(request: Request, env: WorkerEnv): Record<string, string> {
   const origin = request.headers.get('origin');
-  const returnOrigin = origin || '*';
+  const allowedOrigin = env.ALLOWED_ORIGIN?.trim() ?? '';
+  const isLocalDev =
+    env.ENVIRONMENT === 'development' &&
+    (origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173');
 
-  return {
-    'access-control-allow-origin': returnOrigin,
-    'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-    'access-control-allow-headers': 'content-type, authorization, x-request-id',
-    'access-control-max-age': '86400',
-    vary: 'Origin',
-  };
+  if (origin && (origin === allowedOrigin || isLocalDev)) {
+    return {
+      'access-control-allow-origin': origin,
+      'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+      'access-control-allow-headers': 'content-type, authorization, x-request-id',
+      'access-control-max-age': '86400',
+      vary: 'Origin',
+    };
+  }
+  return {};
 }
 
 function getSigningSecret(env: WorkerEnv): string {
@@ -206,7 +212,10 @@ export async function handleWorkerRequest(
       if (env.GAS_EXEC_URL) {
         try {
           const gasStart = Date.now();
-          const gasRes = await fetchFn(env.GAS_EXEC_URL, { method: 'GET', redirect: 'follow' });
+          const gasRes = await fetchFn.call(globalThis, env.GAS_EXEC_URL, {
+            method: 'GET',
+            redirect: 'follow',
+          });
           gasLatencyMs = Date.now() - gasStart;
           gasStatus = gasRes.ok ? 'connected' : `http_${gasRes.status}`;
         } catch (e) {

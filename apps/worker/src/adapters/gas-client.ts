@@ -30,7 +30,7 @@ import {
 } from '@voice-chat/shared';
 
 import { bytesToBase64Url, constantTimeEqual } from '../auth/telegram-auth.js';
-import { AppError } from '../domain/env.js';
+import { AppError, logStructured } from '../domain/env.js';
 import type {
   DailyDigestClaimResult,
   ReviewRepository,
@@ -118,8 +118,10 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
     });
 
     let res: Response;
+    const started = Date.now();
     try {
-      res = await this.fetchFn(this.gasExecUrl, {
+      // Workers native fetch checks its global receiver, even when injected into an adapter.
+      res = await this.fetchFn.call(globalThis, this.gasExecUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json; charset=utf-8',
@@ -127,7 +129,27 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
         body: JSON.stringify(envelope),
         signal: AbortSignal.timeout(15000),
       });
-    } catch {
+    } catch (failure) {
+      const exceptionName =
+        failure instanceof Error &&
+        ['TypeError', 'Error', 'AbortError', 'TimeoutError'].includes(failure.name)
+          ? failure.name
+          : 'Other';
+      const reason =
+        failure instanceof Error && failure.message.includes('Illegal invocation')
+          ? 'ILLEGAL_INVOCATION'
+          : exceptionName === 'AbortError' || exceptionName === 'TimeoutError'
+            ? 'TIMEOUT'
+            : 'FETCH_FAILED';
+      // Retain correlation and category only: endpoint, signed payload and raw errors may contain secrets/PII.
+      logStructured('warn', 'gas_fetch_failed', params.requestId, {
+        action: params.action,
+        phase: 'fetch',
+        reason,
+        exception_name: exceptionName,
+        duration_ms: Math.max(0, Date.now() - started),
+        http_status: null,
+      });
       throw new AppError({
         code: 'UNAVAILABLE',
         message: 'Google Apps Script endpoint unreachable',

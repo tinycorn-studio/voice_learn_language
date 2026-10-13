@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../apps/web/src/app/App.js';
 import { LearningApiClient } from '../apps/web/src/services/learning-api-client.js';
 import { createVoiceSession } from '../apps/web/src/features/voice/services/voice-session.js';
@@ -212,5 +212,46 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
     );
     expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(0)');
+  });
+
+  it('retries authentication after a network failure without reopening the Mini App', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const api = new LearningApiClient('https://worker.example', () => 'signed-init-data', fetchFn);
+    render(<App api={api} />);
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('kết nối máy chủ'));
+    expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
+    fetchFn.mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: String(url).endsWith('/auth/telegram')
+              ? {
+                  session_token: 'synthetic-session',
+                  expires_at: new Date(Date.now() + 3600000).toISOString(),
+                  user_id: 'telegram:123',
+                }
+              : String(url).endsWith('/reviews/stats')
+                ? {
+                    due_today: 0,
+                    completed_today: 0,
+                    new_cards: 0,
+                    learning_cards: 0,
+                    review_cards: 0,
+                    relearning_cards: 0,
+                    total_active_cards: 0,
+                    total_reviews_count: 0,
+                  }
+                : { items: [], next_cursor: null },
+            request_id: 'test-request',
+          }),
+        ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Thử kết nối lại' }));
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(fetchFn).toHaveBeenCalledTimes(5);
   });
 });

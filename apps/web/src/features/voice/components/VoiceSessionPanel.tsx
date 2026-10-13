@@ -19,6 +19,7 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
   const [turns, setTurns] = useState<ConversationContextTurn[]>([]);
   const [interim, setInterim] = useState('');
   const [text, setText] = useState('');
+  const [captureNotices, setCaptureNotices] = useState<Record<string, 'pending' | 'failed'>>({});
   useEffect(
     () => () => {
       session.current?.stop();
@@ -29,6 +30,7 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
 
   const start = () => {
     setError(null);
+    setCaptureNotices({});
     session.current?.stop();
     session.current = sessionFactory({
       onStateChange: setState,
@@ -40,6 +42,15 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
       },
       onAudioChunk: () => {},
       onError: setError,
+      onVocabularyCaptureStatus: ({ word, status }) =>
+        setCaptureNotices((previous) => {
+          const next = { ...previous };
+          if (status === 'saved') delete next[word];
+          else next[word] = status;
+          const oldest = Object.keys(next)[0];
+          if (Object.keys(next).length > 30 && oldest) delete next[oldest];
+          return next;
+        }),
       onClarificationNeeded: () =>
         setError('Chưa xác định đúng từ cần lưu. Hãy hỏi lại bằng tên từ cụ thể.'),
     });
@@ -49,6 +60,19 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
   return (
     <section className="voice-panel" aria-label="Voice Conversation Session">
       <VoiceStatusBadge state={state} />
+      {Object.keys(captureNotices).length > 0 && (
+        <div role="status" data-testid="vocabulary-capture-notice">
+          {Object.entries(captureNotices)
+            .slice(-3)
+            .map(([word, status]) => (
+              <p key={word}>
+                {status === 'pending'
+                  ? `Đang ghi nhận từ: ${word}…`
+                  : `Chưa xác nhận lưu từ ${word}. Kiểm tra trạng thái đồng bộ hoặc hỏi lại tên từ cụ thể.`}
+              </p>
+            ))}
+        </div>
+      )}
       {error && (
         <div role="alert" className="voice-error-banner" data-testid="mic-error-banner">
           {error}
@@ -62,6 +86,7 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
             onClick={() => {
               session.current?.stop();
               setInterim('');
+              setCaptureNotices({});
             }}
           >
             Stop Microphone

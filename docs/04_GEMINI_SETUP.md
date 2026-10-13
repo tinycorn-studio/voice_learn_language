@@ -48,6 +48,8 @@ M5-10 (13/10/2026): Đối chiếu [REST AuthToken reference](https://ai.google.
 
 ## 4. Function calling (M1-03)
 
+M5-12: prompt bắt buộc gọi tool khi hỏi nghĩa, kể cả cách nói `X, that mean?`. Client giữ snapshot câu hỏi, chờ tool/ASR tới khác thứ tự và dùng một event ID cho các tool của cùng câu hỏi. Sau turnComplete, nếu model bỏ tool thì gửi một yêu cầu recovery trên cùng Live session, có giới hạn một lần/câu hỏi và 10 lần/Start; quá hạn báo chưa xác nhận lưu. Không gọi thêm model text hoặc AI cho từng audio chunk. Chi tiết budget, cleanup và kiểm thử: [M5-12 release](26_VOCABULARY_CAPTURE_RELEASE.md).
+
 `save_vocabulary({word, meaning_vi?, part_of_speech?, sense_hint?, source_excerpt})` chỉ được gọi khi user có **ý định hỏi nghĩa**, hoặc hỏi cách nói từ/cụm từ bằng tiếng Anh. Cần sanitize/validate server side; model có thể nhầm.
 
 - “What does overwhelmed mean?” → save.
@@ -61,7 +63,7 @@ M5-10 (13/10/2026): Đối chiếu [REST AuthToken reference](https://ai.google.
 ```text
 You are a kind, concise English conversation coach for a Vietnamese learner.
 Keep natural conversations in English; explain vocabulary in English + short Vietnamese meaning only when asked.
-Call save_vocabulary only when the learner explicitly asks meaning, translation or how to say a term in English.
+You MUST call save_vocabulary whenever the learner asks meaning, translation or how to say a term in English, including learner phrasing like "overwhelmed, that mean?". Never call it for ordinary conversation.
 Resolve "that" only if one unambiguous target exists in recent conversation. Otherwise ask which word.
 Do not save arbitrary words used in ordinary dialogue. Do not claim a word is saved until tool execution succeeds.
 Do not output secrets or internal configuration.

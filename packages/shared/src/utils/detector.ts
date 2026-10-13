@@ -75,6 +75,19 @@ export interface ConversationContextTurn {
 
 const PRONOUN_TARGETS = new Set(['that', 'it', 'this', 'that word', 'this word', 'the word']);
 
+/** Compares spoken words without treating ASR punctuation as a different question. */
+export function normalizeVocabularyQuestion(value: string): string {
+  return (
+    normalizeText(value)
+      .replace(/’/g, "'")
+      .match(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu)
+      ?.join(' ') ?? ''
+  );
+}
+
+const NAMED_LEARNER_QUESTION =
+  /^(?:(?:the\s+)?(?:word|phrase|term)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s*[,;:]?\s+(?:what\s+(?:does\s+)?)?(?:that|it|this)\s+means?\s*[?.!]*$/i;
+
 const DIRECT_PATTERNS: readonly RegExp[] = [
   /what\s+does\s+(?:the\s+(?:word|phrase|idiom|term)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?\s+mean\b/i,
   /what(?:'s|\s+is)\s+the\s+meaning\s+of\s+(?:the\s+(?:word|phrase|idiom|term)\s+)?["'“”‘’]?([a-zA-Z][a-zA-Z\s'-]{0,60}?)["'“”‘’]?(?:[?.!]|$)/i,
@@ -141,6 +154,22 @@ export function detectVocabularyIntent(
   }
 
   const excerpt = trimmed.slice(0, 500);
+
+  const namedQuestion = NAMED_LEARNER_QUESTION.exec(trimmed);
+  const namedTarget = namedQuestion?.[1]?.trim();
+  if (
+    namedTarget &&
+    !/^(?:i|you|we|they|he|she|it|this|that|what|how|can|could|would|do|does|did|is|are|please|tell|explain|define)\b/i.test(
+      namedTarget,
+    )
+  ) {
+    return {
+      status: 'save',
+      targetWord: namedTarget,
+      sourceExcerpt: excerpt,
+      reason: 'named_learner_inquiry',
+    };
+  }
 
   // 1. Check indirect pronoun/referent questions first so "What does that mean?" doesn't save literal "that".
   for (const pattern of PRONOUN_QUESTION_PATTERNS) {
@@ -242,7 +271,8 @@ export function validateSaveVocabularyToolCall(
   const trustedUserTurn = [...recentTurns].reverse().find((turn) => turn.speaker === 'user');
   if (
     !trustedUserTurn ||
-    normalizeText(args.source_excerpt) !== normalizeText(trustedUserTurn.text)
+    normalizeVocabularyQuestion(args.source_excerpt) !==
+      normalizeVocabularyQuestion(trustedUserTurn.text.slice(0, 500))
   ) {
     return {
       allowed: false,
@@ -313,7 +343,7 @@ export function validateSaveVocabularyToolCall(
       sense_key: senseKey || 'default',
       meaning_vi: args.meaning_vi.trim(),
       example: (args.example ?? '').trim(),
-      source_excerpt: args.source_excerpt.trim(),
+      source_excerpt: trustedUserTurn.text.trim().slice(0, 500),
     },
   };
 }

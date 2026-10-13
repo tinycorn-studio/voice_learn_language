@@ -20,6 +20,11 @@ npm run typecheck, npm run lint, npm test, npm run build, Worker wrangler deploy
 
 ## Live QA còn chờ
 
+### M5-12 capture/FSRS release
+
+- 138 tests/20 files PASS, thêm 9 capture cases và biến thể integration recovery-tool: ASR/tool ordering, dấu câu, timeout/budget, Stop, fresh Start, duplicate IDs và audio không chờ ACK. Build public M5-12 đã có Card/preview/stats; evidence docs/26_VOCABULARY_CAPTURE_RELEASE.md.
+- Live: mở lại Mini App, hỏi câu chuẩn và `X, that mean?`; badge xác nhận → Word/Events/Card chỉ một bản ghi, thử retry không nhân đôi. Mở Flashcards, kiểm badges preview/backend stats, chấm Good và đối chiếu Reviews/native snapshot/due. Đây là acceptance còn chờ người dùng, không suy từ mocks/public health.
+
 - Backup/migrate staging v1/v2, chạy lại không trùng; đối chiếu snapshots/due cũ.
 - Hai ratings đồng thời thật chỉ một được ghi; mất mạng sau commit/retry không nhân đôi.
 - Review Again → Relearning, Hard không lapse; học lại sau 1 phút, badges và callback đúng thẻ.

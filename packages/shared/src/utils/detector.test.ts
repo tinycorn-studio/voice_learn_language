@@ -301,6 +301,35 @@ const THIRTY_UTTERANCE_FIXTURES: readonly UtteranceFixture[] = [
 ];
 
 describe('M1-03 Vocabulary Intent Detector & Tool Call Validation (30 Fixtures)', () => {
+  it.each([
+    'Overwhelmed, that mean?',
+    'Overwhelmed, what does that mean?',
+    'Overwhelmed that mean',
+  ])('M5-12 resolves the named learner question: %s', (text) => {
+    expect(detectVocabularyIntent(text).targetWord).toBe('Overwhelmed');
+    expect(detectVocabularyIntent(text).status).toBe('save');
+  });
+  it('M5-12 accepts punctuation formatting but rejects changed words and forged questions', () => {
+    const args = {
+      word: 'overwhelmed',
+      meaning_vi: 'quá tải',
+      source_excerpt: 'What does overwhelmed mean?',
+    };
+    const result = validateSaveVocabularyToolCall(args, [
+      { speaker: 'user', text: 'What does overwhelmed mean' },
+    ]);
+    expect(result.allowed).toBe(true);
+    if (result.allowed) expect(result.sanitized.source_excerpt).toBe('What does overwhelmed mean');
+    expect(
+      validateSaveVocabularyToolCall(args, [{ speaker: 'user', text: 'What does bank mean?' }])
+        .allowed,
+    ).toBe(false);
+    expect(
+      validateSaveVocabularyToolCall({ ...args, word: 'bank' }, [
+        { speaker: 'user', text: 'What does overwhelmed mean' },
+      ]).allowed,
+    ).toBe(false);
+  });
   it('evaluates all 30 utterance fixtures with 0 false positives and 0 false negatives', () => {
     expect(THIRTY_UTTERANCE_FIXTURES.length).toBe(30);
 

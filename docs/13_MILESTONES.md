@@ -60,6 +60,8 @@
 | M5-08 | Native fetch receiver         | Tái hiện lỗi receiver trước sửa trong browser, regression trước/sau; gọi native fetch với global receiver, giữ DI/tests và privacy; local gates pass, frontend production được kiểm chứng; live Telegram auth vẫn cần user QA |
 | M5-09 | Worker → GAS 503              | Tái hiện runtime Workers native với adapter thật, fix/regression/log whitelist, local gates và dry-run pass; chuẩn bị package Worker reviewable, chỉ deploy/cấp quyền sau xác nhận riêng; config/schema/live QA không suy ra từ mock |
 | M5-10 | Gemini token HTTP 400 → 502   | Đối chiếu REST AuthToken/Discovery và probe không credentials; sửa payload/ràng buộc model/audio với regression fail trước/pass sau; typecheck/lint/test/build/dry-run/secret scan pass. Chuẩn bị diff/artifact trước deploy; mint/voice project thật là nghiệm thu riêng, không suy ra từ key giả/mock |
+| M5-11 | Review capture từ → FSRS | Báo cáo source + production parity, tái hiện luồng bị bỏ sót bằng synthetic probes, kiểm tests liên quan, phân biệt code có/chưa deploy/chưa QA. Review read-only production; không tự coi tính năng hoặc milestone đã hoàn thiện |
+| M5-12 | Sửa capture và frontend FSRS | Regression cho named question/punctuation/tool-ASR ordering/missing tool, chống duplicate, audio không chờ write và Stop/budget; full gates pass, deploy frontend đúng API/build tag/Card/preview/stats và verify hash; live Sheet/Card/review nghiệm thu riêng |
 
 ## M6 — Optional (không chặn release)
 

@@ -40,4 +40,11 @@ Giới hạn: Recovery vẫn cần Gemini sinh tool hợp lệ; quá budget thì
 - Pages source metadata ghi base commit `8a6bc44` + `commit-dirty=true`; dùng bundle SHA256 để xác định bytes triển khai. Review manifest/ZIP trước deploy được giữ nguyên; `.artifacts/M5-12/deployment-evidence.json` ghi kết quả sau deploy.
 - Rollback đã giữ **1a4f0e48-f02e-4bbe-9ec6-e8e03852a739** và `.artifacts/M5-12/previous-public.js` SHA256 **D967E9628CCB539002E9E152552341E7EEB4EEA4470C49019013A02D6798D1E4**. Không thực hiện rollback.
 
-M5-12 giữ **IN_PROGRESS / DEPLOYED_WAITING_LIVE_QA**: chưa có lượt hỏi nghĩa/Sheet/Card/rating thật sau deployment mới. Các tests integration dùng mocks/GAS VM; health/diag/CORS/public hash không thay thế nghiệm thu này. Người dùng cần mở lại Mini App, kiểm build M5-12 và chạy các bước trên; nếu lỗi gửi API diagnostics và trạng thái ghi nhận, không gửi credentials.
+Tại thời điểm deploy, M5-12 giữ **IN_PROGRESS / DEPLOYED_WAITING_LIVE_QA**: chưa có lượt hỏi nghĩa/Sheet/Card/rating thật sau deployment mới. Các tests integration dùng mocks/GAS VM; health/diag/CORS/public hash không thay thế nghiệm thu này. Cập nhật từ người dùng sau đó được ghi dưới đây.
+
+## Cập nhật nghiệm thu — 18:16 UTC+7, 13/10/2026
+
+- Source commit **0e073519c791e76c0e0cde46ba84b3481969dcd6** đã push lên `fix/M5-12-vocabulary-capture-fsrs-release`. [GitHub Actions 38365870013](https://github.com/tinycorn-studio/voice_learn_language/actions/runs/38365870013) đã **completed/success**, head SHA khớp source. Lần đọc CI cũ bị automatic approval review hết hạn mức; đọc lại đúng action sau mốc thử lại thành công, blocker đó đã hết.
+- Người dùng trước tiên chọn “Vẫn chưa lưu hoặc chưa có thẻ”, sau đó cập nhật đã thấy, rồi xác nhận cụ thể: từ đã save trên Sheet và `/review` Telegram cũng đã hiện. Kết quả mới thay thế báo lỗi ban đầu, xác nhận capture/persistence/hiển thị ôn thực tế. Chưa có log thời gian/build của lượt thử; không kết luận nguyên nhân hoặc định lượng độ trễ từ lời xác nhận này.
+- Không sửa source hoặc deploy thêm trong lượt kiểm tra; giữ production **ae4031d8**, build **M5-12-20261013**. Không có tab trình duyệt kết nối để đọc Sheet headers, không chạy setup/migration hoặc thay properties.
+- Task giữ **IN_PROGRESS / WAITING_RATING_LIVE_QA**. Bước tiếp theo: reveal và chấm Good rồi kiểm `Reviews`/`due`. User xác nhận có từ trên Sheet và `/review`, chưa trực tiếp đối chiếu row `Cards` hoặc rating audit. Chưa merge nhánh M5-12 vào main hoặc coi mọi milestone đã nghiệm thu.

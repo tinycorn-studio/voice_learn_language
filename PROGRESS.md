@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 14:55 +07:00
-> Phase: M5-12 đã triển khai frontend capture + FSRS mới lên Pages production theo yêu cầu người dùng; đang chờ live QA.
-> Đang thực hiện: M5-12 (P1, IN_PROGRESS / DEPLOYED_WAITING_LIVE_QA) — Pages ae4031d8-7eab-467e-bf79-811f8ac6f051, build M5-12-20261013, public bundle SHA256 khớp artifact. 138 tests/20 files và gates PASS; integration original/recovery → Words/Card → review/retry pass bằng mocks/GAS VM.
-> Next action: Mở lại Mini App, xác nhận build M5-12, hỏi "What does overwhelmed mean?" và "Overwhelmed, that mean?"; kiểm badge/Words/Card, preview và chấm Good để đối chiếu Reviews/due. Nếu lỗi gửi diagnostics + trạng thái ghi nhận. Ghi evidence thật rồi đóng M5-12/M1-03/M3-04/M4-04 theo acceptance; rollback Pages 1a4f0e48 có sẵn.
-> Blockers: Chưa có lượt hỏi nghĩa → Sheet/Card → rating thật sau M5-12; health/diag/CORS/hash không thay thế live QA. Không thay GAS/schema/properties hoặc chạy migration. CSV restore/Settings/quota/backup vẫn task riêng.
+> Updated: 2026-10-13 18:16 +07:00
+> Phase: M5-12 đã deploy; người dùng xác nhận từ đã save trên Sheet và /review Telegram đã hiện. Capture/persistence và hiển thị ôn thực tế đã có evidence từ người dùng.
+> Đang thực hiện: M5-12 (P1, IN_PROGRESS / WAITING_RATING_LIVE_QA) — Pages ae4031d8-7eab-467e-bf79-811f8ac6f051, build M5-12-20261013. 138 tests/20 files và gates local PASS; GitHub CI 38365870013 SUCCESS cho source 0e073519. Không có lỗi mới cần sửa/deploy thêm.
+> Next action: Thử reveal/Good rồi đối chiếu Reviews/due để nghiệm thu scheduling thật. Sau khi đủ evidence mới đóng M5-12. Giữ nhánh fix/M5-12-vocabulary-capture-fsrs-release, chưa merge main.
+> Blockers: Chưa có xác nhận rating/Reviews/due thật hoặc số đo độ trễ ghi nhận. User đã xác nhận dữ liệu Sheet và /review, chưa đọc headers trực tiếp trong phiên này. Remote CI lookup đã thành công sau mốc thử lại, hết blocker auto-review cũ. CSV restore/Settings/quota/backup vẫn task riêng.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
@@ -21,7 +21,7 @@
 
 - [x] M1-01 — Bootstrap React/Vite TS strict, lint, test, PWA/mobile permission UX.
 - [ ] M1-02 — Realtime microphone → Gemini Live → loa + transcript; ngắt/kết nối lại.
-- [ ] M1-03 — CODE_FIXED/FRONTEND_DEPLOYED M5-12: named question, punctuation, tool-ASR buffering/recovery/budget/duplicate/Stop/audio regression pass; Pages M5-12 public khớp artifact, chờ câu hỏi/Gemini/Sheet thật. docs/26_VOCABULARY_CAPTURE_RELEASE.md.
+- [ ] M1-03 — CODE_FIXED/FRONTEND_DEPLOYED M5-12: named question, punctuation, tool-ASR buffering/recovery/budget/duplicate/Stop/audio regression pass; Pages M5-12 public khớp artifact. Người dùng xác nhận từ đã lưu Sheet và /review Telegram hiện; chưa đủ live các mẫu hỏi/ambiguity/retry. docs/26_VOCABULARY_CAPTURE_RELEASE.md.
 
 ## Milestone M2 — Cloudflare backend/auth
 
@@ -35,7 +35,7 @@
 - [ ] M3-01 — Thiết kế/tạo sheet tabs và Script Properties; clasp liên kết dự án an toàn.
 - [x] M3-02 — Worker ký HMAC → Apps Script validate → upsert Words/Events idempotent.
 - [ ] M3-03 — CODE_FIXED trong M5-05: CRUD event replay/unique key có regression tests; chờ nghiệm thu Sheet staging/schema v2.
-- [ ] M3-04 — PARTIAL: persistence/queue/CSV có code và tests; capture chưa tin cậy theo M5-11, chưa live hỏi nghĩa → Sheet/Card E2E và chưa có UI import/restore CSV.
+- [ ] M3-04 — PARTIAL: persistence/queue/CSV có code và tests; capture đã sửa M5-12, người dùng xác nhận từ lưu Sheet và /review hiện. Chưa đủ live retry/dedup và chưa có UI import/restore CSV.
 
 ## Milestone M4 — Ôn tập SRS & Telegram
 
@@ -58,7 +58,7 @@
 - [x] M5-09 — DONE: Worker cc64a401 deploy 100%, source khớp artifact qua 122 tests/18 files và gates PASS. Log iOS ngày 13/10 lúc 09:40 +07 xác nhận auth 200/565 ms và vocabulary 200/4099 ms, request web-cdb6ac91020e7b5642016f0b. Live-token 502 theo dõi riêng M5-10; chưa nghiệm thu voice/FSRS toàn bộ. docs/23_TELEGRAM_CONNECTION.md.
 - [x] M5-10 — DONE: Sửa REST token payload/mask; 2 regression fail trước/pass sau, 124 tests/19 files và gates PASS. Worker e07a24e2 deploy 100% lúc 10:43 ngày 13/10, source khớp artifact, health/diag/CORS pass. Người dùng xác nhận "đã hoạt động" và yêu cầu commit/push/merge main; không có log chi tiết mới để định lượng voice latency. Rollback cc64a401. docs/23_TELEGRAM_CONNECTION.md.
 - [x] M5-11 — DONE (REVIEW ONLY): 36 tests/5 files PASS, 7 probes synthetic; 4 nhóm bỏ sót capture/validation, frontend public chưa có UI FSRS mới, source GAS v5 business khớp Git và setup có literal cần xử lý. docs/25_VOCABULARY_FSRS_GAP_REVIEW.md. Không sửa feature/deploy/ghi Sheet; M1-03/M3-04/M4-04 còn pending.
-- [ ] M5-12 — P1, IN_PROGRESS (DEPLOYED_WAITING_LIVE_QA): V01–V05 đã sửa/deploy Pages ae4031d8 lúc 14:50 ngày 13/10; 8 regression fail trước/pass sau, 138 tests/20 files và gates PASS, public bundle/API origin/recovery/Card-preview-stats verified. Worker/GAS không cần thay; rollback 1a4f0e48. Chờ live hỏi nghĩa → Sheet/Card → FSRS review. docs/26_VOCABULARY_CAPTURE_RELEASE.md.
+- [ ] M5-12 — P1, IN_PROGRESS (WAITING_RATING_LIVE_QA): V01–V05 đã sửa/deploy Pages ae4031d8 lúc 14:50 ngày 13/10; 8 regression fail trước/pass sau, 138 tests/20 files và gates PASS, GitHub CI 38365870013 SUCCESS cho 0e073519. Người dùng xác nhận từ đã save Sheet và /review Telegram hiện; chờ chấm FSRS/Reviews/due thật. Worker/GAS không thay; rollback 1a4f0e48. docs/26_VOCABULARY_CAPTURE_RELEASE.md.
 
 ## Milestone M6 — Optional / sau MVP
 
@@ -67,6 +67,8 @@
 - [ ] M6-03 — Chuyển Sheets → D1/Supabase nếu vượt quy mô cá nhân.
 
 ## Latest accomplished
+
+- **2026-10-13 18:16 M5-12:** Sau báo chưa thấy dữ liệu, người dùng cập nhật đã thấy và xác nhận cụ thể từ đã save trên Sheet, /review Telegram cũng đã hiện. Capture/persistence/hiển thị ôn đã có nghiệm thu từ người dùng; chưa kết luận độ trễ hoặc FSRS rating đã pass. CI run [38365870013](https://github.com/tinycorn-studio/voice_learn_language/actions/runs/38365870013) completed/success cho 0e073519; lần đọc lại sau mốc thử lại auto-review thành công. Không sửa code/deploy thêm; chờ chấm Good/Reviews/due, không có tab Sheets kết nối để đọc headers trực tiếp.
 
 - **2026-10-13 14:50 M5-12:** Triển khai capture coordinator: named learner questions, punctuation, ASR/tool buffering, recovery một lần/câu hỏi tối đa 10/Start, stable event/operation, bounded cleanup và persistence không block audio. UI báo trạng thái; frontend FSRS Card/preview/stats đã lên Pages ae4031d8. 138 tests/20 files và gates pass; domain/menu cũ/query mới đều bundle index-C2NMt0rU.js SHA256 A00E2F2E... khớp artifact. Health/diag 200/GAS GET 2153 ms/CORS pass; Worker e07a24e2 giữ nguyên, dry-run hash giống production. Chờ real QA, docs/26_VOCABULARY_CAPTURE_RELEASE.md.
 - **2026-10-13 14:09 M5-11:** Review luồng hỏi nghĩa → Sheet → FSRS. Baseline có tool lưu được 1 lần; model không gọi tool, "X, that mean?", khác dấu câu và tool trước transcript có thể bị bỏ sót. 36 tests/5 files PASS, 7 probes synthetic; bundle public M5-08 còn route ôn cũ/nhãn tĩnh, chưa Card/preview/stats của main. GAS deployment v5 business source khớp Git, chưa đọc Sheet thật; setup literal đã redacted ở bản tải local, không đưa credential vào report/Git. Báo cáo docs/25_VOCABULARY_FSRS_GAP_REVIEW.md; review DONE, các tính năng vẫn cần sửa/QA.
@@ -167,7 +169,7 @@
 
 ## Current blockers / risks
 
-- **M5-12:** Pages mới đã đồng bộ FSRS UI và capture; các ghi chú M5-11 về frontend còn M5-08 là lịch sử. Cần user live E2E sau deployment ae4031d8; recovery vẫn cần Gemini tạo tool hợp lệ, có timeout/budget và UI báo thất bại, không giả saved. Chưa xác minh headers/data Sheet thật hoặc thay GAS setup literal.
+- **M5-12:** Pages mới đã đồng bộ FSRS UI và capture; người dùng xác nhận từ save Sheet và /review Telegram hiện, chờ chấm Good/Reviews/due. CI source 0e073519 SUCCESS; chưa merge main. Recovery vẫn cần Gemini tạo tool hợp lệ, có timeout/budget và UI báo thất bại, không giả saved. Chưa đọc headers trực tiếp hoặc thay GAS setup literal.
 
 - **Cập nhật 13/10 M5-10:** Người dùng đã xác nhận ứng dụng hoạt động sau deploy e07a24e2; hotfix DONE. Xác nhận người dùng là bằng chứng nghiệm thu hiện có, không có trace/latency voice chi tiết mới; không coi toàn bộ quota/backup/thiết bị đã kiểm chứng.
 - **Cập nhật 13/10 M5-09:** Đã deploy cc64a401 và log iOS sau deploy xác nhận vocabulary 200; task M5-09 DONE. Những ghi chú chờ quyền/deploy/nghiệm thu vocabulary trước đây là lịch sử. Voice/live-token theo M5-10, toàn bộ CRUD/FSRS/thiết bị vẫn M5-02.
@@ -187,6 +189,6 @@
 
 - [ ] Đọc `AGENTS.md`, `PROGRESS.md`, `docs/13_MILESTONES.md`.
 - [ ] `git status --short` và đọc diff chưa commit.
-- [ ] M5-10 DONE theo xác nhận người dùng; kiểm tra Git/CI main sau commit/push/merge được yêu cầu và tiếp tục QA thiết bị/backup/quota còn pending. Nếu xuất hiện lỗi mới, dùng log/request ID mới để mở task riêng.
+- [ ] M5-12: Đọc docs/26_VOCABULARY_CAPTURE_RELEASE.md; source 0e073519 đã push/CI success, production ae4031d8. User xác nhận Sheet và /review, chờ rating/Reviews/due; không deploy lại khi chưa có code mới. M5-10/main đã hoàn tất; tiếp tục QA thiết bị/backup/quota theo task riêng.
 - [ ] Chạy setup/check cần thiết, ghi evidence và command.
 - [ ] Khi thực sự hoàn thành, chạy `scripts/Complete-Task.ps1` và commit cả PROGRESS/CHANGELOG.

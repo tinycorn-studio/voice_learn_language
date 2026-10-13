@@ -6,6 +6,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Verified
 
+- 2026-10-13 18:16 +07:00 M5-12: Người dùng xác nhận từ đã save trên Sheet và /review Telegram đã hiện sau lượt thử hỏi nghĩa. GitHub CI 38365870013 SUCCESS cho source 0e073519 đã push. Không sửa code hoặc deploy lại; còn chờ rating/Reviews/due thật để hoàn tất nghiệm thu FSRS.
+
 - 2026-10-13 M5-11: Review phát hiện tự lưu từ còn phụ thuộc model gọi tool, detector bỏ sót cách hỏi "that mean", source excerpt khác dấu câu và tool tới trước transcript. 36 tests/5 files PASS, 7 probes synthetic. Public frontend M5-08 chưa có giao diện/API FSRS Card/preview/stats mới; GAS v5 business code khớp Git. Chỉ hoàn tất review, chưa sửa feature hoặc deploy; báo cáo docs/25_VOCABULARY_FSRS_GAP_REVIEW.md.
 
 - 2026-10-13 M5-10: Người dùng xác nhận ứng dụng đã hoạt động sau Worker e07a24e2; đóng hotfix với 124 tests/19 files/gates PASS và source production khớp artifact. Người dùng yêu cầu commit/push toàn bộ và merge main; các mục QA đầy đủ thiết bị/backup/quota vẫn theo task riêng.
@@ -28,7 +30,7 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Fixed
 
-- 2026-10-13 M5-12: Sửa tự ghi nhận từ: hỗ trợ câu kiểu "X, that mean?", chuẩn hóa dấu câu ASR, chờ tool/transcript tới khác thứ tự, chống lưu trùng theo câu hỏi và recovery có budget nếu model bỏ tool. Ghi Sheet không chặn audio, UI báo trạng thái và Stop dọn timers. 138 tests/20 files; frontend FSRS mới chuẩn bị deploy đồng bộ, không thay GAS/schema/secrets.
+- 2026-10-13 M5-12: Sửa tự ghi nhận từ: hỗ trợ câu kiểu "X, that mean?", chuẩn hóa dấu câu ASR, chờ tool/transcript tới khác thứ tự, chống lưu trùng theo câu hỏi và recovery có budget nếu model bỏ tool. Ghi Sheet không chặn audio, UI báo trạng thái và Stop dọn timers. 138 tests/20 files; frontend FSRS mới đã deploy đồng bộ lúc 14:50, không thay GAS/schema/secrets.
 
 - 2026-10-13 M5-10 (LOCAL, chưa deploy): Sửa payload REST cấp token Gemini dùng bidiGenerateContentSetup/generationConfig thay SDK wrapper liveConnectConstraints gây Google HTTP 400. fieldMask khóa model/audio, giữ tutor instructions/tools/transcription/resumption của client. Hai regression fail trước/pass sau; 124 tests/19 files và gates PASS. Đối chiếu Discovery/reference và live parser bằng key giả; chưa kết luận key/quota project thật. Auto-review yêu cầu xác nhận riêng deploy M5-10; production vẫn cc64a401.
 

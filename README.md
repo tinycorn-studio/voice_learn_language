@@ -1,7 +1,7 @@
 # VoiceChatLearnLanguage
 
 > BỘ KẾ HOẠCH VÀ TÀI LIỆU TRIỂN KHAI — 12/10/2026 (UTC+7)  
-> **Trạng thái:** source và integration tests local; chưa nghiệm thu tài khoản/thiết bị thật hoặc triển khai production.
+> **Trạng thái:** web/Worker/Apps Script đã triển khai; voice/auth/vocabulary được người dùng xác nhận. Frontend M5-12 bổ sung capture và FSRS UI đã public; luồng hỏi nghĩa → Sheet/Card → review cùng các gate vận hành còn chờ live QA. Xem `PROGRESS.md` và `docs/26_VOCABULARY_CAPTURE_RELEASE.md`.
 > **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
 ## Mục tiêu

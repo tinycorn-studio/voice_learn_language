@@ -6,6 +6,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Verified
 
+- 2026-10-13 M5-11: Review phát hiện tự lưu từ còn phụ thuộc model gọi tool, detector bỏ sót cách hỏi "that mean", source excerpt khác dấu câu và tool tới trước transcript. 36 tests/5 files PASS, 7 probes synthetic. Public frontend M5-08 chưa có giao diện/API FSRS Card/preview/stats mới; GAS v5 business code khớp Git. Chỉ hoàn tất review, chưa sửa feature hoặc deploy; báo cáo docs/25_VOCABULARY_FSRS_GAP_REVIEW.md.
+
 - 2026-10-13 M5-10: Người dùng xác nhận ứng dụng đã hoạt động sau Worker e07a24e2; đóng hotfix với 124 tests/19 files/gates PASS và source production khớp artifact. Người dùng yêu cầu commit/push toàn bộ và merge main; các mục QA đầy đủ thiết bị/backup/quota vẫn theo task riêng.
 
 - 2026-10-13 M5-09: Người dùng xác nhận log iOS sau deploy auth 200/565 ms và vocabulary 200/4099 ms; đóng hotfix vocabulary. Live-token 502 theo dõi riêng M5-10, chưa nghiệm thu voice/FSRS toàn bộ.
@@ -26,6 +28,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Fixed
 
+- 2026-10-13 M5-12: Sửa tự ghi nhận từ: hỗ trợ câu kiểu "X, that mean?", chuẩn hóa dấu câu ASR, chờ tool/transcript tới khác thứ tự, chống lưu trùng theo câu hỏi và recovery có budget nếu model bỏ tool. Ghi Sheet không chặn audio, UI báo trạng thái và Stop dọn timers. 138 tests/20 files; frontend FSRS mới chuẩn bị deploy đồng bộ, không thay GAS/schema/secrets.
+
 - 2026-10-13 M5-10 (LOCAL, chưa deploy): Sửa payload REST cấp token Gemini dùng bidiGenerateContentSetup/generationConfig thay SDK wrapper liveConnectConstraints gây Google HTTP 400. fieldMask khóa model/audio, giữ tutor instructions/tools/transcription/resumption của client. Hai regression fail trước/pass sau; 124 tests/19 files và gates PASS. Đối chiếu Discovery/reference và live parser bằng key giả; chưa kết luận key/quota project thật. Auto-review yêu cầu xác nhận riêng deploy M5-10; production vẫn cc64a401.
 
 - 2026-10-12 M5-09 (LOCAL, chưa deploy): Worker GAS adapter và Telegram client giữ global receiver khi gọi native fetch. Runtime Workers thật tái hiện vocabulary 503 trước sửa/200 sau sửa với GAS mock không đổi cấu hình. Thêm regression và `gas_fetch_failed` chỉ ghi request ID/action/phase/reason/exception name whitelist/duration, không ghi endpoint, HMAC/body hoặc raw exception. Cần quyền Worker và đối chiếu source production trước hotfix.
@@ -38,6 +42,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 - 2026-10-12 M5-05: CSV multiline/quote/CRLF và validation; guard đối chiếu transcript/target. Sheet schema v2 thêm result snapshot/claim token, migration chỉ append headers. Cần backup/migration và staging/live QA trước production; chưa deploy.
 
 ### Deployed
+
+- 2026-10-13 14:50 +07:00 M5-12: Pages production `ae4031d8-7eab-467e-bf79-811f8ac6f051`, build M5-12-20261013; sửa capture hỏi nghĩa và đưa giao diện FSRS Card/preview/stats lên public. Bundle SHA256 khớp artifact qua 138 tests/20 files/gates; root/menu URL đều tải bản mới, health/diag/CORS pass. Worker/GAS/schema không thay, rollback 1a4f0e48. Chờ người dùng nghiệm thu hỏi nghĩa → Word/Card → rating/Reviews/due thật.
 
 - 2026-10-13 10:43 +07:00 M5-10: Sau xác nhận riêng, deploy Worker `e07a24e2-5aeb-4aae-93cb-c6be6a79aa1d` phục vụ 100%, sửa REST payload cấp token Gemini gây HTTP 400/502. Source tải lại khớp artifact đã qua 124 tests/19 files và gates; health/diag/CORS pass, config/binding names giữ nguyên. Rollback `cc64a401-df62-4363-a790-94a5c265361b`; chờ người dùng thử Start để nghiệm thu live-token/voice thật.
 
@@ -77,3 +83,4 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 - 2026-10-12 22:50 +07:00 — M5-08: Native Window.fetch sai receiver tai hien Illegal invocation 0 ms; 2 regression fail truoc/pass sau. Sua call(globalThis); 84 tests/14 files, typecheck/lint/build/secret scan PASS. Pages Production 1a4f0e48-f02e-4bbe-9ec6-e8e03852a739, public hash khop local; browser production health truoc TypeError 1 ms/sau OK HTTP 200 283 ms. docs/23_TELEGRAM_CONNECTION.md; chua real Telegram auth/Gemini/Sheets; giu chua commit.. Next: Nguoi dung mo lai/tai lai Mini App, xac nhan build M5-08-20261012 va thu dang nhap. Neu loi, gui log moi co health probe de xu ly code/status/phase tiep theo trong M5-02. M0-02/M3-01 secrets/quota/schema pending; giu staged changes, khong can Git email/commit luc nay.
 - 2026-10-13 10:31 +07:00 — M5-09: Worker cc64a401 deploy 100%, source SHA256 khop artifact da qua 122 tests/18 files va gates PASS. Log iOS user 2026-10-13T02:40Z xac nhan auth 200/565 ms va vocabulary 200/4099 ms; request web-cdb6ac91020e7b5642016f0b. Loi live-token 502 tach sang M5-10. docs/23_TELEGRAM_CONNECTION.md. Next: M5-10: dieu tra Gemini live-token 502 theo request web-ea7bdefbf8fb2d5ca5fdbc4e; khong suy ra key/model/quota tu ma UPSTREAM_ERROR.
 - 2026-10-13 12:43 +07:00 — M5-10: Worker e07a24e2 deploy 100%, source SHA256 F551D88B khop artifact da qua 124 tests/19 files, typecheck/lint/build/dry-run/secret scan PASS. Nguoi dung xac nhan da hoat dong sau hotfix ngay 13/10/2026; auth/vocabulary iOS truoc do 200. docs/23_TELEGRAM_CONNECTION.md. Next: Commit/push toan bo thay doi tren fix/M5-10-gemini-token-diagnostics va merge main theo yeu cau user; giu cac task live QA/backup/quota chua co evidence o trang thai pending.
+- 2026-10-13 14:09 +07:00 — M5-11: Review code/production parity: 36 tests/5 files PASS va 7 synthetic probes tai hien missing tool, that mean detector, punctuation, tool-before-transcript. Public frontend M5-08 chua co Card/preview/stats; GAS v5 business code khop Git, Worker e07a24e2 100%. Bao cao docs/25_VOCABULARY_FSRS_GAP_REVIEW.md; khong sua feature/deploy/ghi Sheet.. Next: Sua V01-V04 capture/validation va dong bo frontend FSRS V05; sau do live hoi nghia -> Words/Card -> FSRS rating -> Reviews/due, giu M1-03/M3-04/M4-04 pending den khi dat acceptance. Xu ly setup literal GAS trong dot duoc duyet; khong chay runQuickSetup de chua loi.

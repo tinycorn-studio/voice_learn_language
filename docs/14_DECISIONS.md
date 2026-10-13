@@ -93,3 +93,11 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Migration giữ due/counts/suspended và archive Word gốc; memory cũ cold start ở state New để thư viện khởi tạo khi có rating thật. Không suy stability/difficulty từ SM-2 interval. GET không materialize Card, dry-run không ghi tabs/header/properties.
 - Reviews giữ native log và full snapshot/version trước/sau, không sửa ngữ nghĩa log thành next state/due. Settings được validate/apply; defaults tập trung trong TypeScript.
 - ScriptLock không cung cấp ACID xuyên tabs. Review thiếu Events snapshot trả conflict để đối chiếu; không suy replay từ Word hiện tại. Rollback không xóa Cards/Reviews có dữ liệu mới. Hạn chế crash còn lại được nghiệm thu riêng hoặc giải quyết bằng repository transaction tương lai.
+
+## ADR-009 — Capture từ có budget trên Live session hiện hữu
+
+- Date: 2026-10-13
+- Status: Accepted (M5-12)
+- Decision: frontend điều phối transcript/tool theo snapshot câu hỏi, một event ID/operation cho mỗi inquiry, persistence tách khỏi audio message queue. Nếu model bỏ tool, recovery một lần sau turnComplete qua clientContent trên cùng Live session; không thêm backend text-model service hoặc gọi AI mỗi audio chunk. Validation deterministic vẫn chặn câu thường/target bịa; source lưu là transcript thật.
+- Rationale: M5-11 tái hiện tool/ASR không theo thứ tự, khác dấu câu và việc model trả lời nhưng bỏ tool. [Google Live reference](https://ai.google.dev/api/live) không bảo đảm thứ tự input transcription; [client content](https://ai.google.dev/gemini-api/docs/live-api/capabilities#incremental-content-updates) được hỗ trợ trong phiên.
+- Tradeoff: AI vẫn phải sinh nghĩa/tool hợp lệ; recovery có cap 10/Start và timeout, không hứa lưu khi chưa có ACK. Model có thể phát thêm lời, cần live QA. State capture/queue chỉ giữ trong phiên; quyền lưu và FSRS vẫn nằm tại Worker/GAS.

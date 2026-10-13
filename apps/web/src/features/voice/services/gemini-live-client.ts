@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import {
   SAVE_VOCABULARY_TOOL_DECLARATION,
-  validateSaveVocabularyToolCall,
+  normalizeVocabularyQuestion,
+  saveVocabularyToolArgsSchema,
   type ConversationContextTurn,
   type PartOfSpeech,
   type VoiceSessionState,
 } from '@voice-chat/shared';
+import { VocabularyCapture, type VocabularyCaptureStatus } from './vocabulary-capture.js';
 
 export interface WebSocketLike {
   readyState: number;
@@ -35,6 +37,7 @@ export interface GeminiLiveClientCallbacks {
   onClarificationNeeded?: (reason: string) => void;
   onError?: (message: string) => void;
   onInterrupted?: () => void;
+  onVocabularyCaptureStatus?: (status: VocabularyCaptureStatus) => void;
 }
 export interface GeminiLiveConnectOptions {
   ephemeralToken: string;
@@ -46,7 +49,7 @@ export interface GeminiLiveConnectOptions {
 export const TUTOR_SYSTEM_INSTRUCTION = [
   'You are a kind, concise English conversation coach for a Vietnamese learner.',
   'Keep natural conversations in English; explain vocabulary in English + short Vietnamese meaning only when asked.',
-  'Call save_vocabulary only when the learner explicitly asks meaning, translation or how to say a term in English.',
+  'You MUST call save_vocabulary whenever the learner asks meaning, translation or how to say a term in English, including learner phrasing such as "overwhelmed, that mean?". Never call it for ordinary conversation.',
   'Copy source_excerpt exactly from the learner question. Save word must match the question target, or its English translation when asked how to say a Vietnamese term.',
   'Resolve "that" only if one unambiguous quoted target exists in recent conversation. Otherwise ask which word.',
   'Do not claim a word is saved until tool execution succeeds. Do not output secrets or internal configuration.',
@@ -106,23 +109,65 @@ export class GeminiLiveSessionClient {
   private inputText = '';
   private outputText = '';
   private messages: Promise<void> = Promise.resolve();
-  private readonly toolResults = new Map<string, { saved: boolean; reason?: string }>();
-  private readonly toolEvents = new Map<string, string>();
+  private readonly capture: VocabularyCapture;
 
   public constructor(
     private readonly callbacks: GeminiLiveClientCallbacks,
     private readonly wsFactory: WebSocketFactory = (url) =>
       new WebSocket(url) as unknown as WebSocketLike,
-  ) {}
+  ) {
+    this.capture = new VocabularyCapture({
+      save: (event) => this.callbacks.onSaveVocabulary(event),
+      reply: (id, result) => {
+        if (!this.stopped && this.ws?.readyState === 1)
+          this.ws.send(
+            JSON.stringify({
+              toolResponse: {
+                functionResponses: [{ id, name: 'save_vocabulary', response: result }],
+              },
+            }),
+          );
+      },
+      recover: (question, target) => {
+        if (this.stopped || !this.ready || this.ws?.readyState !== 1 || this.inputText.trim())
+          return false;
+        this.ws.send(
+          JSON.stringify({
+            clientContent: {
+              turns: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: `Complete the missing vocabulary save for my earlier question. Call save_vocabulary only; do not repeat the spoken explanation. Resolve the English word/translation and Vietnamese meaning from that question. Requested term: ${JSON.stringify(target)}. Copy source_excerpt exactly: ${JSON.stringify(question)}.`,
+                    },
+                  ],
+                },
+              ],
+              turnComplete: true,
+            },
+          }),
+        );
+        return true;
+      },
+      status: (status) => this.callbacks.onVocabularyCaptureStatus?.(status),
+      clarify: (reason) => this.callbacks.onClarificationNeeded?.(reason),
+    });
+  }
   public getResumptionHandle(): string | null {
     return this.resumptionHandle;
   }
   public recordTurnContext(turn: ConversationContextTurn): void {
+    if (turn.speaker === 'user') this.capture.observeUser(turn.text, this.recentTurns);
     this.recentTurns.push(turn);
     this.recentTurns = this.recentTurns.slice(-10);
   }
   public connect(options: GeminiLiveConnectOptions): void {
     this.stop(false);
+    this.recentTurns = [];
+    this.inputText = '';
+    this.outputText = '';
+    this.capture.start();
     this.stopped = false;
     this.options = options;
     this.retries = 0;
@@ -242,6 +287,7 @@ export class GeminiLiveSessionClient {
     return true;
   }
   public stop(notify = true): void {
+    this.capture.stop();
     this.stopped = true;
     this.ready = false;
     this.epoch++;
@@ -288,7 +334,7 @@ export class GeminiLiveSessionClient {
         }
       }
       if (content.outputTranscription?.text) {
-        this.flushTranscript('user');
+        this.capture.assistantStarted();
         this.outputText += content.outputTranscription.text;
         this.callbacks.onTranscript('assistant', this.outputText, false);
         if (content.outputTranscription.finished) this.flushTranscript('assistant');
@@ -299,6 +345,7 @@ export class GeminiLiveSessionClient {
       }
       for (const part of content.modelTurn?.parts ?? []) {
         if (part.inlineData) {
+          this.capture.assistantStarted();
           this.callbacks.onStateChange('speaking');
           this.callbacks.onAudioChunk(part.inlineData.data, part.inlineData.mimeType);
         }
@@ -306,45 +353,21 @@ export class GeminiLiveSessionClient {
       if (content.turnComplete) {
         this.flushTranscript('user');
         this.flushTranscript('assistant');
+        this.capture.turnComplete();
         this.callbacks.onStateChange('listening');
       }
     }
     for (const call of msg.toolCall?.functionCalls ?? []) {
       if (call.name !== 'save_vocabulary') continue;
-      this.flushTranscript('user');
-      let result = this.toolResults.get(call.id);
-      if (!result) {
-        const validation = validateSaveVocabularyToolCall(call.args, this.recentTurns);
-        if (!validation.allowed) {
-          if (validation.requiresClarification)
-            this.callbacks.onClarificationNeeded?.(validation.reason);
-          result = { saved: false, reason: validation.reason };
-        } else {
-          const eventId = this.toolEvents.get(call.id) ?? crypto.randomUUID();
-          this.toolEvents.set(call.id, eventId);
-          try {
-            result = {
-              saved: (
-                await this.callbacks.onSaveVocabulary({
-                  event_id: eventId,
-                  ...validation.sanitized,
-                })
-              ).ok,
-            };
-          } catch {
-            result = { saved: false, reason: 'persistence_failed' };
-          }
-        }
-        this.toolResults.set(call.id, result);
-      }
-      if (!this.stopped && this.ws?.readyState === 1)
-        this.ws.send(
-          JSON.stringify({
-            toolResponse: {
-              functionResponses: [{ id: call.id, name: call.name, response: result }],
-            },
-          }),
-        );
+      const args = saveVocabularyToolArgsSchema.safeParse(call.args);
+      if (
+        args.success &&
+        this.inputText.trim() &&
+        normalizeVocabularyQuestion(this.inputText) ===
+          normalizeVocabularyQuestion(args.data.source_excerpt)
+      )
+        this.flushTranscript('user');
+      this.capture.receiveTool(call.id, call.args);
     }
     if (msg.goAway && !this.stopped) {
       if (this.setupTimer) clearTimeout(this.setupTimer);

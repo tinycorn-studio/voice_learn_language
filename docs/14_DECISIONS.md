@@ -112,3 +112,9 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Migration: full snapshot bảy tabs, preserve IDs/due/native logs/versions/legacy HMAC fingerprints; freeze/drain trước final import; staging parity/restore/CPU/quota/latency gates trước cutover. Sau write D1 đầu tiên rollback code vẫn giữ D1; quay GAS cần full reverse migration/verify, không dùng mirror trễ.
 - Tradeoff: Sheet có lag, chỉnh thủ công không đồng bộ ngược; thêm schema/migration/outbox vận hành, D1 Free vẫn có quota và 500 MB/database. D1 không làm nhanh model Gemini; đo capture riêng. M5-12 rating live QA vẫn pending, không coi plan đã nghiệm thu FSRS.
 - Tham chiếu: [plan M5-13](27_D1_PERFORMANCE_MIGRATION_PLAN.md), [D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [pricing](https://developers.cloudflare.com/d1/platform/pricing/), [Worker context](https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil).
+
+### Bổ sung M7-03 — 13/10/2026
+
+- Người dùng đã yêu cầu triển khai plan; ADR-010 được chấp nhận cho implementation, chưa coi production cutover đã thực hiện.
+- D1 lưu domain record JSON v3 đầy đủ để preserve dữ liệu/audit; cột owner/IDs/version/due phục vụ indexes, CHECK giữ JSON và cột đồng nhất. Worker validate bằng schema runtime. SQL guards trong batch abort khi maintenance/OCC sai; Reviews append-only có trigger.
+- Factory chung cho HTTP/Bot/Cron; auth/token/health không phụ thuộc database readiness. DATA_BACKEND vẫn gas đến khi staging/migration pass, D1 lỗi không tự ghi kho cũ. Runtime harness dùng workerd D1 local, staging thật là gate riêng.

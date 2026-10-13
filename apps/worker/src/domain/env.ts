@@ -1,4 +1,5 @@
 import type { ApiErrorCode, ApiEnvelope } from '@voice-chat/shared';
+import type { D1Database } from '@cloudflare/workers-types';
 
 export interface WorkerEnv {
   ENVIRONMENT?: string;
@@ -11,6 +12,8 @@ export interface WorkerEnv {
   GAS_SHARED_SECRET: string;
   GAS_EXEC_URL: string;
   ALLOWED_ORIGIN?: string;
+  DATA_BACKEND?: 'gas' | 'd1';
+  DB?: Pick<D1Database, 'prepare' | 'batch'>;
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   vocabularyUpdateRequestSchema,
   type ReviewRating,
 } from '@voice-chat/shared';
-import { GasRepositoryAdapter } from './adapters/gas-client.js';
+import { createRepositories } from './adapters/repository-factory.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
 import {
@@ -187,9 +187,15 @@ async function handleWorkerRequestInternal(
   const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
   const fetchFn = deps.fetchFn ?? fetch;
 
-  const gasAdapter = new GasRepositoryAdapter(env.GAS_EXEC_URL, env.GAS_SHARED_SECRET, fetchFn);
-  const vocabRepo = deps.vocabRepo ?? gasAdapter;
-  const reviewRepo = deps.reviewRepo ?? gasAdapter;
+  const resolveRepositories = async () => {
+    if (deps.vocabRepo && deps.reviewRepo)
+      return { vocabulary: deps.vocabRepo, review: deps.reviewRepo };
+    const selected = await createRepositories(env, fetchFn);
+    return {
+      vocabulary: deps.vocabRepo ?? selected.vocabulary,
+      review: deps.reviewRepo ?? selected.review,
+    };
+  };
 
   try {
     // 1. GET /health
@@ -342,6 +348,7 @@ async function handleWorkerRequestInternal(
       }
 
       const update = parsedUpdate.data;
+      const { review: reviewRepo } = await resolveRepositories();
       return await securityStore.processTelegramUpdate(update.update_id, requestId, async () => {
         const ownerNumericId = Number(env.OWNER_TELEGRAM_ID.trim());
         const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
@@ -544,6 +551,7 @@ async function handleWorkerRequestInternal(
       );
     }
 
+    const { vocabulary: vocabRepo, review: reviewRepo } = await resolveRepositories();
     // 5. POST /api/v1/vocabulary (`M3-02`)
     if (request.method === 'POST' && path === '/api/v1/vocabulary') {
       const rawJson = await parseRequestJson(request);
@@ -814,8 +822,7 @@ export async function handleScheduledCron(
   const requestId = `cron_${scheduledTimeMs}`;
   const localDate = formatLocalDateAsiaHoChiMinh(new Date(scheduledTimeMs));
   const fetchFn = deps.fetchFn ?? fetch;
-  const gasAdapter = new GasRepositoryAdapter(env.GAS_EXEC_URL, env.GAS_SHARED_SECRET, fetchFn);
-  const reviewRepo = deps.reviewRepo ?? gasAdapter;
+  const reviewRepo = deps.reviewRepo ?? (await createRepositories(env, fetchFn)).review;
   const userId = `telegram:${env.OWNER_TELEGRAM_ID.trim()}`;
 
   const claim = await reviewRepo.claimDailyDigest(

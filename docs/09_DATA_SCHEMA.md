@@ -63,3 +63,7 @@ Digest claim theo ngày UTC+7/user; sent/failed/unknown và claim_token bảo v�
 Gọi migrateSchemaV3(true) để inspect, false để apply. Dry-run trả migrated_cards/status=DRY_RUN, không ghi kể cả tabs/properties. Apply tạo Cards/Settings, append headers thiếu của Reviews/Events/Dispatch/Cards/Settings và đặt SCHEMA_VERSION=3. Không ghi đè Card hiện có; cold start memory legacy có archive. Đọc fallback cho Word chưa có Card không tạo dòng. Ghi bắt buộc layout v3: migrate trước khi mở writers.
 
 Chi tiết backup, nghiệm thu và rollback giữ lịch sử: [FSRS_MIGRATION.md](FSRS_MIGRATION.md).
+
+## D1 SQL revision 1 — M7-03 local, chưa cutover
+
+`apps/worker/migrations/0001_d1_primary.sql` giữ domain v3 trong `record_json`, thêm cột owner/ID/version/due indexed với CHECK parity, FK owner và Reviews append-only. Events có fingerprint_scheme/result snapshot; outbox/delivery/migration/system_state là bảng vận hành. SQL guard trong DB.batch rollback nếu OCC/maintenance sai; không kiểm UPDATE 0 dòng sau khi đã commit. Production vẫn GAS; adapter/migration triển khai các task M7 tiếp theo, không coi SQL file tồn tại là dữ liệu đã chuyển.

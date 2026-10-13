@@ -5,6 +5,7 @@ workers_dev = true
 
 [vars]
 ENVIRONMENT = "production"
+DATA_BACKEND = "gas"
 GEMINI_MODEL = "models/gemini-3.8-live"
 ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
 

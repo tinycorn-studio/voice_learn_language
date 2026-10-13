@@ -6,6 +6,7 @@ workers_dev = true
 
 [vars]
 ENVIRONMENT = "staging"
+DATA_BACKEND = "gas"
 GEMINI_MODEL = "models/gemini-3.8-live"
 # Replace with the verified Pages origin before remote deployment.
 ALLOWED_ORIGIN = "https://voice-chat-learn-language-staging.pages.dev"

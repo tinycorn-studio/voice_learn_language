@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 18:54 +07:00
+> Updated: 2026-10-13 19:02 +07:00
 > Phase: Người dùng đã yêu cầu triển khai kế hoạch D1/latency sau khi đọc plan; bắt đầu M7-01, production chưa đổi.
 > Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M7-03 D1 schema/bindings/factory va runtime constraints, sau do M7-04 repositories; giu production GAS den staging/migration gates.
+> Next action: M7-04 D1 repositories/FSRS atomic/replay legacy HMAC; remote staging/migration gates van pending.
 > Blockers: Plan chưa phải runtime; chưa có baseline/write latency breakdown, snapshot/schema Sheet thật để migrate hoặc D1 staging rehearsal. M5-12 chờ rating/Reviews/due thật. Không tạo tài nguyên/deploy/cutover trong task lập kế hoạch; CSV restore/Settings/quota/backup mở rộng vẫn task riêng.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -72,8 +72,8 @@
 Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùng chọn Sheet chỉ xem/xuất, sửa qua app. Tất cả tasks dưới đây chưa có implementation/deploy evidence.
 
 - [x] M7-01 — P1, DONE LOCAL: capture/API/GAS timings, diagnostics copy khi HTTP đều 200; privacy/bounds regression, 139 suite tests + baseline synthetic 30/30 PASS. Production timings chờ M7-08/M7-10. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- [x] M7-02 — P1, IN_PROGRESS: Mini App trả tool result sau write ACK, refresh nền/gộp theo tab; Telegram ACK sớm và kết quả thật sau commit, tests không fake saved.
-- [ ] M7-03 — P1, PLANNED: D1 schema/migrations/bindings/factory, local/staging separation, unique/FK/OCC/append-only và fail-closed config.
+- [x] M7-02 — P1, DONE LOCAL: 143 tests/23 files/gates PASS, ACK/refresh background và Telegram trước write/success sau commit; delivery bền vững M7-05. Chưa deploy.
+- [x] M7-03 — P1, IN_PROGRESS: D1 schema/migrations/bindings/factory, local/staging separation, unique/FK/OCC/append-only và fail-closed config.
 - [ ] M7-04 — P1, PLANNED: D1 Vocabulary/Review repositories, ts-fsrs backend, native audit/replay/atomic outbox, parity và concurrent/lost-ACK tests.
 - [ ] M7-05 — P1, PLANNED: Telegram commands/dedup/delivery và Cron dùng D1, keyboard legacy/version, digest claim/sent/failed/unknown.
 - [ ] M7-06 — P1, PLANNED: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence.
@@ -190,6 +190,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-13 18:49 +07:00 | M7-01 | DONE | Local diagnostics capture/API/GAS metadata whitelist va copy khi HTTP deu 200. 139 tests/20 files + 1 baseline test PASS, typecheck/lint/build/secret scan/diff check PASS. GAS VM 30 create/30 review, 1/3 upstream calls; synthetic timings khong phai production. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. Chua deploy. | M7-02: ACK/refresh UX, sau do M7-03 D1 schema; staging/production latency breakdown nghiem thu M7-08/M7-10. |
 
 | 2026-10-13 18:54 +07:00 | M7-02 | DONE | 143 tests/23 files, typecheck/lint/build/secret scan/diff check PASS. Mini App tool ACK khong cho background coalesced refresh; Telegram ACK truoc delayed write, success edit sau commit. Durable Telegram delivery theo M7-05 truoc release. Chua deploy. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-03 D1 schema/bindings/factory va runtime constraints, sau do M7-04 repositories; giu production GAS den staging/migration gates. |
+
+| 2026-10-13 19:02 +07:00 | M7-03 | DONE | D1 SQL revision 1, owner FK/unique/JSON parity/Reviews append-only/OCC-maintenance SQL guard; workerd D1 local batch rollback pass. 146 tests/24 files, typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Factory HTTP/Bot/Cron fail closed, production DATA_BACKEND gas; chua tao remote DB. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-04 D1 repositories/FSRS atomic/replay legacy HMAC; remote staging/migration gates van pending. |
 
 ## Current blockers / risks
 

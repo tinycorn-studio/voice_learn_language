@@ -141,6 +141,8 @@ Response data: `{due_today,completed_today,new_cards,learning_cards,review_cards
 
 Verify secret header, request size and update_id before any side-effect. HTTP 200 only after update recorded or successfully dispatched; design retry budget/idempotency.
 
+M7-02 local: callback message nhận thêm `message_id` optional. Sau auth/validation bot ACK “Đang ghi nhận…” trước persistence; chỉ edit kết quả/next_due sau commit và gỡ keyboard. ACK không phải success review; mutation giữ event/version/retry hiện hành. Durable result delivery triển khai M7-05 trước release D1.
+
 ## GAS HMAC internal envelope
 
 ```json

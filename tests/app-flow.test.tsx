@@ -282,6 +282,7 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(false),
     );
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(fetchFn).toHaveBeenCalledTimes(5);
+    // Voice startup loads vocabulary only; due/stats are fetched when opening review.
+    expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 });

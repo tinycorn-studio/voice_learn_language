@@ -24,6 +24,7 @@ import {
 import { FlashcardReviewPanel } from '../features/review/components/FlashcardReviewPanel.js';
 import { VocabularyManagerPanel } from '../features/vocabulary/components/VocabularyManagerPanel.js';
 import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
+import { CoalescedRefresh } from '../services/coalesced-refresh.js';
 
 interface AppProps {
   api?: LearningApiClient;
@@ -56,34 +57,43 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const reviews = useRef(new Map<string, ReviewSubmitRequest>());
   const refreshVersion = useRef(0);
 
-  const refresh = useCallback(async () => {
-    const version = ++refreshVersion.current;
-    try {
-      const [items, cards, stats] = await Promise.all([
-        api.listVocabulary(),
-        api.listDueReviews(),
-        api.getReviewStats(),
-      ]);
-      if (version === refreshVersion.current) {
-        setWords(items);
-        setDueCards(cards);
-        setReviewStats(stats);
-        setError(null);
-      }
-    } catch (failure) {
-      if (version === refreshVersion.current) {
-        setError(failure instanceof Error ? failure.message : 'Không thể tải từ vựng.');
-      }
-    }
-  }, [api]);
+  const refresher = useMemo(
+    () =>
+      new CoalescedRefresh<'vocabulary' | 'review'>(async (keys) => {
+        const version = ++refreshVersion.current;
+        try {
+          const [items, cards, stats] = await Promise.all([
+            keys.includes('vocabulary') ? api.listVocabulary() : undefined,
+            keys.includes('review') ? api.listDueReviews() : undefined,
+            keys.includes('review') ? api.getReviewStats() : undefined,
+          ]);
+          if (version === refreshVersion.current) {
+            if (items) setWords(items);
+            if (cards) setDueCards(cards);
+            if (stats) setReviewStats(stats);
+            setError(null);
+          }
+        } catch (failure) {
+          if (version === refreshVersion.current) {
+            setError(failure instanceof Error ? failure.message : 'Không thể tải từ vựng.');
+          }
+        }
+      }),
+    [api],
+  );
+  const refresh = useCallback(
+    (scope: 'vocabulary' | 'review' | 'all' = 'all') =>
+      refresher.request(scope === 'all' ? ['vocabulary', 'review'] : [scope]),
+    [refresher],
+  );
 
   const preview = useCallback((id: string) => api.previewReview(id), [api]);
 
   useEffect(() => {
     if (!authenticated || activeTab !== 'review') return;
-    void refresh();
+    void refresh('review');
     const timer = setInterval(() => {
-      void refresh();
+      void refresh('review');
     }, 30000);
     return () => clearInterval(timer);
   }, [authenticated, activeTab, refresh]);
@@ -111,7 +121,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       .then(async () => {
         if (cancelled) return;
         setAuthenticated(true);
-        await refresh();
+        await refresh('vocabulary');
       })
       .catch((failure) => {
         if (!cancelled)
@@ -133,7 +143,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         setEntries(queue.getEntries());
         const result = await attempt;
         setEntries(queue.getEntries());
-        if (result.status === 'saved') await refresh();
+        if (result.status === 'saved') void refresh('vocabulary');
         return { ok: result.status === 'saved' };
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.');
@@ -168,7 +178,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     const result = await api.submitReview(input);
     setDueCards((previous) => previous.filter((card) => card.card_id !== result.card_id));
     reviews.current.delete(eventId);
-    await refresh();
+    void refresh('review');
   };
   const update = async (
     item: VocabularyItem,

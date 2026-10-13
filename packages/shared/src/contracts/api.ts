@@ -387,7 +387,12 @@ export const telegramUpdateSchema = z.object({
     .object({
       id: z.string().max(256),
       from: z.object({ id: z.number().int() }),
-      message: z.object({ chat: z.object({ id: z.number().int() }) }).optional(),
+      message: z
+        .object({
+          message_id: z.number().int().positive().optional(),
+          chat: z.object({ id: z.number().int() }),
+        })
+        .optional(),
       data: z.string().max(64).optional(),
     })
     .optional(),

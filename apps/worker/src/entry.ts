@@ -370,6 +370,18 @@ async function handleWorkerRequestInternal(
           const cardIdOrWordId = match[1];
           const rating = match[2] as ReviewRating;
           const eventId = `tgcb_${update.update_id}_${cardIdOrWordId}`.slice(0, 80);
+          const ackStarted = performance.now();
+          const acknowledged = await botClient
+            .answerCallbackQuery({
+              callbackQueryId: cb.id,
+              text: 'Đang ghi nhận…',
+              timeoutMs: 1000,
+            })
+            .catch(() => false);
+          logStructured('info', 'telegram_callback_ack', requestId, {
+            acknowledged,
+            duration_ms: Math.round(performance.now() - ackStarted),
+          });
           const result = await reviewRepo.recordReview(
             `telegram:${ownerNumericId}`,
             requestId,
@@ -384,10 +396,13 @@ async function handleWorkerRequestInternal(
           );
 
           if (cb.id) {
-            await botClient.answerCallbackQuery({
-              callbackQueryId: cb.id,
-              text: `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' }).format(new Date(result.next_due_at))}.`,
-            });
+            const text = `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' }).format(new Date(result.next_due_at))}.`;
+            const delivered = await (
+              cb.message?.message_id
+                ? botClient.editReviewResult(cb.message.chat.id, cb.message.message_id, text)
+                : botClient.answerCallbackQuery({ callbackQueryId: cb.id, text, timeoutMs: 1000 })
+            ).catch(() => false);
+            if (!delivered) logStructured('warn', 'telegram_result_delivery_failed', requestId);
           }
 
           return jsonEnvelopeResponse(

@@ -118,3 +118,8 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Người dùng đã yêu cầu triển khai plan; ADR-010 được chấp nhận cho implementation, chưa coi production cutover đã thực hiện.
 - D1 lưu domain record JSON v3 đầy đủ để preserve dữ liệu/audit; cột owner/IDs/version/due phục vụ indexes, CHECK giữ JSON và cột đồng nhất. Worker validate bằng schema runtime. SQL guards trong batch abort khi maintenance/OCC sai; Reviews append-only có trigger.
 - Factory chung cho HTTP/Bot/Cron; auth/token/health không phụ thuộc database readiness. DATA_BACKEND vẫn gas đến khi staging/migration pass, D1 lỗi không tự ghi kho cũ. Runtime harness dùng workerd D1 local, staging thật là gate riêng.
+
+### Bổ sung M7-04 — legacy Events
+
+- D1 Events dùng HMAC builder tương thích GAS field order, metadata fingerprint_scheme phân biệt imported/verified/legacy-unverified. Cùng key hiện hữu của Worker, không đưa key vào export. Imported Event được replay trước đọc Word/Card; đổi payload hoặc thiếu snapshot trả conflict.
+- Transaction ghi Word/Card/Review/Event/outbox cùng batch; SQL guards kiểm active owner và Card version. Word version chỉ bảo vệ compatibility mirror khỏi overwrite; khi hai Card độc lập cùng sửa mirror, retry bounded với Card version riêng còn đúng.

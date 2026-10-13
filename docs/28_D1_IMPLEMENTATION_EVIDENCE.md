@@ -22,3 +22,10 @@
 - Factory dùng chung HTTP/Bot/Cron, lazy sau auth/live-token; D1 missing/schema chưa sẵn sàng fail closed, không fallback GAS. DATA_BACKEND production/staging vẫn gas; local config có binding synthetic riêng, chưa tạo database remote.
 - **146 tests/24 files PASS**, typecheck/lint/Worker dry-run PASS. `.artifacts/M7-03/`. D1 staging thật và full migration/rollback rehearsal vẫn M7-08.
 - Miniflare 4.20260730.0/@cloudflare/workers-types 5.20261013.1; audit phát hiện sharp/undici transitive mới, đã pin dev overrides sharp 0.35.5/undici 7.29.1 và kiểm runtime lại. Audit còn các cảnh báo Vitest/tinypool/mocker có từ trước, không đưa dev runtime vào Worker bundle; chưa upgrade major ngoài scope.
+
+## M7-04 — 13/10/2026, local
+
+- D1 adapter dùng chung vocabulary/review; Word/Card/Event/outbox atomic, native ts-fsrs audit, replay trước đọc mutable state, Card OCC, owner/active guards. CRUD giữ corrections/unique sense/soft-delete và snapshot replay; Settings validate và UTC+7 stats.
+- **152 tests/25 files PASS**, lint/Worker dry-run PASS; D1 integration kiểm crash giữa audit insert rollback, hai events cùng version chỉ một thắng, cùng event đồng thời trả một result, Hard không lapse/Again Relearning, Card độc lập và legacy GAS HMAC Event replay qua cutover. Production chưa đổi.
+- D1 read-only inventory Cloudflare bị **Authentication error 10000**. Không tạo database remote hoặc đổi OAuth trong bước này; tiếp tục local M7-05–M7-07, staging/cutover M7-08/M7-09 cần quyền D1 sau khi candidate đủ review.
+- Digest/delivery durable hoàn thiện ở M7-05; Sheet processor/Migration ở M7-06/M7-07. `.artifacts/M7-04/`.

@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 19:12 +07:00
+> Updated: 2026-10-13 19:21 +07:00
 > Phase: Người dùng đã yêu cầu triển khai kế hoạch D1/latency sau khi đọc plan; bắt đầu M7-01, production chưa đổi.
-> Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M7-05 durable Telegram delivery/Cron; M7-06 mirror/M7-07 migration local. Sau candidate ready can quyen D1 cho staging/cutover.
+> Đang thực hiện: M7-05 IN_PROGRESS — Telegram update/delivery bền vững và Cron D1; remote D1 chưa truy cập được (Cloudflare Authentication error 10000), tiếp tục code local trước staging.
+> Next action: Hoàn thiện test cho Telegram delivery store & D1 Telegram webhook integration, sau đó M7-06 mirror/M7-07 migration local. Sau candidate ready can quyen D1 cho staging/cutover.
 > Blockers: Plan chưa phải runtime; chưa có baseline/write latency breakdown, snapshot/schema Sheet thật để migrate hoặc D1 staging rehearsal. M5-12 chờ rating/Reviews/due thật. Không tạo tài nguyên/deploy/cutover trong task lập kế hoạch; CSV restore/Settings/quota/backup mở rộng vẫn task riêng.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -74,8 +74,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-01 — P1, DONE LOCAL: capture/API/GAS timings, diagnostics copy khi HTTP đều 200; privacy/bounds regression, 139 suite tests + baseline synthetic 30/30 PASS. Production timings chờ M7-08/M7-10. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [x] M7-02 — P1, DONE LOCAL: 143 tests/23 files/gates PASS, ACK/refresh background và Telegram trước write/success sau commit; delivery bền vững M7-05. Chưa deploy.
 - [x] M7-03 — P1, DONE LOCAL: 146 tests/24 files/gates PASS, workerd D1 constraints/batch rollback, factory fail closed và GAS vẫn production. Remote staging gate M7-08.
-- [x] M7-04 — P1, IN_PROGRESS: D1 Vocabulary/Review repositories, ts-fsrs backend, native audit/replay/atomic outbox, parity và concurrent/lost-ACK tests.
-- [ ] M7-05 — P1, PLANNED: Telegram commands/dedup/delivery và Cron dùng D1, keyboard legacy/version, digest claim/sent/failed/unknown.
+- [x] M7-04 — P1, DONE LOCAL: 152 tests/25 files/gates PASS, D1 CRUD/FSRS/native audit/atomic replay-outbox và GAS HMAC legacy, concurrent/crash tests. Remote D1 auth error 10000, chưa deploy.
+- [ ] M7-05 — P1, IN_PROGRESS: Telegram commands/dedup/delivery và Cron dùng D1, keyboard legacy/version, digest claim/sent/failed/unknown.
 - [ ] M7-06 — P1, PLANNED: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence.
 - [ ] M7-07 — P1, PLANNED: full Sheet exporter/importer/dry-run/verify, legacy fingerprint HMAC parity, freeze/drain, backup manifests và rollback tools.
 - [ ] M7-08 — P1, PLANNED: staging D1 runtime thật, migration/restore rehearsal, data parity, FSRS/concurrency/security/fault injection và benchmark Free CPU/quota.
@@ -194,6 +194,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-13 19:02 +07:00 | M7-03 | DONE | D1 SQL revision 1, owner FK/unique/JSON parity/Reviews append-only/OCC-maintenance SQL guard; workerd D1 local batch rollback pass. 146 tests/24 files, typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Factory HTTP/Bot/Cron fail closed, production DATA_BACKEND gas; chua tao remote DB. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-04 D1 repositories/FSRS atomic/replay legacy HMAC; remote staging/migration gates van pending. |
 
 | 2026-10-13 19:12 +07:00 | M7-04 | DONE | 152 tests/25 files, typecheck/lint/Worker dry-run/secret scan/diff PASS. D1 CRUD/FSRS native audit/Settings/UTC stats, atomic replay+outbox, independent Cards, concurrent rating/shared event, crash rollback va GAS HMAC replay pass tren workerd local. Cloudflare D1 inventory Authentication error 10000, chua tao DB/deploy. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-05 durable Telegram delivery/Cron; M7-06 mirror/M7-07 migration local. Sau candidate ready can quyen D1 cho staging/cutover. |
+
+| 2026-10-13 19:21 +07:00 | M7-05 | IN_PROGRESS | Luu code dang do: telegram-delivery-store.ts, Telegram context cho D1 mutation, webhook /start /pause /review luu vao D1 va process deliveries qua Cron/waitUntil. Dang tiep tuc viet tests cho M7-05. | Viet unit test va integration tests cho telegram-delivery-store & D1 entry.ts |
 
 ## Current blockers / risks
 

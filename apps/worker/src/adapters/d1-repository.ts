@@ -30,9 +30,11 @@ import type {
   VocabularyRepository,
   ReviewRepository,
   DailyDigestClaimResult,
+  TelegramMutationContext,
 } from '../domain/repositories.js';
 import { clearGuard, writeGuard, type DatabaseBinding, type Statement } from './d1-database.js';
 import { signGasPayload } from './gas-client.js';
+import { acceptTelegramCommand, formatReviewResult, telegramMutationStatements } from './telegram-delivery-store.js';
 
 type Row = Record<string, unknown>;
 function storedJson(value: string): unknown {
@@ -65,6 +67,7 @@ const userSchema = z.object({
   reminder_local_hour: z.number().int(),
   created_at: z.string(),
   updated_at: z.string(),
+  version:z.number().int().nonnegative().default(0),
 });
 const legacyState = (card: FsrsCard): VocabularyItem['review_state'] =>
   card.state === 'New' ? 'new' : card.state === 'Review' ? 'review' : 'learning';
@@ -183,6 +186,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     condition?: string;
     bindings?: unknown[];
     schema: z.ZodType<T, z.ZodTypeDef, unknown>;
+    telegram?: { context: TelegramMutationContext; payload: unknown };
   }): Promise<T> {
     const now = this.clock();
     const event = {
@@ -214,6 +218,8 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           JSON.stringify(event),
         ),
       ...params.statements,
+      ...(params.telegram ? telegramMutationStatements(this.db,params.eventId,params.telegram.context,
+        params.telegram.payload,params.result,now) : []),
       this.db
         .prepare(
           'INSERT INTO sync_outbox(event_id,payload_json,committed_at,next_attempt_at) VALUES (?,?,?,?)',
@@ -598,6 +604,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     requestId: string,
     input: ReviewSubmitRequest,
     reviewedAtIso: string,
+    telegram?: TelegramMutationContext,
   ): Promise<ReviewSubmitResponse> {
     const action = 'review.record';
     const clientRequest = {
@@ -696,6 +703,8 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           entityId: reviewId,
           result,
           schema: reviewSubmitResponseSchema,
+          ...(telegram ? {telegram:{context:telegram,payload:{kind:telegram.messageId?'edit':'send',
+            text:formatReviewResult(input.rating,result.next_due_at)}}} : {}),
           condition: `EXISTS(SELECT 1 FROM cards c JOIN words w ON w.word_id=c.word_id AND w.user_id=c.user_id
           WHERE c.user_id=? AND c.card_id=? AND c.row_version=? AND c.is_suspended=0 AND w.version=? AND ${activeWord})`,
           bindings: [userId, card.card_id, card.row_version, word.version],
@@ -769,6 +778,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       notifications_enabled?: boolean;
       daily_review_limit?: number;
     },
+    telegram?: TelegramMutationContext,
   ): Promise<{ updated: boolean; notifications_enabled: boolean }> {
     const action = 'user.preferences';
     const schema = z.object({ updated: z.boolean(), notifications_enabled: z.boolean() });
@@ -791,8 +801,9 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           reminder_local_hour: 8,
           created_at: now,
           updated_at: now,
+          version:0,
         };
-    const user = parse({ ...old, ...prefs, updated_at: now }, userSchema);
+    const user = parse({ ...old, ...prefs, updated_at: now,version:old.version+1 }, userSchema);
     return this.commit({
       eventId,
       userId,
@@ -802,6 +813,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       entityId: userId,
       result: { updated: true, notifications_enabled: user.notifications_enabled },
       schema,
+      ...(telegram ? {telegram:{context:telegram,payload:{kind:'send',text:telegram.confirmationText??'Đã cập nhật cài đặt.'}}} : {}),
       condition: row
         ? 'EXISTS(SELECT 1 FROM users WHERE user_id=? AND record_json=?)'
         : 'NOT EXISTS(SELECT 1 FROM users WHERE user_id=?)',
@@ -813,10 +825,13 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           )
           .bind(userId, JSON.stringify(user)),
       ],
-      entities: [{ tab: 'Users', id: userId, version: Date.parse(now), row: user }],
+      entities: [{ tab: 'Users', id: userId, version: user.version, row: user }],
     });
   }
 
+  public async acceptTelegramCommand(userId:string,_requestId:string,updateId:number,chatId:string,payload:unknown):Promise<void> {
+    await acceptTelegramCommand(this.db,userId,updateId,chatId,payload,this.clock());
+  }
   public async claimDailyDigest(
     userId: string,
     requestId: string,

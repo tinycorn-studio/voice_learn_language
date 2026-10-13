@@ -19,6 +19,14 @@ export interface DailyDigestClaimResult {
   claim_token?: string;
 }
 
+/** Trusted webhook context, never accepted from a public review request body. */
+export interface TelegramMutationContext {
+  updateId: number;
+  chatId: string;
+  messageId?: number;
+  confirmationText?: string;
+}
+
 /**
  * Repository abstraction for vocabulary storage (`AGENTS.md` Section 2).
  * Allows swapping Google Sheets/Apps Script with Cloudflare D1 without altering domain/routes.
@@ -69,6 +77,7 @@ export interface ReviewRepository {
     requestId: string,
     input: ReviewSubmitRequest,
     reviewedAtIso: string,
+    telegram?: TelegramMutationContext,
   ): Promise<ReviewSubmitResponse>;
 
   getStats(
@@ -105,5 +114,8 @@ export interface ReviewRepository {
       notifications_enabled?: boolean | undefined;
       daily_review_limit?: number | undefined;
     },
+    telegram?: TelegramMutationContext,
   ): Promise<{ updated: boolean; notifications_enabled: boolean }>;
+  acceptTelegramCommand?(userId: string, requestId: string, updateId: number,
+    chatId: string, payload: unknown): Promise<void>;
 }

@@ -228,37 +228,102 @@ export const dueReviewCardSchema = z.object({
   example: z.string(),
   source_excerpt: z.string(),
   due_at: z.string(),
-  review_state: z.enum(REVIEW_STATES),
-  repetitions: z.number().int().nonnegative(),
-  interval_days: z.number().nonnegative(),
-  ease_factor: z.number().min(1.3).max(3.0),
-  version: z.number().int().positive(),
+  review_state: z.enum(REVIEW_STATES).default('new'),
+  repetitions: z.number().int().nonnegative().default(0),
+  interval_days: z.number().nonnegative().default(0),
+  ease_factor: z.number().min(1.3).max(3.0).default(2.5),
+  version: z.number().int().positive().default(1),
+  // FSRS optional fields
+  card_id: z.string().optional(),
+  card_type: z.string().optional(),
+  state: z.enum(['New', 'Learning', 'Review', 'Relearning']).optional(),
+  due_at_utc: z.string().optional(),
+  stability: z.number().nonnegative().optional(),
+  difficulty: z.number().min(0).max(10).optional(),
+  scheduled_days: z.number().nonnegative().optional(),
+  reps: z.number().int().nonnegative().optional(),
+  lapses: z.number().int().nonnegative().optional(),
+  row_version: z.number().int().positive().optional(),
 });
 
 export type DueReviewCard = z.infer<typeof dueReviewCardSchema>;
 
-export const reviewSubmitRequestSchema = z.object({
-  event_id: eventIdSchema,
-  word_id: z.string().min(3).max(120),
-  rating: z.enum(REVIEW_RATINGS),
-  reviewed_at: z.string().datetime().optional(),
-  version: z.number().int().positive().optional(),
-});
+export const reviewSubmitRequestSchema = z
+  .object({
+    event_id: eventIdSchema,
+    card_id: z.string().min(2).max(120).optional(),
+    word_id: z.string().min(2).max(120).optional(),
+    rating: z.enum(REVIEW_RATINGS),
+    reviewed_at: z.string().datetime().optional(),
+    expected_version: z.number().int().positive().optional(),
+    version: z.number().int().positive().optional(),
+  })
+  .refine((data) => Boolean(data.card_id || data.word_id), {
+    message: 'Either card_id or word_id must be provided',
+  });
 
 export type ReviewSubmitRequest = z.infer<typeof reviewSubmitRequestSchema>;
 
 export const reviewSubmitResponseSchema = z.object({
   review_id: z.string(),
+  card_id: z.string().optional(),
   word_id: z.string(),
+  rating: z.enum(REVIEW_RATINGS).optional(),
   next_due_at: z.string().datetime(),
   interval_days: z.number().nonnegative(),
   repetitions: z.number().int().nonnegative(),
   ease_factor: z.number().min(1.3).max(3.0),
   review_state: z.enum(REVIEW_STATES),
-  duplicate_event: z.boolean(),
+  // FSRS fields
+  state: z.string().optional(),
+  stability: z.number().optional(),
+  difficulty: z.number().optional(),
+  reps: z.number().int().nonnegative().optional(),
+  lapses: z.number().int().nonnegative().optional(),
+  row_version: z.number().int().positive().optional(),
+  duplicate_event: z.boolean().default(false),
+  idempotent_replay: z.boolean().default(false),
 });
 
 export type ReviewSubmitResponse = z.infer<typeof reviewSubmitResponseSchema>;
+
+export const reviewPreviewItemSchema = z.object({
+  rating: z.enum(REVIEW_RATINGS),
+  state: z.string(),
+  next_due_at: z.string().datetime(),
+  interval_days: z.number().nonnegative(),
+  stability: z.number().nonnegative(),
+  difficulty: z.number().nonnegative(),
+});
+
+export type ReviewPreviewItem = z.infer<typeof reviewPreviewItemSchema>;
+
+export const reviewPreviewResponseSchema = z.object({
+  card_id: z.string(),
+  word_id: z.string(),
+  row_version: z.number().int().positive().optional(),
+  preview: z.object({
+    again: reviewPreviewItemSchema,
+    hard: reviewPreviewItemSchema,
+    good: reviewPreviewItemSchema,
+    easy: reviewPreviewItemSchema,
+  }),
+});
+
+export type ReviewPreviewResponse = z.infer<typeof reviewPreviewResponseSchema>;
+
+export const reviewStatsResponseSchema = z.object({
+  due_today: z.number().int().nonnegative(),
+  completed_today: z.number().int().nonnegative(),
+  new_cards: z.number().int().nonnegative(),
+  learning_cards: z.number().int().nonnegative(),
+  review_cards: z.number().int().nonnegative(),
+  relearning_cards: z.number().int().nonnegative().default(0),
+  total_active_cards: z.number().int().nonnegative(),
+  total_reviews_count: z.number().int().nonnegative(),
+});
+
+export type ReviewStatsResponse = z.infer<typeof reviewStatsResponseSchema>;
 
 /**
  * GAS HMAC internal envelope (`docs/08_API_CONTRACTS.md`).
@@ -268,11 +333,16 @@ export const GAS_ACTIONS = [
   'vocabulary.list',
   'vocabulary.update',
   'vocabulary.delete',
+  'card.get',
   'review.listDue',
+  'review.preview',
   'review.record',
+  'review.lookup',
+  'review.stats',
   'review.claimDigest',
   'review.finishDigest',
   'user.preferences',
+  'migration.schemaV3',
 ] as const;
 
 export type GasAction = (typeof GAS_ACTIONS)[number];

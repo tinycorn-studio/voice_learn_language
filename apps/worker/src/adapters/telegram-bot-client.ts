@@ -29,7 +29,8 @@ export class TelegramBotClient {
   }): Promise<{ ok: boolean; messageId?: number; outcome?: 'failed' | 'unknown' }> {
     let res: Response;
     try {
-      res = await this.fetchFn(this.endpoint('sendMessage'), {
+      // Native Workers fetch must keep the global receiver rather than this client instance.
+      res = await this.fetchFn.call(globalThis, this.endpoint('sendMessage'), {
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=utf-8' },
         body: JSON.stringify({
@@ -56,7 +57,7 @@ export class TelegramBotClient {
     callbackQueryId: string;
     text: string;
   }): Promise<boolean> {
-    const res = await this.fetchFn(this.endpoint('answerCallbackQuery'), {
+    const res = await this.fetchFn.call(globalThis, this.endpoint('answerCallbackQuery'), {
       method: 'POST',
       headers: { 'content-type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
@@ -85,7 +86,7 @@ export class TelegramBotClient {
     }
     return [
       [
-        { text: 'Again (10m)', callback_data: `r:${wordId}:again:${version}` },
+        { text: 'Again (quên)', callback_data: `r:${wordId}:again:${version}` },
         { text: 'Hard', callback_data: `r:${wordId}:hard:${version}` },
         { text: 'Good', callback_data: `r:${wordId}:good:${version}` },
         { text: 'Easy', callback_data: `r:${wordId}:easy:${version}` },

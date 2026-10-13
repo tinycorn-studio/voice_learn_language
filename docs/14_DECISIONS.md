@@ -71,3 +71,25 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Decision: giữ repository Sheets, thêm Events fingerprint/result snapshot và DailyDispatchLog claim_token. Mutation retry dùng cùng event/body; schema v2 nâng cấp chỉ append header. Digest chuyển claimed → sent/failed/unknown sau response Telegram; tối đa 3 lần cho failed qua tick Cron 08:00–08:05. Unknown và claim treo không tự gửi lại.
 - Rationale: isolate memory không bảo vệ retry qua Worker mới; Telegram sendMessage không hỗ trợ idempotency key nên timeout không chứng minh chưa gửi.
 - Tradeoff: unknown cần đối chiếu thủ công, không đảm bảo exactly-once tin nhắn. ScriptLock tuần tự hóa writers, không tạo transaction ACID qua nhiều tabs; lỗi giữa ghi business row và Events vẫn cần đối chiếu từ backup/log, tương lai có thể chuyển D1 nếu cần transaction. Queue chưa đồng bộ trên frontend chỉ ở memory và UI nói rõ giới hạn.
+
+## ADR-008 — Nâng cấp Spaced Repetition lên FSRS qua thư viện chính thức `ts-fsrs`
+
+- Date: 2026-10-12
+- Status: Accepted (M4-FSRS)
+- Decision:
+  1. Sử dụng thư viện TypeScript chính thức `ts-fsrs` (`open-spaced-repetition/ts-fsrs`, phiên bản `^5.4.2`) làm engine Spaced Repetition duy nhất cho toàn bộ hệ thống.
+  2. Nghiêm cấm tự sao chép hoặc viết lại công thức FSRS thủ công trong mã nguồn dự án.
+  3. Cấu hình mặc định tập trung: `desired_retention = 0.90`, `maximum_interval = 36500`, nội bộ toàn bộ ngày giờ là `UTC ISO8601`, múi giờ hiển thị và thông báo là `Asia/Ho_Chi_Minh`.
+  4. Tách bạch thực thể từ vựng (`Words`) và trạng thái thẻ ôn FSRS (`Cards`), bổ sung bảng `Settings` cấu hình tham số người dùng, và nâng cấp bảng `Reviews` thành append-only lịch sử bất biến với snapshot FSRS (`stability`, `difficulty`, `review_log_json`).
+  5. Tính toán lịch ôn có thẩm quyền (authoritative scheduling) đặt tại backend tin cậy (`@voice-chat/shared` / Cloudflare Worker / Apps Script). Frontend chỉ gọi preview và submit đánh giá.
+  6. Ngữ nghĩa 4 mức đánh giá tuân thủ FSRS: `Again` (quên), `Hard` (nhớ khó khăn — tuyệt đối không coi là fail), `Good` (nhớ bình thường), `Easy` (nhớ dễ dàng).
+- Rationale: FSRS (Free Spaced Repetition Scheduler) là mô hình hiện đại dựa trên DSR (Difficulty - Stability - Retrievability), được Anki tích hợp chính thức từ v23.10, cho độ chính xác và khả năng kiểm soát retention vượt trội so với các scheduler heuristics cũ kiểu SM-2.
+- Tradeoff: Cần schema v3 (`Cards`, `Settings`) và script migration từ Words cũ sang Cards; chưa kích hoạt WASM/native optimizer cho trọng số `w` do Cloudflare Workers hạn chế và chưa có đủ dataset ban đầu.
+
+### Bổ sung M5-06 — 2026-10-12
+
+- Worker là nơi thực thi `repeat`/`next`; GAS chỉ validate/lưu dưới lock. Package 5.4.2 hiện báo FSRS-6.0 qua `FSRSVersion`; metadata lấy export thực tế, không hardcode tên thuật toán từ số package.
+- Card.row_version là OCC duy nhất; Word edit/version không thay lịch thẻ. Replay dùng canonical client IDs/rating/versions trước khi đọc Card/config, không bỏ expected_version khỏi fingerprint.
+- Migration giữ due/counts/suspended và archive Word gốc; memory cũ cold start ở state New để thư viện khởi tạo khi có rating thật. Không suy stability/difficulty từ SM-2 interval. GET không materialize Card, dry-run không ghi tabs/header/properties.
+- Reviews giữ native log và full snapshot/version trước/sau, không sửa ngữ nghĩa log thành next state/due. Settings được validate/apply; defaults tập trung trong TypeScript.
+- ScriptLock không cung cấp ACID xuyên tabs. Review thiếu Events snapshot trả conflict để đối chiếu; không suy replay từ Word hiện tại. Rollback không xóa Cards/Reviews có dữ liệu mới. Hạn chế crash còn lại được nghiệm thu riêng hoặc giải quyết bằng repository transaction tương lai.

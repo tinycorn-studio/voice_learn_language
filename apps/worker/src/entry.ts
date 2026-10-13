@@ -93,6 +93,25 @@ export class SecurityStateStore {
 
 const defaultSecurityStore = new SecurityStateStore();
 
+export interface ClientLogEntry {
+  id: string;
+  timestamp: string;
+  level: string;
+  message: string;
+  details?: unknown;
+  userAgent?: string | undefined;
+  clientIp?: string | undefined;
+}
+
+const clientLogsRingBuffer: ClientLogEntry[] = [];
+function addClientLog(entry: Omit<ClientLogEntry, 'id'>): void {
+  const item: ClientLogEntry = { id: crypto.randomUUID(), ...entry };
+  clientLogsRingBuffer.unshift(item);
+  if (clientLogsRingBuffer.length > 100) {
+    clientLogsRingBuffer.pop();
+  }
+}
+
 function resolveCorsHeaders(request: Request, env: WorkerEnv): Record<string, string> {
   const origin = request.headers.get('origin');
   const allowedOrigin = env.ALLOWED_ORIGIN?.trim() ?? '';
@@ -156,6 +175,73 @@ export async function handleWorkerRequest(
         corsHeaders,
       );
     }
+
+    // 1b. POST /api/v1/client-logs — Ingest diagnostic logs from webview/mini-app
+    if (request.method === 'POST' && path === '/api/v1/client-logs') {
+      const rawJson = await parseOptionalRequestJson(request);
+      const data = typeof rawJson === 'object' && rawJson !== null ? (rawJson as Record<string, unknown>) : {};
+      const logEntry = {
+        timestamp: typeof data.timestamp === 'string' ? data.timestamp : new Date(nowMs).toISOString(),
+        level: typeof data.level === 'string' ? data.level : 'info',
+        message: typeof data.message === 'string' ? data.message.slice(0, 1000) : 'client event',
+        details: data.details,
+        userAgent: request.headers.get('user-agent')?.slice(0, 300) || undefined,
+        clientIp: request.headers.get('cf-connecting-ip') || undefined,
+      };
+      addClientLog(logEntry);
+      logStructured('info', 'client_diagnostic_log', requestId, {
+        client_level: logEntry.level,
+        client_msg: logEntry.message,
+      });
+      return jsonEnvelopeResponse({ ok: true, data: { received: true }, request_id: requestId }, 200, corsHeaders);
+    }
+
+    // 1c. GET /api/v1/client-logs — Retrieve captured client diagnostic logs
+    if (request.method === 'GET' && path === '/api/v1/client-logs') {
+      return jsonEnvelopeResponse(
+        { ok: true, data: { logs: clientLogsRingBuffer }, request_id: requestId },
+        200,
+        corsHeaders,
+      );
+    }
+
+    // 1d. GET /api/v1/diag — Probe system dependencies (Worker, GAS, Gemini configuration)
+    if (request.method === 'GET' && path === '/api/v1/diag') {
+      let gasStatus = 'not_configured';
+      let gasLatencyMs = 0;
+      if (env.GAS_EXEC_URL) {
+        try {
+          const gasStart = Date.now();
+          const gasRes = await fetchFn.call(globalThis, env.GAS_EXEC_URL, {
+            method: 'GET',
+            redirect: 'follow',
+          });
+          gasLatencyMs = Date.now() - gasStart;
+          gasStatus = gasRes.ok ? 'connected' : `http_${gasRes.status}`;
+        } catch (e) {
+          gasStatus = e instanceof Error ? e.message : 'failed';
+        }
+      }
+
+      return jsonEnvelopeResponse(
+        {
+          ok: true,
+          data: {
+            worker_status: 'healthy',
+            timestamp: new Date(nowMs).toISOString(),
+            gemini_configured: Boolean(env.GEMINI_API_KEY),
+            telegram_configured: Boolean(env.TELEGRAM_BOT_TOKEN && env.OWNER_TELEGRAM_ID),
+            gas_configured: Boolean(env.GAS_EXEC_URL && env.GAS_SHARED_SECRET),
+            gas_status: gasStatus,
+            gas_latency_ms: gasLatencyMs,
+          },
+          request_id: requestId,
+        },
+        200,
+        corsHeaders,
+      );
+    }
+
 
     // 2. POST /api/v1/auth/telegram
     if (request.method === 'POST' && path === '/api/v1/auth/telegram') {
@@ -242,15 +328,16 @@ export async function handleWorkerRequest(
             });
           }
 
-          const wordId = match[1];
+          const cardIdOrWordId = match[1];
           const rating = match[2] as ReviewRating;
-          const eventId = `tgcb_${update.update_id}_${wordId}`.slice(0, 80);
+          const eventId = `tgcb_${update.update_id}_${cardIdOrWordId}`.slice(0, 80);
           const result = await reviewRepo.recordReview(
             `telegram:${ownerNumericId}`,
             requestId,
             {
               event_id: eventId.length >= 12 ? eventId : `${eventId}_review`,
-              word_id: wordId,
+              // The repository resolves legacy Word aliases; Card IDs need no prefix.
+              card_id: cardIdOrWordId,
               rating,
               ...(match[3] ? { version: Number(match[3]) } : {}),
             },
@@ -260,7 +347,7 @@ export async function handleWorkerRequest(
           if (cb.id) {
             await botClient.answerCallbackQuery({
               callbackQueryId: cb.id,
-              text: `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${result.interval_days} ngày.`,
+              text: `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' }).format(new Date(result.next_due_at))}.`,
             });
           }
 
@@ -336,7 +423,10 @@ export async function handleWorkerRequest(
                   formatLocalDateAsiaHoChiMinh(new Date(nowMs)),
                   due.items,
                 ),
-                inlineKeyboard: TelegramBotClient.buildQuizKeyboard(first.word_id, first.version),
+                inlineKeyboard: TelegramBotClient.buildQuizKeyboard(
+                  first.card_id ?? first.word_id,
+                  first.row_version ?? first.version,
+                ),
               });
             }
             return jsonEnvelopeResponse(
@@ -499,8 +589,11 @@ export async function handleWorkerRequest(
       }
     }
 
-    // 8. GET /api/v1/reviews/due (`M4`)
-    if (request.method === 'GET' && path === '/api/v1/reviews/due') {
+    // 8. GET /api/v1/reviews/due & GET /api/reviews/due (`M4`)
+    if (
+      request.method === 'GET' &&
+      (path === '/api/v1/reviews/due' || path === '/api/reviews/due')
+    ) {
       const rawLimit = Number(url.searchParams.get('limit') ?? '10');
       const limit = Number.isInteger(rawLimit) ? Math.min(50, Math.max(1, rawLimit)) : 10;
       const due = await reviewRepo.listDue(session.userId, requestId, limit);
@@ -515,8 +608,66 @@ export async function handleWorkerRequest(
       );
     }
 
-    // 9. POST /api/v1/reviews (`M4`)
-    if (request.method === 'POST' && path === '/api/v1/reviews') {
+    // 8b. GET /api/v1/reviews/:cardId/preview & GET /api/reviews/:cardId/preview (`M4-FSRS`)
+    if (
+      request.method === 'GET' &&
+      ((path.startsWith('/api/reviews/') && path.endsWith('/preview')) ||
+        (path.startsWith('/api/v1/reviews/') && path.endsWith('/preview')))
+    ) {
+      const prefix = path.startsWith('/api/v1/reviews/') ? '/api/v1/reviews/' : '/api/reviews/';
+      const cardId = decodeURIComponent(path.slice(prefix.length, -'/preview'.length)).trim();
+      if (!cardId || cardId.length > 120) {
+        throw new AppError({
+          code: 'INVALID_ARGUMENT',
+          message: 'Invalid cardId parameter',
+          status: 400,
+        });
+      }
+      const preview = await reviewRepo.preview(
+        session.userId,
+        requestId,
+        cardId,
+        new Date(nowMs).toISOString(),
+      );
+      return jsonEnvelopeResponse(
+        {
+          ok: true,
+          data: preview,
+          request_id: requestId,
+        },
+        200,
+        corsHeaders,
+      );
+    }
+
+    // 8c. GET /api/v1/reviews/stats & GET /api/reviews/stats (`M4-FSRS`)
+    if (
+      request.method === 'GET' &&
+      (path === '/api/v1/reviews/stats' || path === '/api/reviews/stats')
+    ) {
+      const stats = await reviewRepo.getStats(
+        session.userId,
+        requestId,
+        new Date(nowMs).toISOString(),
+      );
+      return jsonEnvelopeResponse(
+        {
+          ok: true,
+          data: stats,
+          request_id: requestId,
+        },
+        200,
+        corsHeaders,
+      );
+    }
+
+    // 9. POST /api/v1/reviews, POST /api/v1/reviews/submit & POST /api/reviews/submit (`M4`)
+    if (
+      request.method === 'POST' &&
+      (path === '/api/v1/reviews' ||
+        path === '/api/v1/reviews/submit' ||
+        path === '/api/reviews/submit')
+    ) {
       const rawJson = await parseRequestJson(request);
       const parsed = reviewSubmitRequestSchema.safeParse(rawJson);
       if (!parsed.success) {
@@ -659,7 +810,10 @@ export async function handleScheduledCron(
   const sendResult = await botClient.sendMessage({
     chatId,
     text: TelegramBotClient.formatDigestMessage(localDate, claim.due_cards),
-    inlineKeyboard: TelegramBotClient.buildQuizKeyboard(firstCard.word_id, firstCard.version),
+    inlineKeyboard: TelegramBotClient.buildQuizKeyboard(
+      firstCard.card_id ?? firstCard.word_id,
+      firstCard.row_version ?? firstCard.version,
+    ),
   });
 
   await reviewRepo.finishDailyDigest(userId, requestId, {

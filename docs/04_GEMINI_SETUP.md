@@ -13,8 +13,8 @@ Voice chat English tutor với `gemini-3.8-live` (mặc định đề xuất the
 
 ## 2. Ephemeral token
 
-1. Web/MiniApp gửi Telegram `initData` qua HTTPS tới Worker `/api/v1/live-token`.
-2. Worker verify signature, auth timestamp/allowlist, rate-limit, gọi Google `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` với `x-goog-api-key` **chỉ ở Worker**.
+1. Web/MiniApp gửi Telegram `initData` qua HTTPS tới Worker `/api/v1/auth/telegram`; dùng verified session Bearer gọi `/api/v1/live-token`.
+2. Worker verify session/allowlist, rate-limit, gọi Google `POST https://generativelanguage.googleapis.com/v1beta/auth_tokens` với `x-goog-api-key` **chỉ ở Worker**.
 3. Request điển hình (pseudo-payload; code Worker phải xây datetime UTC hiện tại):
 
 ```json
@@ -22,12 +22,15 @@ Voice chat English tutor với `gemini-3.8-live` (mặc định đề xuất the
   "uses": 1,
   "expireTime": "<UTC now + 20 minutes>",
   "newSessionExpireTime": "<UTC now + 1 minute>",
-  "liveConnectConstraints": {
+  "bidiGenerateContentSetup": {
     "model": "models/gemini-3.8-live",
-    "config": { "responseModalities": ["AUDIO"], "sessionResumption": {} }
-  }
+    "generationConfig": { "responseModalities": ["AUDIO"] }
+  },
+  "fieldMask": "model,generationConfig.responseModalities"
 }
 ```
+
+M5-10 (13/10/2026): Đối chiếu [REST AuthToken reference](https://ai.google.dev/api/generate-content#AuthToken) và [Google Discovery v1beta](https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta). REST dùng `bidiGenerateContentSetup`/`generationConfig`; `liveConnectConstraints`/`config` là dạng cấu hình SDK, bị API thực tế trả 400 Unknown name khi gửi trực tiếp. Ví dụ REST trong trang hướng dẫn ephemeral tại thời điểm kiểm tra không khớp schema/response thực tế; ưu tiên reference + Discovery. `fieldMask` khóa model/audio; không bỏ mask vì setup cấp token sẽ thay toàn bộ setup client, làm mất tutor instructions, function calling/transcription và resumption handle. Chưa xác nhận project key/quota hoặc voice thật bằng kiểm tra schema.
 
 4. Worker trả token tạm thời, không cache, không in logs. Frontend dùng WebSocket `BidiGenerateContentConstrained` v1beta với `access_token`, chờ `setupComplete` rồi mới gửi PCM/text. Xem https://ai.google.dev/gemini-api/docs/live-api/ephemeral-tokens.
 5. Token có thời gian sử dụng ngắn và vẫn có thể bị đánh cắp từ client: xác thực backend thật, allowlist, rate limit và thu hẹp scope. Ephemeral token hiện là tính năng preview.

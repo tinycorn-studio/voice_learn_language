@@ -11,11 +11,16 @@ var ACTION_UPSERT = 'vocabulary.upsert';
 var ACTION_LIST = 'vocabulary.list';
 var ACTION_UPDATE = 'vocabulary.update';
 var ACTION_DELETE = 'vocabulary.delete';
+var ACTION_CARD_GET = 'card.get';
 var ACTION_REVIEW_LIST_DUE = 'review.listDue';
+var ACTION_REVIEW_PREVIEW = 'review.preview';
 var ACTION_REVIEW_RECORD = 'review.record';
+var ACTION_REVIEW_LOOKUP = 'review.lookup';
+var ACTION_REVIEW_STATS = 'review.stats';
 var ACTION_REVIEW_CLAIM_DIGEST = 'review.claimDigest';
 var ACTION_REVIEW_FINISH_DIGEST = 'review.finishDigest';
 var ACTION_USER_PREFERENCES = 'user.preferences';
+var ACTION_MIGRATION_V3 = 'migration.schemaV3';
 
 var WORDS_COLUMNS = [
   'word_id', 'user_id', 'word_key', 'word', 'lemma', 'part_of_speech', 'sense_key',
@@ -24,14 +29,30 @@ var WORDS_COLUMNS = [
   'due_at', 'last_reviewed_at', 'version', 'deleted_at'
 ];
 
-var EVENTS_COLUMNS = [
-  'event_id', 'event_type', 'user_id', 'entity_id', 'occurred_at',
-  'created_at', 'request_id', 'payload_hash', 'result_code', 'result_json'
+var CARDS_COLUMNS = [
+  'card_id', 'user_id', 'word_id', 'card_type', 'state', 'due_at_utc',
+  'stability', 'difficulty', 'elapsed_days', 'scheduled_days', 'learning_steps',
+  'reps', 'lapses', 'last_review_at_utc', 'created_at_utc', 'updated_at_utc',
+  'row_version', 'scheduler_version', 'parameters_version', 'is_suspended', 'legacy_snapshot_json'
 ];
 
 var REVIEWS_COLUMNS = [
-  'review_id', 'event_id', 'user_id', 'word_id', 'rating', 'reviewed_at',
-  'old_due_at', 'new_due_at', 'old_interval_days', 'new_interval_days'
+  'review_id', 'event_id', 'user_id', 'card_id', 'word_id', 'rating', 'reviewed_at',
+  'old_due_at', 'new_due_at', 'old_interval_days', 'new_interval_days',
+  'previous_state', 'next_state', 'stability', 'difficulty', 'review_log_json',
+  'previous_version', 'next_version', 'scheduler_version', 'parameters_version',
+  'previous_card_json', 'next_card_json'
+];
+
+var SETTINGS_COLUMNS = [
+  'user_id', 'desired_retention', 'maximum_interval', 'scheduler_version',
+  'parameters_version', 'scheduler_parameters_json', 'daily_new_card_limit',
+  'daily_review_limit', 'timezone', 'updated_at_utc'
+];
+
+var EVENTS_COLUMNS = [
+  'event_id', 'event_type', 'user_id', 'entity_id', 'occurred_at',
+  'created_at', 'request_id', 'payload_hash', 'result_code', 'result_json'
 ];
 
 var USERS_COLUMNS = [
@@ -45,8 +66,8 @@ var DISPATCH_COLUMNS = [
 ];
 
 /**
- * Helper that can be run manually once in Apps Script Editor to create the 5 required tabs
- * and exact header rows (`docs/09_DATA_SCHEMA.md`, `M3-01`).
+ * Helper that can be run manually once in Apps Script Editor to create the required tabs
+ * and exact header rows (`docs/09_DATA_SCHEMA.md`).
  */
 function setupSheets() {
   var props = PropertiesService.getScriptProperties();
@@ -54,12 +75,15 @@ function setupSheets() {
   if (!sheetId) throw new Error('Missing SHEET_ID in Script Properties');
   var ss = SpreadsheetApp.openById(sheetId);
   ensureTabWithHeaders_(ss, 'Words', WORDS_COLUMNS);
+  ensureTabWithHeaders_(ss, 'Cards', CARDS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Events', EVENTS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Reviews', REVIEWS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Users', USERS_COLUMNS);
+  ensureTabWithHeaders_(ss, 'Settings', SETTINGS_COLUMNS);
   ensureTabWithHeaders_(ss, 'DailyDispatchLog', DISPATCH_COLUMNS);
   SpreadsheetApp.flush();
 }
+
 
 function ensureTabWithHeaders_(ss, tabName, headers) {
   var sheet = ss.getSheetByName(tabName);
@@ -90,8 +114,127 @@ function migrateSchemaV2() {
   } finally { lock.releaseLock(); }
 }
 
+/** Run after backing up existing Sheet; creates Cards and Settings tabs, migrates Words to Cards without duplicate IDs. */
+function migrateSchemaV3(dryRun) {
+  var props = PropertiesService.getScriptProperties();
+  var ss = SpreadsheetApp.openById(props.getProperty('SHEET_ID'));
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var res = migrateSchemaV3_(ss, Boolean(dryRun));
+    if (!dryRun) props.setProperty('SCHEMA_VERSION', '3');
+    return res;
+  } finally { lock.releaseLock(); }
+}
+
+function migrateSchemaV3_(ss, isDryRun) {
+  // Inspect before any write: a dry-run must not create tabs or extend headers.
+  var sourceWords = ss.getSheetByName('Words');
+  if (!sourceWords) throw new Error('Missing Words tab');
+  var sourceRows = readAllRowsAsObjects_(sourceWords, headerMap_(sourceWords));
+  var currentCards = ss.getSheetByName('Cards');
+  var currentRows = currentCards ? readAllRowsAsObjects_(currentCards, headerMap_(currentCards)) : [];
+  var existing = {};
+  currentRows.forEach(function (card) { existing[String(card.word_id)] = true; });
+  var pending = sourceRows.filter(function (word) { return !String(word.deleted_at || '') && !existing[String(word.word_id)]; });
+  if (isDryRun) return { migrated_cards: pending.length, status: 'DRY_RUN' };
+  ensureTabWithHeaders_(ss, 'Cards', CARDS_COLUMNS);
+  ensureTabWithHeaders_(ss, 'Settings', SETTINGS_COLUMNS);
+
+  [['Events', EVENTS_COLUMNS], ['DailyDispatchLog', DISPATCH_COLUMNS], ['Cards', CARDS_COLUMNS], ['Settings', SETTINGS_COLUMNS]].forEach(function (entry) {
+    var tab = ss.getSheetByName(entry[0]);
+    if (!tab) throw new Error('Missing migration tab: ' + entry[0]);
+    var headers = headerMap_(tab);
+    entry[1].forEach(function (column) { if (!headers[column]) { tab.getRange(1, tab.getLastColumn() + 1).setValue(column); headers[column] = tab.getLastColumn(); } });
+  });
+
+  var reviews = ss.getSheetByName('Reviews');
+  if (reviews) {
+    var rh = headerMap_(reviews);
+    REVIEWS_COLUMNS.forEach(function (col) {
+      if (!rh[col]) {
+        reviews.getRange(1, reviews.getLastColumn() + 1).setValue(col);
+      }
+    });
+  }
+
+  var words = ss.getSheetByName('Words');
+  var cards = ss.getSheetByName('Cards');
+  if (!words || !cards) throw new Error('Missing Words or Cards tab');
+
+  var wh = headerMap_(words);
+  var ch = headerMap_(cards);
+  var wordRows = readAllRowsAsObjects_(words, wh);
+  var cardRows = readAllRowsAsObjects_(cards, ch);
+
+  var existingCardsByWordId = {};
+  for (var c = 0; c < cardRows.length; c++) {
+    existingCardsByWordId[String(cardRows[c].word_id)] = true;
+  }
+
+  var count = 0;
+  var now = new Date().toISOString();
+  for (var w = 0; w < wordRows.length; w++) {
+    var word = wordRows[w];
+    if (String(word.deleted_at || '') !== '') continue;
+    var wordId = String(word.word_id);
+    if (!existingCardsByWordId[wordId]) {
+      count++;
+      if (!isDryRun) {
+        var legacyState = String(word.review_state || 'new').toLowerCase();
+        // Legacy SRS has no FSRS memory model: preserve dates/counts and archive it,
+        // then let the official library initialize memory on the next real rating.
+        var cardState = 'New';
+        appendMapped_(cards, ch, {
+          card_id: 'c_' + wordId,
+          user_id: String(word.user_id),
+          word_id: wordId,
+          card_type: 'default',
+          state: cardState,
+          due_at_utc: String(word.due_at || now),
+          stability: 0,
+          difficulty: 0,
+          elapsed_days: 0,
+          scheduled_days: Number(word.interval_days || 0),
+          learning_steps: 0,
+          reps: Number(word.repetitions || 0),
+          lapses: 0,
+          last_review_at_utc: String(word.last_reviewed_at || ''),
+          created_at_utc: String(word.created_at || now),
+          updated_at_utc: now,
+          row_version: Number(word.version || 1),
+          scheduler_version: 'not-yet-scheduled',
+          parameters_version: 'not-yet-scheduled',
+          is_suspended: legacyState === 'suspended',
+          legacy_snapshot_json: JSON.stringify(word)
+        });
+      }
+    }
+  }
+
+  SpreadsheetApp.flush();
+  return { migrated_cards: count, status: isDryRun ? 'DRY_RUN' : 'APPLIED' };
+}
+
+
+/** GET handler for Web App health check & configuration status probe. */
+function doGet(e) {
+  var props = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty('SHEET_ID');
+  var ownerUserId = props.getProperty('OWNER_USER_ID');
+  var sharedSecret = props.getProperty('GAS_SHARED_SECRET');
+  return jsonResponse_({
+    ok: true,
+    service: 'voice-chat-gas',
+    configured: Boolean(sheetId && ownerUserId && sharedSecret),
+    sheet_status: sheetId ? 'configured' : 'missing',
+    owner: ownerUserId ? ownerUserId : 'missing'
+  });
+}
+
 /** Entry point: only HMAC-signed Worker requests may access or mutate the spreadsheet. */
 function doPost(e) {
+
   try {
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse_({ ok: false, error: { code: 'EMPTY_BODY', message: 'Empty request body' } });
@@ -144,11 +287,27 @@ function doPost(e) {
     if (event.action === ACTION_DELETE) {
       return handleWithBusinessError_(function () { return deleteWord_(ss, event); });
     }
+    if (event.action === ACTION_CARD_GET) {
+      return handleWithBusinessError_(function () { var result = getCard_(ss, event); result.settings = readFsrsSettings_(ss, event.user_id); return result; });
+    }
     if (event.action === ACTION_REVIEW_LIST_DUE) {
       return jsonResponse_({ ok: true, data: listDueReviews_(ss, event) });
     }
+    if (event.action === ACTION_REVIEW_PREVIEW) {
+      return jsonResponse_({ ok: true, data: previewReview_(ss, event) });
+    }
     if (event.action === ACTION_REVIEW_RECORD) {
       return handleWithBusinessError_(function () { return recordReview_(ss, event); });
+    }
+    if (event.action === ACTION_REVIEW_LOOKUP) {
+      return handleWithBusinessError_(function () {
+        var events = ss.getSheetByName('Events');
+        var result = mutationReplay_(events, headerMap_(events), Object.assign({}, event, { action: ACTION_REVIEW_RECORD }));
+        return { result: result === null ? null : Object.assign({}, result, { duplicate_event: true, idempotent_replay: true }) };
+      });
+    }
+    if (event.action === ACTION_REVIEW_STATS) {
+      return jsonResponse_({ ok: true, data: getReviewStats_(ss, event) });
     }
     if (event.action === ACTION_REVIEW_CLAIM_DIGEST) {
       return jsonResponse_({ ok: true, data: claimDailyDigest_(ss, event) });
@@ -159,6 +318,10 @@ function doPost(e) {
     if (event.action === ACTION_USER_PREFERENCES) {
       return jsonResponse_({ ok: true, data: updateUserPreferences_(ss, event) });
     }
+    if (event.action === ACTION_MIGRATION_V3) {
+      return handleWithBusinessError_(function () { return migrateSchemaV3(Boolean(event.data && event.data.dry_run)); });
+    }
+
 
     return jsonResponse_({ ok: false, error: { code: 'ACTION_NOT_IMPLEMENTED', message: 'Unsupported action' } });
   } catch (err) {
@@ -262,7 +425,34 @@ function upsertWord_(ss, event) {
         interval_days: 0, ease_factor: 2.5, due_at: now,
         last_reviewed_at: '', version: 1, deleted_at: ''
       });
+      var cards = ss.getSheetByName('Cards');
+      if (cards) {
+        var ch = headerMap_(cards);
+        appendMapped_(cards, ch, {
+          card_id: 'c_' + id,
+          user_id: event.user_id,
+          word_id: id,
+          card_type: 'default',
+          state: 'New',
+          due_at_utc: now,
+          stability: 0,
+          difficulty: 0,
+          elapsed_days: 0,
+          scheduled_days: 0,
+          learning_steps: 0,
+          reps: 0,
+          lapses: 0,
+          last_review_at_utc: '',
+          created_at_utc: now,
+          updated_at_utc: now,
+          row_version: 1,
+          scheduler_version: 'not-yet-scheduled',
+          parameters_version: 'not-yet-scheduled',
+          is_suspended: false
+        });
+      }
     }
+
     appendMutationEvent_(events, eh, event, id, { word_id: id, duplicate_event: false, created: created });
     SpreadsheetApp.flush();
     return { word_id: id, duplicate_event: false, created: created };
@@ -418,6 +608,146 @@ function deleteWord_(ss, event) {
   }
 }
 
+function getCard_(ss, event) {
+  var d = event.data || {};
+  var cardId = d.card_id ? String(d.card_id).trim() : '';
+  var wordId = d.word_id ? String(d.word_id).trim() : '';
+  if (!cardId && !wordId) {
+    throw new Error('INVALID_ARGUMENT:Either card_id or word_id is required');
+  }
+
+  var words = ss.getSheetByName('Words');
+  if (!words) throw new Error('Missing Words tab');
+  var wh = headerMap_(words);
+  requireColumns_(wh, WORDS_COLUMNS);
+
+  var cards = ss.getSheetByName('Cards');
+  if (cards) {
+    var ch = headerMap_(cards);
+    requireColumns_(ch, CARDS_COLUMNS);
+
+    var cardRow = -1;
+    if (cardId) {
+      cardRow = findRow_(cards, ch['card_id'], cardId);
+      if (cardRow <= 0 && cardId.indexOf('c_') === 0) {
+        cardRow = findRow_(cards, ch['word_id'], cardId.substring(2));
+      }
+    }
+    if (cardRow <= 0 && wordId) {
+      cardRow = findRow_(cards, ch['word_id'], wordId);
+      if (cardRow <= 0) {
+        cardRow = findRow_(cards, ch['card_id'], 'c_' + wordId);
+      }
+    }
+
+    if (cardRow > 0) {
+      var cObj = readRowObject_(cards, ch, cardRow);
+      if (String(cObj.user_id) !== event.user_id) {
+        throw new Error('FORBIDDEN:Unauthorized card access');
+      }
+      var parentRow = findRow_(words, wh['word_id'], String(cObj.word_id));
+      var parent = parentRow > 0 ? readRowObject_(words, wh, parentRow) : null;
+      if (!parent || parent.user_id !== event.user_id || String(parent.deleted_at || '') || String(cObj.is_suspended) === 'true' || String(parent.review_state) === 'suspended') throw new Error('NOT_FOUND:Card is inactive');
+      return {
+        card: {
+          card_id: String(cObj.card_id),
+          user_id: String(cObj.user_id),
+          word_id: String(cObj.word_id),
+          card_type: String(cObj.card_type || 'default'),
+          state: String(cObj.state || 'New'),
+          due_at_utc: String(cObj.due_at_utc || new Date().toISOString()),
+          stability: Number(cObj.stability || 0),
+          difficulty: Number(cObj.difficulty || 0),
+          elapsed_days: Number(cObj.elapsed_days || 0),
+          scheduled_days: Number(cObj.scheduled_days || 0),
+          learning_steps: Number(cObj.learning_steps || 0),
+          reps: Number(cObj.reps || 0),
+          lapses: Number(cObj.lapses || 0),
+          last_review_at_utc: cObj.last_review_at_utc ? String(cObj.last_review_at_utc) : null,
+          created_at_utc: String(cObj.created_at_utc || new Date().toISOString()),
+          updated_at_utc: String(cObj.updated_at_utc || new Date().toISOString()),
+          row_version: Number(cObj.row_version || 1),
+          scheduler_version: String(cObj.scheduler_version || 'not-yet-scheduled'),
+          parameters_version: String(cObj.parameters_version || 'not-yet-scheduled'),
+          is_suspended: String(cObj.is_suspended) === 'true' || cObj.is_suspended === true,
+          legacy_snapshot_json: String(cObj.legacy_snapshot_json || '')
+        }
+      };
+    }
+  }
+
+  // Not found in Cards tab, check Words tab
+  var targetWordId = wordId || (cardId.indexOf('c_') === 0 ? cardId.substring(2) : cardId);
+  var wordRow = findRow_(words, wh['word_id'], targetWordId);
+  if (wordRow <= 0) {
+    throw new Error('NOT_FOUND:Card or Word not found');
+  }
+  var wObj = readRowObject_(words, wh, wordRow);
+  if (String(wObj.user_id) !== event.user_id || String(wObj.deleted_at || '') !== '') {
+    throw new Error('FORBIDDEN:Unauthorized card access');
+  }
+
+  var now = new Date().toISOString();
+  var legacyState = String(wObj.review_state || 'new').toLowerCase();
+  if (legacyState === 'suspended') throw new Error('NOT_FOUND:Card is inactive');
+  var cardState = 'New';
+  var newCard = {
+    card_id: 'c_' + targetWordId,
+    user_id: String(wObj.user_id),
+    word_id: targetWordId,
+    card_type: 'default',
+    state: cardState,
+    due_at_utc: String(wObj.due_at || now),
+    stability: 0,
+    difficulty: 0,
+    elapsed_days: 0,
+    scheduled_days: Number(wObj.interval_days || 0),
+    learning_steps: 0,
+    reps: Number(wObj.repetitions || 0),
+    lapses: 0,
+    last_review_at_utc: wObj.last_reviewed_at ? String(wObj.last_reviewed_at) : null,
+    created_at_utc: String(wObj.created_at || now),
+    updated_at_utc: now,
+    row_version: Number(wObj.version || 1),
+    scheduler_version: 'not-yet-scheduled',
+    parameters_version: 'not-yet-scheduled',
+    is_suspended: legacyState === 'suspended',
+    legacy_snapshot_json: JSON.stringify(wObj)
+  };
+
+  // Reads stay read-only; only locked migration/recordReview may materialize a card.
+
+  return { card: newCard };
+}
+
+function previewReview_(ss, event) {
+  var cardData = getCard_(ss, event);
+  return {
+    card_id: cardData.card.card_id,
+    current_state: cardData.card.state,
+    card: cardData.card
+  };
+}
+
+function legacyReviewState_(state) {
+  return state === 'Relearning' || state === 'Learning' ? 'learning' : String(state).toLowerCase();
+}
+
+function readFsrsSettings_(ss, userId) {
+  var sheet = ss.getSheetByName('Settings');
+  if (!sheet) return {};
+  var h = headerMap_(sheet);
+  var row = findRow_(sheet, h['user_id'], userId);
+  if (row <= 0) return {};
+  var stored = readRowObject_(sheet, h, row);
+  var settings = stored.scheduler_parameters_json ? JSON.parse(String(stored.scheduler_parameters_json)) : {};
+  if (stored.desired_retention !== '') settings.request_retention = Number(stored.desired_retention);
+  if (stored.maximum_interval !== '') settings.maximum_interval = Number(stored.maximum_interval);
+  if (stored.timezone) settings.timezone = String(stored.timezone);
+  if (stored.parameters_version) settings.parameters_version = String(stored.parameters_version);
+  return settings;
+}
+
 function listDueReviews_(ss, event) {
   var d = event.data || {};
   var limit = Math.min(50, Math.max(1, Number(d.limit || 10)));
@@ -429,31 +759,107 @@ function listDueReviews_(ss, event) {
   var wh = headerMap_(words);
   requireColumns_(wh, WORDS_COLUMNS);
 
-  var rows = readAllRowsAsObjects_(words, wh);
+  var cards = ss.getSheetByName('Cards');
   var due = [];
-  for (var i = 0; i < rows.length; i++) {
-    var r = rows[i];
-    if (String(r.user_id) !== event.user_id) continue;
-    if (String(r.deleted_at || '') !== '') continue;
-    if (String(r.review_state) === 'suspended') continue;
-    var dueMs = Date.parse(String(r.due_at || ''));
-    if (!isFinite(dueMs) || dueMs <= nowMs) {
-      due.push({
-        review_id: 'due_' + String(r.word_id),
-        word_id: String(r.word_id),
-        word: stripLeadingQuote_(String(r.word)),
-        lemma: stripLeadingQuote_(String(r.lemma)),
-        part_of_speech: String(r.part_of_speech || 'unknown'),
-        meaning_vi: stripLeadingQuote_(String(r.meaning_vi || '')),
-        example: stripLeadingQuote_(String(r.example || '')),
-        source_excerpt: stripLeadingQuote_(String(r.source_excerpt || '')),
-        due_at: String(r.due_at),
-        review_state: String(r.review_state || 'new'),
-        repetitions: Number(r.repetitions || 0),
-        interval_days: Number(r.interval_days || 0),
-        ease_factor: Number(r.ease_factor || 2.5),
-        version: Number(r.version || 1)
-      });
+
+  if (cards) {
+    var ch = headerMap_(cards);
+    requireColumns_(ch, CARDS_COLUMNS);
+
+    var cardRows = readAllRowsAsObjects_(cards, ch);
+    var wordRows = readAllRowsAsObjects_(words, wh);
+    var wordMap = {};
+    for (var w = 0; w < wordRows.length; w++) {
+      var wItem = wordRows[w];
+      if (String(wItem.user_id) === event.user_id && String(wItem.deleted_at || '') === '' && wItem.review_state !== 'suspended') {
+        wordMap[String(wItem.word_id)] = wItem;
+      }
+    }
+
+    for (var c = 0; c < cardRows.length; c++) {
+      var cr = cardRows[c];
+      if (String(cr.user_id) !== event.user_id) continue;
+      if (String(cr.is_suspended) === 'true' || cr.is_suspended === true) continue;
+      var parentWord = wordMap[String(cr.word_id)];
+      if (!parentWord) continue;
+
+      var dueMs = Date.parse(String(cr.due_at_utc || ''));
+      if (!isFinite(dueMs) || dueMs <= nowMs) {
+        due.push({
+          review_id: 'due_' + String(cr.card_id),
+          card_id: String(cr.card_id),
+          card_type: String(cr.card_type || 'default'),
+          word_id: String(cr.word_id),
+          word: stripLeadingQuote_(String(parentWord.word)),
+          lemma: stripLeadingQuote_(String(parentWord.lemma)),
+          part_of_speech: String(parentWord.part_of_speech || 'unknown'),
+          meaning_vi: stripLeadingQuote_(String(parentWord.meaning_vi || '')),
+          example: stripLeadingQuote_(String(parentWord.example || '')),
+          source_excerpt: stripLeadingQuote_(String(parentWord.source_excerpt || '')),
+          due_at: String(cr.due_at_utc || nowIso),
+          review_state: legacyReviewState_(String(cr.state || 'New')),
+          repetitions: Number(cr.reps || 0),
+          interval_days: Number(cr.scheduled_days || 0),
+          ease_factor: 2.5,
+          version: Number(cr.row_version || 1),
+          state: String(cr.state || 'New'),
+          due_at_utc: String(cr.due_at_utc || nowIso),
+          stability: Number(cr.stability || 0),
+          difficulty: Number(cr.difficulty || 0),
+          elapsed_days: Number(cr.elapsed_days || 0),
+          scheduled_days: Number(cr.scheduled_days || 0),
+          learning_steps: Number(cr.learning_steps || 0),
+          reps: Number(cr.reps || 0),
+          lapses: Number(cr.lapses || 0),
+          last_review_at_utc: cr.last_review_at_utc ? String(cr.last_review_at_utc) : undefined,
+          row_version: Number(cr.row_version || 1),
+          scheduler_version: String(cr.scheduler_version || 'not-yet-scheduled'),
+          parameters_version: String(cr.parameters_version || 'not-yet-scheduled')
+        });
+      }
+    }
+  }
+  {
+    var rows = readAllRowsAsObjects_(words, wh);
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (String(r.user_id) !== event.user_id) continue;
+      if (String(r.deleted_at || '') !== '') continue;
+      if (String(r.review_state) === 'suspended') continue;
+      if (cards && cardRows.some(function (card) { return String(card.word_id) === String(r.word_id); })) continue;
+      var dueMsW = Date.parse(String(r.due_at || ''));
+      if (!isFinite(dueMsW) || dueMsW <= nowMs) {
+        due.push({
+          review_id: 'due_' + String(r.word_id),
+          card_id: 'c_' + String(r.word_id),
+          card_type: 'default',
+          word_id: String(r.word_id),
+          word: stripLeadingQuote_(String(r.word)),
+          lemma: stripLeadingQuote_(String(r.lemma)),
+          part_of_speech: String(r.part_of_speech || 'unknown'),
+          meaning_vi: stripLeadingQuote_(String(r.meaning_vi || '')),
+          example: stripLeadingQuote_(String(r.example || '')),
+          source_excerpt: stripLeadingQuote_(String(r.source_excerpt || '')),
+          due_at: String(r.due_at),
+          review_state: String(r.review_state || 'new'),
+          repetitions: Number(r.repetitions || 0),
+          interval_days: Number(r.interval_days || 0),
+          ease_factor: Number(r.ease_factor || 2.5),
+          version: Number(r.version || 1),
+          state: 'New',
+          due_at_utc: String(r.due_at),
+          stability: 0,
+          difficulty: 0,
+          elapsed_days: 0,
+          scheduled_days: Number(r.interval_days || 0),
+          learning_steps: 0,
+          reps: Number(r.repetitions || 0),
+          lapses: 0,
+          row_version: Number(r.version || 1),
+          scheduler_version: 'not-yet-scheduled',
+          parameters_version: 'not-yet-scheduled'
+        });
+      }
     }
   }
 
@@ -466,13 +872,16 @@ function listDueReviews_(ss, event) {
 
 function recordReview_(ss, event) {
   var d = event.data || {};
-  var wordId = checkedText_(d.word_id, 120, true);
+  var wordId = d.word_id ? checkedText_(d.word_id, 120, false) : '';
+  var cardId = d.card_id ? checkedText_(d.card_id, 120, false) : '';
+  if (!wordId && !cardId) throw new Error('INVALID_ARGUMENT:Missing word_id or card_id');
   var rating = checkedText_(d.rating, 16, true).toLowerCase();
   var reviewedAtIso = String(d.reviewed_at || event.issued_at || new Date().toISOString());
 
   var words = ss.getSheetByName('Words');
   var events = ss.getSheetByName('Events');
   var reviews = ss.getSheetByName('Reviews');
+  var cards = ss.getSheetByName('Cards');
   if (!words || !events || !reviews) throw new Error('Missing Words/Events/Reviews tabs');
 
   var lock = LockService.getScriptLock();
@@ -486,26 +895,34 @@ function recordReview_(ss, event) {
     requireColumns_(rh, REVIEWS_COLUMNS);
 
     var replay = mutationReplay_(events, eh, event);
-    if (replay !== null) return Object.assign({}, replay, { duplicate_event: true });
+    if (replay !== null) return Object.assign({}, replay, { duplicate_event: true, idempotent_replay: true });
+    if (!d.fsrs_card || !d.fsrs_review_log) throw new Error('INVALID_ARGUMENT:Official FSRS snapshot and log required');
 
     var existingRevRow = findRow_(reviews, rh['event_id'], String(event.event_id));
     if (existingRevRow > 0) {
-      var existingRev = readRowObject_(reviews, rh, existingRevRow);
-      var existingWordRow = findRow_(words, wh['word_id'], wordId);
-      var existingWord = existingWordRow > 0 ? readRowObject_(words, wh, existingWordRow) : {};
-      return {
-        review_id: String(existingRev.review_id),
-        word_id: wordId,
-        next_due_at: String(existingRev.new_due_at),
-        interval_days: Number(existingRev.new_interval_days || 0),
-        repetitions: Number(existingWord.repetitions || 0),
-        ease_factor: Number(existingWord.ease_factor || 2.5),
-        review_state: String(existingWord.review_state || 'review'),
-        duplicate_event: true
-      };
+      // Sheets cannot transact across tabs. Never invent a successful replay from
+      // mutable current rows if the original Events snapshot was not persisted.
+      throw new Error('CONFLICT:Incomplete review requires reconciliation');
     }
 
-    var wordRow = findRow_(words, wh['word_id'], wordId);
+    var cardRow = -1;
+    var ch = null;
+    var cardObj = null;
+    if (cards) {
+      ch = headerMap_(cards);
+      requireColumns_(ch, CARDS_COLUMNS);
+      if (cardId) cardRow = findRow_(cards, ch['card_id'], cardId);
+      if (cardRow <= 0 && wordId) cardRow = findRow_(cards, ch['word_id'], wordId);
+      if (cardRow <= 0 && cardId && cardId.indexOf('c_') === 0) {
+        cardRow = findRow_(cards, ch['word_id'], cardId.substring(2));
+      }
+      if (cardRow > 0) {
+        cardObj = readRowObject_(cards, ch, cardRow);
+      }
+    }
+
+    var effTargetWordId = wordId || (cardObj ? String(cardObj.word_id) : (cardId.indexOf('c_') === 0 ? cardId.substring(2) : cardId));
+    var wordRow = findRow_(words, wh['word_id'], effTargetWordId);
     if (wordRow <= 0) {
       throw new Error('NOT_FOUND:Word not found for review');
     }
@@ -513,26 +930,95 @@ function recordReview_(ss, event) {
     if (String(wordObj.user_id) !== event.user_id || String(wordObj.deleted_at || '') !== '') {
       throw new Error('FORBIDDEN:Unauthorized word review');
     }
-    if (d.version !== undefined && Number(d.version) !== Number(wordObj.version)) throw new Error('CONFLICT:Review card is stale');
+    if (wordObj.review_state === 'suspended' || (cardObj && (String(cardObj.user_id) !== event.user_id || String(cardObj.word_id) !== effTargetWordId))) {
+      throw new Error('FORBIDDEN:Unauthorized card review');
+    }
 
-    var srs = computeSrsNext_(
-      {
-        reviewState: String(wordObj.review_state || 'new'),
-        repetitions: Number(wordObj.repetitions || 0),
-        intervalDays: Number(wordObj.interval_days || 0),
-        easeFactor: Number(wordObj.ease_factor || 2.5),
-        dueAt: String(wordObj.due_at || reviewedAtIso)
-      },
-      rating,
-      reviewedAtIso
-    );
+    var expectedVersion = d.expected_version !== undefined ? Number(d.expected_version) : (d.version !== undefined ? Number(d.version) : 0);
+    if (expectedVersion > 0) {
+      var wordVer = Number(wordObj.version || 1);
+      var cardVer = cardObj ? Number(cardObj.row_version || 1) : wordVer;
+      if (expectedVersion !== cardVer) {
+        throw new Error('CONFLICT:Review card is stale');
+      }
+    }
 
     var reviewId = 'rev_' + Utilities.getUuid();
-    words.getRange(wordRow, wh['review_state']).setValue(srs.reviewState);
-    words.getRange(wordRow, wh['repetitions']).setValue(srs.repetitions);
-    words.getRange(wordRow, wh['interval_days']).setValue(srs.intervalDays);
-    words.getRange(wordRow, wh['ease_factor']).setValue(srs.easeFactor);
-    words.getRange(wordRow, wh['due_at']).setValue(srs.dueAt);
+    var finalCardId = cardObj ? String(cardObj.card_id) : ('c_' + effTargetWordId);
+    var finalState = 'Review';
+    var finalDueAt = reviewedAtIso;
+    var finalIntervalDays = 1;
+    var finalStability = 0;
+    var finalDifficulty = 0;
+    var finalReps = Number(wordObj.repetitions || 0) + 1;
+    var finalLapses = 0;
+    var finalRowVersion = Number((cardObj ? cardObj.row_version : wordObj.version) || 1) + 1;
+    var prevState = cardObj ? String(cardObj.state || 'New') : String(wordObj.review_state || 'new');
+    var oldDueAt = cardObj ? String(cardObj.due_at_utc || wordObj.due_at || '') : String(wordObj.due_at || '');
+    var oldInterval = cardObj ? Number(cardObj.scheduled_days || wordObj.interval_days || 0) : Number(wordObj.interval_days || 0);
+    var previousCard = cardObj || getCard_(ss, event).card;
+
+    if (d.fsrs_card) {
+      var fc = d.fsrs_card;
+      if (fc.card_id !== finalCardId || fc.word_id !== effTargetWordId || fc.user_id !== event.user_id || Number(fc.row_version) !== finalRowVersion || (cardObj && String(cardObj.is_suspended) === 'true')) throw new Error('CONFLICT:FSRS snapshot does not match locked Card version');
+      if (['New', 'Learning', 'Review', 'Relearning'].indexOf(fc.state) < 0 || !isFinite(Date.parse(fc.due_at_utc)) || !(fc.stability >= 0 && isFinite(fc.stability)) || !(fc.difficulty >= 0 && fc.difficulty <= 10)) throw new Error('INVALID_ARGUMENT:Invalid FSRS snapshot');
+      finalState = String(fc.state || 'Review');
+      finalDueAt = String(fc.due_at_utc || reviewedAtIso);
+      finalIntervalDays = Number(fc.scheduled_days || 0);
+      finalStability = Number(fc.stability || 0);
+      finalDifficulty = Number(fc.difficulty || 0);
+      finalReps = Number(fc.reps || 0);
+      finalLapses = Number(fc.lapses || 0);
+      finalRowVersion = Number(fc.row_version || finalRowVersion);
+
+      if (cards) {
+        if (cardRow > 0) {
+          cards.getRange(cardRow, ch['state']).setValue(finalState);
+          cards.getRange(cardRow, ch['due_at_utc']).setValue(finalDueAt);
+          cards.getRange(cardRow, ch['stability']).setValue(finalStability);
+          cards.getRange(cardRow, ch['difficulty']).setValue(finalDifficulty);
+          cards.getRange(cardRow, ch['elapsed_days']).setValue(Number(fc.elapsed_days || 0));
+          cards.getRange(cardRow, ch['scheduled_days']).setValue(finalIntervalDays);
+          cards.getRange(cardRow, ch['learning_steps']).setValue(Number(fc.learning_steps || 0));
+          cards.getRange(cardRow, ch['reps']).setValue(finalReps);
+          cards.getRange(cardRow, ch['lapses']).setValue(finalLapses);
+          cards.getRange(cardRow, ch['last_review_at_utc']).setValue(reviewedAtIso);
+          cards.getRange(cardRow, ch['updated_at_utc']).setValue(reviewedAtIso);
+          cards.getRange(cardRow, ch['row_version']).setValue(finalRowVersion);
+          cards.getRange(cardRow, ch['scheduler_version']).setValue(fc.scheduler_version);
+          cards.getRange(cardRow, ch['parameters_version']).setValue(fc.parameters_version);
+        } else {
+          appendMapped_(cards, ch, {
+            card_id: finalCardId,
+            user_id: event.user_id,
+            word_id: effTargetWordId,
+            card_type: 'default',
+            state: finalState,
+            due_at_utc: finalDueAt,
+            stability: finalStability,
+            difficulty: finalDifficulty,
+            elapsed_days: Number(fc.elapsed_days || 0),
+            scheduled_days: finalIntervalDays,
+            learning_steps: Number(fc.learning_steps || 0),
+            reps: finalReps,
+            lapses: finalLapses,
+            last_review_at_utc: reviewedAtIso,
+            created_at_utc: String(wordObj.created_at || reviewedAtIso),
+            updated_at_utc: reviewedAtIso,
+            row_version: finalRowVersion,
+            scheduler_version: String(fc.scheduler_version || 'not-yet-scheduled'),
+            parameters_version: String(fc.parameters_version || 'not-yet-scheduled'),
+            is_suspended: false,
+            legacy_snapshot_json: fc.legacy_snapshot_json || ''
+          });
+        }
+      }
+    }
+
+    words.getRange(wordRow, wh['review_state']).setValue(legacyReviewState_(finalState));
+    words.getRange(wordRow, wh['repetitions']).setValue(finalReps);
+    words.getRange(wordRow, wh['interval_days']).setValue(finalIntervalDays);
+    words.getRange(wordRow, wh['due_at']).setValue(finalDueAt);
     words.getRange(wordRow, wh['last_reviewed_at']).setValue(reviewedAtIso);
     words.getRange(wordRow, wh['version']).setValue(Number(wordObj.version || 1) + 1);
 
@@ -540,23 +1026,43 @@ function recordReview_(ss, event) {
       review_id: reviewId,
       event_id: String(event.event_id),
       user_id: event.user_id,
-      word_id: wordId,
+      card_id: finalCardId,
+      word_id: effTargetWordId,
       rating: rating,
       reviewed_at: reviewedAtIso,
-      old_due_at: srs.oldDueAt,
-      new_due_at: srs.dueAt,
-      old_interval_days: srs.oldIntervalDays,
-      new_interval_days: srs.intervalDays
+      old_due_at: oldDueAt,
+      new_due_at: finalDueAt,
+      old_interval_days: oldInterval,
+      new_interval_days: finalIntervalDays,
+      previous_state: prevState,
+      next_state: finalState,
+      stability: finalStability,
+      difficulty: finalDifficulty,
+      review_log_json: d.fsrs_review_log ? JSON.stringify(d.fsrs_review_log) : '',
+      previous_version: finalRowVersion - 1,
+      next_version: finalRowVersion,
+      scheduler_version: d.fsrs_card ? d.fsrs_card.scheduler_version : 'legacy',
+      parameters_version: d.fsrs_card ? d.fsrs_card.parameters_version : 'legacy',
+      previous_card_json: JSON.stringify(previousCard),
+      next_card_json: JSON.stringify(d.fsrs_card || {})
     });
 
     var result = {
       review_id: reviewId,
-      word_id: wordId,
-      next_due_at: srs.dueAt,
-      interval_days: srs.intervalDays,
-      repetitions: srs.repetitions,
-      ease_factor: srs.easeFactor,
-      review_state: srs.reviewState,
+      card_id: finalCardId,
+      word_id: effTargetWordId,
+      next_due_at: finalDueAt,
+      interval_days: finalIntervalDays,
+      repetitions: finalReps,
+      ease_factor: 2.5,
+      review_state: legacyReviewState_(finalState),
+      state: finalState,
+      stability: finalStability,
+      difficulty: finalDifficulty,
+      reps: finalReps,
+      lapses: finalLapses,
+      row_version: finalRowVersion,
+      idempotent_replay: false,
       duplicate_event: false
     };
     appendMutationEvent_(events, eh, event, reviewId, result);
@@ -565,6 +1071,110 @@ function recordReview_(ss, event) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function getReviewStats_(ss, event) {
+  var d = event.data || {};
+  var nowIso = String(d.now_iso || new Date().toISOString());
+  var nowMs = Date.parse(nowIso);
+  var todayDateStr = new Date(nowMs + 7 * 3600000).toISOString().substring(0, 10);
+  var localDayEndMs = Date.parse(todayDateStr + 'T00:00:00.000Z') + 17 * 3600000;
+
+  var newCount = 0;
+  var learningCount = 0;
+  var reviewCount = 0;
+  var relearningCount = 0;
+  var dueTodayCount = 0;
+  var totalCards = 0;
+  var completedTodayCount = 0;
+
+  var cards = ss.getSheetByName('Cards');
+  var activeWords = {};
+  var wordsForStats = ss.getSheetByName('Words');
+  readAllRowsAsObjects_(wordsForStats, headerMap_(wordsForStats)).forEach(function (word) {
+    if (word.user_id === event.user_id && !String(word.deleted_at || '') && word.review_state !== 'suspended') activeWords[String(word.word_id)] = true;
+  });
+  if (cards) {
+    var ch = headerMap_(cards);
+    requireColumns_(ch, CARDS_COLUMNS);
+    var cardRows = readAllRowsAsObjects_(cards, ch);
+    Object.keys(activeWords).forEach(function (wordId) {
+      if (!cardRows.some(function (card) { return String(card.word_id) === wordId; })) {
+        var wordRow = findRow_(wordsForStats, headerMap_(wordsForStats)['word_id'], wordId);
+        var legacy = readRowObject_(wordsForStats, headerMap_(wordsForStats), wordRow);
+        totalCards++; newCount++;
+        if (Date.parse(String(legacy.due_at)) < localDayEndMs) dueTodayCount++;
+      }
+    });
+    for (var i = 0; i < cardRows.length; i++) {
+      var cr = cardRows[i];
+      if (String(cr.user_id) !== event.user_id) continue;
+      if (!activeWords[String(cr.word_id)]) continue;
+      if (String(cr.is_suspended) === 'true' || cr.is_suspended === true) continue;
+      totalCards++;
+      var st = String(cr.state || 'New');
+      if (st === 'New') newCount++;
+      else if (st === 'Learning') learningCount++;
+      else if (st === 'Review') reviewCount++;
+      else if (st === 'Relearning') relearningCount++;
+
+      var dueMs = Date.parse(String(cr.due_at_utc || ''));
+      if (!isFinite(dueMs) || dueMs < localDayEndMs) {
+        dueTodayCount++;
+      }
+    }
+  } else {
+    var words = ss.getSheetByName('Words');
+    if (words) {
+      var wh = headerMap_(words);
+      var wordRows = readAllRowsAsObjects_(words, wh);
+      for (var j = 0; j < wordRows.length; j++) {
+        var wr = wordRows[j];
+        if (String(wr.user_id) !== event.user_id) continue;
+        if (String(wr.deleted_at || '') !== '') continue;
+        if (String(wr.review_state) === 'suspended') continue;
+        totalCards++;
+        var wst = String(wr.review_state || 'new').toLowerCase();
+        if (wst === 'new') newCount++;
+        else if (wst === 'learning') learningCount++;
+        else reviewCount++;
+
+        var dueMsW = Date.parse(String(wr.due_at || ''));
+        if (!isFinite(dueMsW) || dueMsW < localDayEndMs) {
+          dueTodayCount++;
+        }
+      }
+    }
+  }
+
+  var totalReviewsCount = 0;
+  var reviews = ss.getSheetByName('Reviews');
+  if (reviews) {
+    var rh = headerMap_(reviews);
+    var revRows = readAllRowsAsObjects_(reviews, rh);
+    for (var k = 0; k < revRows.length; k++) {
+      var rr = revRows[k];
+      if (String(rr.user_id) !== event.user_id) continue;
+      totalReviewsCount++;
+      var revAt = String(rr.reviewed_at || '');
+      if (isFinite(Date.parse(revAt)) && new Date(Date.parse(revAt) + 7 * 3600000).toISOString().substring(0, 10) === todayDateStr) {
+        completedTodayCount++;
+      }
+    }
+  }
+
+  return {
+    user_id: event.user_id,
+    new_cards: newCount,
+    learning_cards: learningCount,
+    review_cards: reviewCount,
+    relearning_cards: relearningCount,
+    due_today: dueTodayCount,
+    completed_today: completedTodayCount,
+    total_active_cards: totalCards,
+    total_cards: totalCards,
+    total_reviews_count: totalReviewsCount
+  };
 }
 
 function claimDailyDigest_(ss, event) {
@@ -738,64 +1348,6 @@ function updateUserPreferences_(ss, event) {
   }
 }
 
-function computeSrsNext_(current, rating, reviewedAtIso) {
-  var reviewedMs = Date.parse(reviewedAtIso);
-  var oldEase = Math.min(3.0, Math.max(1.3, Number(current.easeFactor || 2.5)));
-  var oldInterval = Math.max(0, Number(current.intervalDays || 0));
-  var oldReps = Math.max(0, Math.floor(Number(current.repetitions || 0)));
-  var tenMinMs = 10 * 60 * 1000;
-  var oneDayMs = 24 * 60 * 60 * 1000;
-
-  if (rating === 'again') {
-    var easeAgain = Math.round(Math.max(1.3, oldEase - 0.2) * 100) / 100;
-    return {
-      reviewState: 'learning',
-      repetitions: 0,
-      intervalDays: 0,
-      easeFactor: easeAgain,
-      dueAt: new Date(reviewedMs + tenMinMs).toISOString(),
-      oldDueAt: current.dueAt,
-      oldIntervalDays: oldInterval
-    };
-  }
-  if (rating === 'hard') {
-    var easeHard = Math.round(Math.max(1.3, oldEase - 0.15) * 100) / 100;
-    var intHard = Math.max(1, Math.ceil(oldInterval * 1.2));
-    return {
-      reviewState: 'review',
-      repetitions: oldReps === 0 ? 1 : oldReps,
-      intervalDays: intHard,
-      easeFactor: easeHard,
-      dueAt: new Date(reviewedMs + intHard * oneDayMs).toISOString(),
-      oldDueAt: current.dueAt,
-      oldIntervalDays: oldInterval
-    };
-  }
-  if (rating === 'good') {
-    var intGood = oldReps === 0 ? 1 : (oldReps === 1 ? 3 : Math.max(4, Math.ceil(oldInterval * oldEase)));
-    return {
-      reviewState: 'review',
-      repetitions: oldReps + 1,
-      intervalDays: intGood,
-      easeFactor: oldEase,
-      dueAt: new Date(reviewedMs + intGood * oneDayMs).toISOString(),
-      oldDueAt: current.dueAt,
-      oldIntervalDays: oldInterval
-    };
-  }
-  var easeEasy = Math.round(Math.min(3.0, oldEase + 0.15) * 100) / 100;
-  var intEasy = oldReps === 0 ? 4 : Math.max(5, Math.ceil(oldInterval * oldEase * 1.3));
-  return {
-    reviewState: 'review',
-    repetitions: oldReps + 1,
-    intervalDays: intEasy,
-    easeFactor: easeEasy,
-    dueAt: new Date(reviewedMs + intEasy * oneDayMs).toISOString(),
-    oldDueAt: current.dueAt,
-    oldIntervalDays: oldInterval
-  };
-}
-
 function checkedText_(value, max, required) {
   if (typeof value !== 'string') throw new Error('Invalid text field');
   var s = value.trim();
@@ -809,8 +1361,15 @@ function checkedPos_(value) {
 }
 function mutationFingerprint_(event) {
   var data = Object.assign({}, event.data);
-  // Server review time changes across deliveries; it is not the mutation identity.
-  if (event.action === ACTION_REVIEW_RECORD) delete data.reviewed_at;
+  // Server review time and server FSRS calculations change across deliveries; they are not the mutation identity.
+  if (event.action === ACTION_REVIEW_RECORD) {
+    if (data.client_request) data = { client_request: data.client_request };
+    delete data.reviewed_at;
+    delete data.fsrs_card;
+    delete data.fsrs_review_log;
+    delete data.expected_version;
+    delete data.version;
+  }
   var raw = Utilities.computeHmacSha256Signature(JSON.stringify({ action: event.action, user_id: event.user_id, data: data }), PropertiesService.getScriptProperties().getProperty('GAS_SHARED_SECRET'), Utilities.Charset.UTF_8);
   return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
 }
@@ -921,4 +1480,42 @@ function appendMapped_(sheet, headers, entry) {
     if (headers[k]) row[headers[k] - 1] = entry[k];
   });
   sheet.appendRow(row);
+}
+
+/**
+ * Tiện ích 1-Click: Cấu hình nhanh Script Properties và tự động tạo các Tab Schema v3 trên Google Sheet.
+ * Người dùng chỉ cần chọn hàm này và bấm "Run" (Chạy) trên Apps Script Editor!
+ */
+function runQuickSetup() {
+  var props = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty('SHEET_ID');
+
+  if (!sheetId) {
+    try {
+      var activeSs = SpreadsheetApp.getActiveSpreadsheet();
+      if (activeSs) {
+        sheetId = activeSs.getId();
+      }
+    } catch (e) {}
+  }
+
+  if (!sheetId) {
+    // Tự động tạo một file Google Sheet mới trên Google Drive nếu chưa có
+    var newSs = SpreadsheetApp.create('VoiceChatLearnLanguage');
+    sheetId = newSs.getId();
+    Logger.log('>>> ĐÃ TỰ ĐỘNG TẠO FILE GOOGLE SHEET MỚI TẠI: ' + newSs.getUrl());
+  }
+
+  props.setProperty('SHEET_ID', sheetId);
+  if (!props.getProperty('GAS_SHARED_SECRET')) {
+    props.setProperty('GAS_SHARED_SECRET', 'replace_with_gas_shared_secret');
+  }
+  props.setProperty('OWNER_USER_ID', props.getProperty('OWNER_USER_ID') || 'telegram:889395521');
+
+  props.setProperty('MAX_EVENT_AGE_SECONDS', '300');
+  props.setProperty('SCHEMA_VERSION', '3');
+
+  setupSheets();
+  Logger.log('>>> THÀNH CÔNG: Đã khởi tạo đầy đủ 7 Tab Schema v3 trên Google Sheet ID: ' + sheetId);
+  Logger.log('>>> LINK GOOGLE SHEET CỦA BẠN: https://docs.google.com/spreadsheets/d/' + sheetId + '/edit');
 }

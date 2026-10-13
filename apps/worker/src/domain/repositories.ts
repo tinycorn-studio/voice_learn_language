@@ -57,12 +57,25 @@ export interface VocabularyRepository {
 export interface ReviewRepository {
   listDue(userId: string, requestId: string, limit: number): Promise<{ items: DueReviewCard[] }>;
 
+  preview(
+    userId: string,
+    requestId: string,
+    cardId: string,
+    nowIso?: string,
+  ): Promise<import('@voice-chat/shared').ReviewPreviewResponse>;
+
   recordReview(
     userId: string,
     requestId: string,
     input: ReviewSubmitRequest,
     reviewedAtIso: string,
   ): Promise<ReviewSubmitResponse>;
+
+  getStats(
+    userId: string,
+    requestId: string,
+    nowIso?: string,
+  ): Promise<import('@voice-chat/shared').ReviewStatsResponse>;
 
   claimDailyDigest(
     userId: string,

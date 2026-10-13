@@ -63,12 +63,17 @@ export class InMemorySpreadsheet {
     this.sheets.set(name, sheet);
     return sheet;
   }
+
+  public deleteSheet(sheet: InMemorySheet): void {
+    this.sheets.delete(sheet.name);
+  }
 }
 
 export interface GasRuntimeInstance {
   spreadsheet: InMemorySpreadsheet;
   setupSheets: () => void;
   migrateSchemaV2: () => void;
+  migrateSchemaV3: (dryRun?: boolean) => { migrated_cards: number; status: string };
   doPost: (contents: string) => { status: number; bodyText: string };
 }
 
@@ -164,6 +169,12 @@ export function createGasRuntimeHarness(
     setupSheets: () => setupSheetsFn(),
     migrateSchemaV2: () =>
       (sandbox as unknown as { migrateSchemaV2: () => void }).migrateSchemaV2(),
+    migrateSchemaV3: (dryRun = false) =>
+      (
+        sandbox as unknown as {
+          migrateSchemaV3: (dryRun: boolean) => { migrated_cards: number; status: string };
+        }
+      ).migrateSchemaV3(dryRun),
     doPost: (contents: string) => {
       const output = doPostFn({ postData: { contents } });
       return {

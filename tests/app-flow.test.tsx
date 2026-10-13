@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../apps/web/src/app/App.js';
 import { LearningApiClient } from '../apps/web/src/services/learning-api-client.js';
 import { createVoiceSession } from '../apps/web/src/features/voice/services/voice-session.js';
@@ -69,7 +69,7 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
         dropFirstWriteResponse = false;
         throw new Error('lost response after commit');
       }
-      if (dropFirstReviewResponse && String(url).endsWith('/api/v1/reviews')) {
+      if (dropFirstReviewResponse && String(url).endsWith('/api/v1/reviews/submit')) {
         dropFirstReviewResponse = false;
         throw new Error('lost review acknowledgement');
       }
@@ -161,15 +161,41 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
     fireEvent.click(screen.getByTestId('btn-save-edit'));
     await waitFor(() => expect(screen.queryByTestId('edit-meaning-input')).toBeNull());
     expect(screen.getByTestId('vocab-list').textContent).toContain('ngân hàng thương mại');
+    const cardsSheet = gas.spreadsheet.getSheetByName('Cards')!;
+    const reverseCard = [...cardsSheet.rows[1]!];
+    reverseCard[cardsSheet.rows[0]!.indexOf('card_id')] = 'c_reverse_bank';
+    reverseCard[cardsSheet.rows[0]!.indexOf('card_type')] = 'vi_to_en';
+    cardsSheet.appendRow(reverseCard);
     fireEvent.click(screen.getByTestId('tab-review'));
+    await waitFor(() =>
+      expect(screen.getByTestId('stat-due-words').querySelector('strong')?.textContent).toBe('2'),
+    );
     fireEvent.click(screen.getByTestId('btn-reveal-answer'));
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-rate-good') as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByTestId('btn-rate-good'));
     await waitFor(() =>
       expect(screen.getByTestId('offline-review-banner').textContent).toContain('Chưa xác nhận'),
     );
     fireEvent.click(screen.getByTestId('btn-rate-good'));
-    await waitFor(() => expect(screen.queryByTestId('flashcard-active')).toBeNull());
+    await waitFor(() =>
+      expect(screen.getByTestId('flashcard-word').textContent).toBe('ngân hàng thương mại'),
+    );
+    expect(cardsSheet.rows[1]![cardsSheet.rows[0]!.indexOf('reps')]).toBe(1);
+    expect(cardsSheet.rows[2]![cardsSheet.rows[0]!.indexOf('reps')]).toBe(0);
     expect(gas.spreadsheet.getSheetByName('Reviews')?.getLastRow()).toBe(2);
+    // The next card may render while the previous ACK/refresh is still pending.
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-reveal-answer') as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByTestId('btn-reveal-answer'));
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-rate-easy') as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByTestId('btn-rate-easy'));
+    await waitFor(() => expect(screen.queryByTestId('flashcard-active')).toBeNull());
+    expect(gas.spreadsheet.getSheetByName('Reviews')?.getLastRow()).toBe(3);
     view.unmount();
     render(<App api={makeApi()} />);
     await waitFor(() => expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(1)'));
@@ -186,5 +212,46 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
     );
     expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(0)');
+  });
+
+  it('retries authentication after a network failure without reopening the Mini App', async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const api = new LearningApiClient('https://worker.example', () => 'signed-init-data', fetchFn);
+    render(<App api={api} />);
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('kết nối máy chủ'));
+    expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
+    fetchFn.mockImplementation(
+      async (url) =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: String(url).endsWith('/auth/telegram')
+              ? {
+                  session_token: 'synthetic-session',
+                  expires_at: new Date(Date.now() + 3600000).toISOString(),
+                  user_id: 'telegram:123',
+                }
+              : String(url).endsWith('/reviews/stats')
+                ? {
+                    due_today: 0,
+                    completed_today: 0,
+                    new_cards: 0,
+                    learning_cards: 0,
+                    review_cards: 0,
+                    relearning_cards: 0,
+                    total_active_cards: 0,
+                    total_reviews_count: 0,
+                  }
+                : { items: [], next_cursor: null },
+            request_id: 'test-request',
+          }),
+        ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Thử kết nối lại' }));
+    await waitFor(() =>
+      expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(fetchFn).toHaveBeenCalledTimes(5);
   });
 });

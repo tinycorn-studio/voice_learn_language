@@ -362,3 +362,37 @@ body {
   border-radius: 0.75rem;
   padding: 0.85rem 1rem;
 }
+
+.api-diagnostics {
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.75rem;
+  margin-block: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.api-diagnostics p {
+  margin-block: 0.5rem;
+}
+
+.api-diagnostics summary {
+  cursor: pointer;
+}
+
+.diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block: 0.75rem;
+}
+
+.api-diagnostics textarea {
+  box-sizing: border-box;
+  width: 100%;
+  color: #f8fafc;
+  background: #0f172a;
+  border: 1px solid #64748b;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  font-size: 1rem;
+}

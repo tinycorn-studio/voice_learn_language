@@ -1,13 +1,19 @@
 import { z } from 'zod';
 import {
   apiErrorDetailSchema,
+  dueReviewCardSchema,
   liveTokenResponseSchema,
+  reviewPreviewResponseSchema,
+  reviewStatsResponseSchema,
   reviewSubmitResponseSchema,
   telegramAuthResponseSchema,
   vocabularyCreateResponseSchema,
   vocabularyItemSchema,
   vocabularyListResponseSchema,
   type LiveTokenResponse,
+  type DueReviewCard,
+  type ReviewPreviewResponse,
+  type ReviewStatsResponse,
   type ReviewSubmitRequest,
   type ReviewSubmitResponse,
   type TelegramAuthResponse,
@@ -17,12 +23,31 @@ import {
   type VocabularyUpdateRequest,
   type VocabularyListResponse,
 } from '@voice-chat/shared';
+import {
+  ApiDiagnostics,
+  createDiagnosticRequestId,
+  safeExceptionName,
+  safeServerRequestId,
+  type ApiDiagnostic,
+  type DiagnosticCode,
+  type DiagnosticPhase,
+  type ExceptionName,
+} from './api-diagnostics.js';
+
+interface RequestTrace {
+  phase: DiagnosticPhase;
+  status: number | null;
+  serverRequestId: string | null;
+}
 
 export class ApiClientError extends Error {
+  public diagnostic: ApiDiagnostic | undefined;
   public constructor(
     message: string,
     public readonly retryable: boolean,
     public readonly status = 0,
+    public readonly code: DiagnosticCode = 'CLIENT_ERROR',
+    public readonly exceptionName: ExceptionName | null = null,
   ) {
     super(message);
   }
@@ -30,21 +55,42 @@ export class ApiClientError extends Error {
 
 /** Keeps the verified session in memory; never stores initData or tokens in browser storage. */
 export class LearningApiClient {
+  public readonly diagnostics: ApiDiagnostics;
   private session: TelegramAuthResponse | null = null;
   private authenticating: Promise<TelegramAuthResponse> | null = null;
   public constructor(
     private readonly baseUrl: string,
     private readonly getInitData: () => string,
     private readonly fetchFn: typeof fetch = fetch,
-  ) {}
+  ) {
+    this.diagnostics = new ApiDiagnostics(baseUrl);
+  }
 
   public async authenticate(): Promise<TelegramAuthResponse> {
     if (this.session && Date.parse(this.session.expires_at) > Date.now() + 30000)
       return this.session;
     if (this.authenticating) return this.authenticating;
     const initData = this.getInitData();
-    if (!initData)
-      throw new ApiClientError('Hãy mở ứng dụng từ Telegram Mini App để đăng nhập.', false, 401);
+    if (!initData) {
+      const error = new ApiClientError(
+        'Hãy mở ứng dụng từ Telegram Mini App để đăng nhập.',
+        false,
+        401,
+        'MISSING_INIT_DATA',
+      );
+      error.diagnostic = this.diagnostics.record({
+        request_id: createDiagnosticRequestId(),
+        server_request_id: null,
+        method: 'POST',
+        route: '/api/v1/auth/telegram',
+        code: error.code,
+        phase: 'local',
+        http_status: null,
+        duration_ms: 0,
+        exception_name: null,
+      });
+      throw error;
+    }
     this.authenticating = this.send('/api/v1/auth/telegram', 'POST', telegramAuthResponseSchema, {
       init_data: initData,
     })
@@ -61,56 +107,215 @@ export class LearningApiClient {
   private async send<T>(
     path: string,
     method: string,
-    schema: z.ZodType<T>,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     body?: unknown,
     token?: string,
   ): Promise<T> {
-    let response: Response;
-    try {
-      response = await this.fetchFn(`${this.baseUrl.replace(/\/$/, '')}${path}`, {
+    const requestId = createDiagnosticRequestId();
+    const started = Date.now();
+    const trace: RequestTrace = { phase: 'configuration', status: null, serverRequestId: null };
+    const record = (code: DiagnosticCode, exceptionName: ExceptionName | null) =>
+      this.diagnostics.record({
+        request_id: requestId,
+        server_request_id: trace.serverRequestId,
         method,
-        headers: {
-          'content-type': 'application/json',
-          ...(token ? { authorization: `Bearer ${token}` } : {}),
-        },
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(20000),
-        cache: 'no-store',
+        route: path,
+        code,
+        phase: trace.phase,
+        http_status: trace.status,
+        duration_ms: Date.now() - started,
+        exception_name: exceptionName,
       });
-    } catch {
-      throw new ApiClientError('Không thể kết nối máy chủ. Hãy kiểm tra mạng và thử lại.', true);
-    }
-    let raw: unknown;
     try {
-      raw = await response.json();
-    } catch {
-      throw new ApiClientError('Máy chủ trả về dữ liệu không hợp lệ.', false, response.status);
-    }
-    const envelope = z
-      .discriminatedUnion('ok', [
-        z.object({ ok: z.literal(true), data: z.unknown(), request_id: z.string() }),
-        z.object({ ok: z.literal(false), error: apiErrorDetailSchema, request_id: z.string() }),
-      ])
-      .safeParse(raw);
-    if (!envelope.success)
-      throw new ApiClientError('Response không đúng hợp đồng API.', false, response.status);
-    if (!envelope.data.ok)
-      throw new ApiClientError(
-        envelope.data.error.message,
-        envelope.data.error.retryable,
-        response.status,
+      const url = this.resolveRequestUrl(path);
+      // A simple GET probe omits custom headers to test reachability separately from auth preflight.
+      const headers =
+        path === '/health'
+          ? {}
+          : {
+              'content-type': 'application/json',
+              'x-request-id': requestId,
+              ...(token ? { authorization: `Bearer ${token}` } : {}),
+            };
+      const { response, raw } = await this.fetchJson(
+        url,
+        {
+          method,
+          headers,
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          cache: 'no-store',
+        },
+        trace,
       );
-    if (!response.ok)
-      throw new ApiClientError('Yêu cầu API thất bại.', response.status >= 500, response.status);
-    const validated = schema.safeParse(envelope.data.data);
-    if (!validated.success)
-      throw new ApiClientError('Dữ liệu trả về không đúng schema.', false, response.status);
-    return validated.data;
+      trace.phase = 'envelope';
+      const envelope = z
+        .discriminatedUnion('ok', [
+          z.object({ ok: z.literal(true), data: z.unknown(), request_id: z.string() }),
+          z.object({ ok: z.literal(false), error: apiErrorDetailSchema, request_id: z.string() }),
+        ])
+        .safeParse(raw);
+      if (!envelope.success)
+        throw new ApiClientError(
+          'Response không đúng hợp đồng API.',
+          false,
+          response.status,
+          'INVALID_ENVELOPE',
+        );
+      trace.serverRequestId = safeServerRequestId(envelope.data.request_id);
+      trace.phase = 'api';
+      if (!envelope.data.ok)
+        throw new ApiClientError(
+          envelope.data.error.message,
+          envelope.data.error.retryable,
+          response.status,
+          envelope.data.error.code,
+        );
+      if (!response.ok)
+        throw new ApiClientError(
+          'Yêu cầu API thất bại.',
+          response.status >= 500,
+          response.status,
+          'HTTP_ERROR',
+        );
+      trace.phase = 'schema';
+      const validated = schema.safeParse(envelope.data.data);
+      if (!validated.success)
+        throw new ApiClientError(
+          'Dữ liệu trả về không đúng schema.',
+          false,
+          response.status,
+          'INVALID_DATA',
+        );
+      trace.phase = 'complete';
+      record('OK', null);
+      return validated.data;
+    } catch (failure) {
+      const error =
+        failure instanceof ApiClientError
+          ? failure
+          : new ApiClientError(
+              'Không thể thực hiện yêu cầu. Hãy thử lại.',
+              false,
+              trace.status ?? 0,
+              'CLIENT_ERROR',
+              safeExceptionName(failure),
+            );
+      error.diagnostic = record(error.code, error.exceptionName);
+      throw error;
+    }
   }
+
+  /** Checks Worker reachability only; does not authenticate or check Sheets/Gemini. */
+  public checkConnection(): Promise<{
+    status: 'healthy';
+    service: 'voice-chat-worker';
+    version: string;
+    timestamp: string;
+  }> {
+    return this.send(
+      '/health',
+      'GET',
+      z.object({
+        status: z.literal('healthy'),
+        service: z.literal('voice-chat-worker'),
+        version: z.string(),
+        timestamp: z.string().datetime(),
+      }),
+    );
+  }
+
+  private resolveRequestUrl(path: string): string {
+    const base = this.baseUrl.trim().replace(/\/+$/, '');
+    // Empty base supports deployments routing the API on the Mini App's own origin.
+    if (!base) return path;
+    const invalidConfig = () =>
+      new ApiClientError(
+        'Cấu hình kết nối máy chủ chưa đúng. Hãy liên hệ người quản trị.',
+        false,
+        0,
+        'INVALID_CONFIG',
+      );
+    let url: URL;
+    try {
+      url = new URL(base);
+    } catch {
+      throw invalidConfig();
+    }
+    if (
+      !['https:', 'http:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.hostname.toLowerCase().includes('your-worker') ||
+      (globalThis.location?.protocol === 'https:' && url.protocol !== 'https:')
+    )
+      throw invalidConfig();
+    return `${url.toString().replace(/\/+$/, '')}${path}`;
+  }
+
+  private async fetchJson(
+    url: string,
+    init: RequestInit,
+    trace: RequestTrace,
+  ): Promise<{ response: Response; raw: unknown }> {
+    // Older Telegram WebViews lack AbortSignal.timeout; abort explicitly instead.
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = globalThis.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 20000);
+    const connectionError = (failure: unknown) =>
+      new ApiClientError(
+        timedOut
+          ? 'Máy chủ phản hồi quá chậm. Hãy thử lại.'
+          : 'Không thể kết nối máy chủ. Hãy thử lại sau hoặc liên hệ người quản trị.',
+        true,
+        trace.status ?? 0,
+        timedOut ? 'TIMEOUT' : 'NETWORK_ERROR',
+        safeExceptionName(failure),
+      );
+    try {
+      let response: Response;
+      trace.phase = 'fetch';
+      try {
+        // Window.fetch rejects a client instance as receiver ("Illegal invocation") in WebViews.
+        response = await this.fetchFn.call(globalThis, url, { ...init, signal: controller.signal });
+      } catch (failure) {
+        throw connectionError(failure);
+      }
+      trace.status = response.status;
+      trace.phase = 'json';
+      try {
+        return { response, raw: (await response.json()) as unknown };
+      } catch (failure) {
+        if (timedOut) throw connectionError(failure);
+        if (safeExceptionName(failure) !== 'SyntaxError')
+          throw new ApiClientError(
+            'Không thể đọc phản hồi máy chủ. Hãy thử lại.',
+            true,
+            response.status,
+            'RESPONSE_READ_ERROR',
+            safeExceptionName(failure),
+          );
+        throw new ApiClientError(
+          'Máy chủ trả về dữ liệu không hợp lệ.',
+          false,
+          response.status,
+          'INVALID_JSON',
+          safeExceptionName(failure),
+        );
+      }
+    } finally {
+      globalThis.clearTimeout(timer);
+    }
+  }
+
   private async authorized<T>(
     path: string,
     method: string,
-    schema: z.ZodType<T>,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     body?: unknown,
   ): Promise<T> {
     const session = await this.authenticate();
@@ -165,7 +370,26 @@ export class LearningApiClient {
     );
   }
   public submitReview(input: ReviewSubmitRequest): Promise<ReviewSubmitResponse> {
-    return this.authorized('/api/v1/reviews', 'POST', reviewSubmitResponseSchema, input);
+    return this.authorized('/api/v1/reviews/submit', 'POST', reviewSubmitResponseSchema, input);
+  }
+  public async listDueReviews(): Promise<DueReviewCard[]> {
+    return (
+      await this.authorized(
+        '/api/v1/reviews/due?limit=50',
+        'GET',
+        z.object({ items: z.array(dueReviewCardSchema) }),
+      )
+    ).items;
+  }
+  public previewReview(cardId: string): Promise<ReviewPreviewResponse> {
+    return this.authorized(
+      `/api/v1/reviews/${encodeURIComponent(cardId)}/preview`,
+      'GET',
+      reviewPreviewResponseSchema,
+    );
+  }
+  public getReviewStats(): Promise<ReviewStatsResponse> {
+    return this.authorized('/api/v1/reviews/stats', 'GET', reviewStatsResponseSchema);
   }
   public mintLiveToken(): Promise<LiveTokenResponse> {
     return this.authorized('/api/v1/live-token', 'POST', liveTokenResponseSchema, {

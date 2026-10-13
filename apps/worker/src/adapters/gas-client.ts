@@ -2,13 +2,23 @@ import { z } from 'zod';
 import {
   dailyDigestClaimSchema,
   dueReviewCardSchema,
+  reviewPreviewResponseSchema,
+  reviewStatsResponseSchema,
   reviewSubmitResponseSchema,
   vocabularyCreateResponseSchema,
   vocabularyItemSchema,
   vocabularyListResponseSchema,
+  fsrsCardSchema,
+  fsrsConfigSchema,
+  previewCardToResponse,
+  scheduleNextFsrsReview,
   type DueReviewCard,
+  type FsrsCard,
+  type FsrsConfig,
   type GasAction,
   type GasSignedEnvelope,
+  type ReviewPreviewResponse,
+  type ReviewStatsResponse,
   type ReviewSubmitRequest,
   type ReviewSubmitResponse,
   type VocabularyCreateRequest,
@@ -18,8 +28,9 @@ import {
   type VocabularyListResponse,
   type VocabularyUpdateRequest,
 } from '@voice-chat/shared';
+
 import { bytesToBase64Url, constantTimeEqual } from '../auth/telegram-auth.js';
-import { AppError } from '../domain/env.js';
+import { AppError, logStructured } from '../domain/env.js';
 import type {
   DailyDigestClaimResult,
   ReviewRepository,
@@ -107,8 +118,10 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
     });
 
     let res: Response;
+    const started = Date.now();
     try {
-      res = await this.fetchFn(this.gasExecUrl, {
+      // Workers native fetch checks its global receiver, even when injected into an adapter.
+      res = await this.fetchFn.call(globalThis, this.gasExecUrl, {
         method: 'POST',
         headers: {
           'content-type': 'application/json; charset=utf-8',
@@ -116,7 +129,27 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
         body: JSON.stringify(envelope),
         signal: AbortSignal.timeout(15000),
       });
-    } catch {
+    } catch (failure) {
+      const exceptionName =
+        failure instanceof Error &&
+        ['TypeError', 'Error', 'AbortError', 'TimeoutError'].includes(failure.name)
+          ? failure.name
+          : 'Other';
+      const reason =
+        failure instanceof Error && failure.message.includes('Illegal invocation')
+          ? 'ILLEGAL_INVOCATION'
+          : exceptionName === 'AbortError' || exceptionName === 'TimeoutError'
+            ? 'TIMEOUT'
+            : 'FETCH_FAILED';
+      // Retain correlation and category only: endpoint, signed payload and raw errors may contain secrets/PII.
+      logStructured('warn', 'gas_fetch_failed', params.requestId, {
+        action: params.action,
+        phase: 'fetch',
+        reason,
+        exception_name: exceptionName,
+        duration_ms: Math.max(0, Date.now() - started),
+        http_status: null,
+      });
       throw new AppError({
         code: 'UNAVAILABLE',
         message: 'Google Apps Script endpoint unreachable',
@@ -199,12 +232,21 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
       'vocabulary.list': vocabularyListResponseSchema,
       'vocabulary.update': vocabularyItemSchema,
       'vocabulary.delete': z.object({ word_id: z.string(), deleted: z.boolean() }),
+      'card.get': z.object({ card: fsrsCardSchema, settings: z.unknown().optional() }),
       'review.listDue': z.object({ items: z.array(dueReviewCardSchema) }),
+      'review.preview': reviewPreviewResponseSchema,
       'review.record': reviewSubmitResponseSchema,
+      'review.lookup': z.object({ result: reviewSubmitResponseSchema.nullable() }),
+      'review.stats': reviewStatsResponseSchema,
       'review.claimDigest': dailyDigestClaimSchema,
       'review.finishDigest': z.object({ updated: z.boolean() }),
       'user.preferences': z.object({ updated: z.boolean(), notifications_enabled: z.boolean() }),
+      'migration.schemaV3': z.object({
+        migrated_cards: z.number().int().nonnegative(),
+        status: z.string(),
+      }),
     };
+
     const validated = responseSchemas[params.action].safeParse(body.data);
     if (!validated.success)
       throw new AppError({
@@ -312,22 +354,119 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
     });
   }
 
+  public async getCard(
+    userId: string,
+    requestId: string,
+    cardIdOrWordId: string,
+  ): Promise<FsrsCard> {
+    return (await this.getCardContext(userId, requestId, cardIdOrWordId)).card;
+  }
+
+  private async getCardContext(
+    userId: string,
+    requestId: string,
+    cardIdOrWordId: string,
+  ): Promise<{ card: FsrsCard; config: FsrsConfig }> {
+    const res = await this.callGas<{ card: FsrsCard; settings?: unknown }>({
+      action: 'card.get',
+      eventId: `card_${requestId.slice(0, 48)}`,
+      userId,
+      requestId,
+      data: {
+        card_id: cardIdOrWordId,
+        word_id: cardIdOrWordId,
+      },
+    });
+    const config = fsrsConfigSchema.safeParse(res.settings ?? {});
+    if (!config.success)
+      throw new AppError({ code: 'UPSTREAM_ERROR', message: 'Invalid FSRS settings', status: 502 });
+    return { card: res.card, config: config.data };
+  }
+
+  public async preview(
+    userId: string,
+    requestId: string,
+    cardId: string,
+    nowIso = new Date().toISOString(),
+  ): Promise<ReviewPreviewResponse> {
+    const { card, config } = await this.getCardContext(userId, requestId, cardId);
+    return previewCardToResponse(card, nowIso, config);
+  }
+
   public async recordReview(
     userId: string,
     requestId: string,
     input: ReviewSubmitRequest,
     reviewedAtIso: string,
   ): Promise<ReviewSubmitResponse> {
+    const targetId = input.card_id ?? input.word_id;
+    if (!targetId) {
+      throw new AppError({
+        code: 'INVALID_ARGUMENT',
+        message: 'Either card_id or word_id is required',
+        status: 400,
+      });
+    }
+
+    const clientRequest = {
+      card_id: input.card_id ?? null,
+      word_id: input.word_id ?? null,
+      rating: input.rating,
+      expected_version: input.expected_version ?? null,
+      version: input.version ?? null,
+    };
+    // Replay before reading a card: it may have changed, been suspended or deleted.
+    const replay = await this.callGas<{ result: ReviewSubmitResponse | null }>({
+      action: 'review.lookup',
+      eventId: input.event_id,
+      userId,
+      requestId,
+      data: { client_request: clientRequest },
+    });
+    if (replay.result) return replay.result;
+    const { card, config } = await this.getCardContext(userId, requestId, targetId);
+    if (input.word_id && input.word_id !== card.word_id)
+      throw new AppError({
+        code: 'INVALID_ARGUMENT',
+        message: 'Card does not belong to requested word',
+        status: 400,
+      });
+    const expectedVer = input.expected_version ?? input.version;
+    if (expectedVer !== undefined && expectedVer !== card.row_version)
+      throw new AppError({ code: 'CONFLICT', message: 'Review card is stale', status: 409 });
+    const scheduled = scheduleNextFsrsReview(card, input.rating, reviewedAtIso, config);
+
     return this.callGas<ReviewSubmitResponse>({
       action: 'review.record',
       eventId: input.event_id,
       userId,
       requestId,
       data: {
-        word_id: input.word_id,
+        card_id: card.card_id,
+        word_id: card.word_id,
         rating: input.rating,
         reviewed_at: reviewedAtIso,
-        version: input.version,
+        expected_version: expectedVer ?? card.row_version,
+        version: expectedVer ?? card.row_version,
+        fsrs_card: scheduled.next_card,
+        fsrs_review_log: scheduled.review_log,
+        client_request: clientRequest,
+      },
+    });
+  }
+
+  public async getStats(
+    userId: string,
+    requestId: string,
+    nowIso = new Date().toISOString(),
+  ): Promise<ReviewStatsResponse> {
+    return this.callGas<ReviewStatsResponse>({
+      action: 'review.stats',
+      eventId: `stats_${requestId.slice(0, 48)}`,
+      userId,
+      requestId,
+      data: {
+        now_iso: nowIso,
       },
     });
   }

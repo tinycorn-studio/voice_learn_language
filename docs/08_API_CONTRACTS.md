@@ -12,7 +12,7 @@
 - `event_id`: UUIDv4; one event retry reuse same value. Durations seconds, times RFC3339 UTC ISO. All data validated with strict limits.
 - M5-07: frontend tạo `X-Request-Id: web-<24 hex>` mới cho mỗi lần gọi API, kể cả retry; đây là mã chẩn đoán, không thay `event_id` idempotency. Worker hiện có echo mã này trong envelope và response header, `api_error` ghi cùng mã. CORS đã cho phép `x-request-id`; frontend đọc envelope vì response header chưa được expose qua CORS.
 - Probe `GET /health` không gửi authorization, initData, body hoặc custom header để không tạo preflight. Response data hiện có `{status:"healthy",service:"voice-chat-worker",version,timestamp}`; chỉ xác nhận Worker reachable, không xác nhận Gemini/Sheets/auth. Probe có client ID nội bộ và server UUID riêng trong log.
-- M5-09 (local, chưa deploy): `gas_fetch_failed` là log nội bộ cho exception khi Worker fetch GAS, giữ cùng request_id với API response. Metadata action/phase/reason (`ILLEGAL_INVOCATION`, `TIMEOUT`, `FETCH_FAILED`)/exception name whitelist/duration/http_status null; không ghi endpoint/body/signature/secret/user ID/raw error. Public API giữ 503 `UNAVAILABLE` và thông báo cố định, không mở endpoint debug.
+- M5-09 (đã deploy 13/10): `gas_fetch_failed` là log nội bộ cho exception khi Worker fetch GAS, giữ cùng request_id với API response. Metadata action/phase/reason (`ILLEGAL_INVOCATION`, `TIMEOUT`, `FETCH_FAILED`)/exception name whitelist/duration/http_status null; không ghi endpoint/body/signature/secret/user ID/raw error. Public API giữ 503 `UNAVAILABLE` và thông báo cố định, không mở endpoint debug.
 
 ## POST /api/v1/auth/telegram
 
@@ -23,6 +23,8 @@ Implementation option: same raw `init_data` verified on every request; if sessio
 ## POST /api/v1/live-token
 
 No body or `{ "session_purpose":"voice_chat" }`. Response data: `{ "token":"ephemeral-...", "model":"gemini-3.8-live", "expires_at":"..." }`. `Cache-Control: no-store`. Limit issue rate/user; never long-term API key. Do not expose token in logs.
+
+M5-10: Public contract không đổi. Worker gửi REST `AuthToken` gồm `uses:1`, TTL 20 phút, new-session TTL 1 phút, `bidiGenerateContentSetup` và `fieldMask: "model,generationConfig.responseModalities"`; khóa model/audio, giữ các field khác từ setup client. Không gửi SDK wrapper `liveConnectConstraints` trực tiếp. Google HTTP 400 map public 502 `UPSTREAM_ERROR`, retryable false; đây chưa phải bằng chứng quota (429 có mapping riêng) hoặc key sai. Xem docs/04_GEMINI_SETUP.md và evidence M5-10.
 
 ## POST /api/v1/vocabulary
 

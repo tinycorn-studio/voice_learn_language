@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 08:42 +07:00
-> Phase: Gộp (merge) nhánh `fix/M5-09-gas-unavailable` vào `feat/M0-02-online-staging` (kết hợp FSRS M5-06, Online Staging M0-02, và bản vá native fetch receiver + API diagnostics M5-09).
-> Đang thực hiện: M5-09 & M0-02 (P1, IN_PROGRESS) — đã gộp đầy đủ code local của cả 2 nhánh.
-> Next action: Kiểm tra test/build sau khi gộp nhánh và deploy bản cập nhật nếu cần.
-> Blockers: Cần kiểm chứng thực tế trên Telegram Mini App sau khi cập nhật.
+> Updated: 2026-10-13 12:43 +07:00
+> Phase: Người dùng xác nhận ứng dụng đã hoạt động sau M5-10; hoàn tất hotfix và yêu cầu commit/push toàn bộ, merge vào main.
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: Theo dõi CI trên main sau push/merge được người dùng yêu cầu; tiếp tục các mục M5-02 thiết bị/FSRS, M5-03 backup/restore và kiểm quota chưa có evidence đầy đủ. Không tự đánh dấu toàn bộ milestones DONE chỉ từ xác nhận ứng dụng chạy.
+> Blockers: M5-09/M5-10 đã được người dùng xác nhận hoạt động; không còn blocker hotfix. Nghiệm thu đầy đủ PC/Android/iOS, backup/restore và quota vẫn theo các task riêng; không đổi billing/quyền hoặc chạy migration trong phiên Git này.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
@@ -55,7 +55,8 @@
 - [x] M5-06 — P1: Review/sửa FSRS local + chẩn đoán kết nối Telegram Mini App; kiểm tra URL, timeout tương thích WebView và thử đăng nhập lại. Acceptance local: regression tests, typecheck/lint/test/build và runbook API/CORS. Deploy/thiết bị thật thuộc M5-01/M5-02.
 - [x] M5-07 — Log từng API attempt và health probe, mã đối chiếu Worker, UI sao chép log/fallback iOS; phân biệt timeout/network/HTTP/JSON/schema/local auth, whitelist metadata và bounded 30 attempts. 82 tests/14 files và gates PASS; frontend Production 2883e8b3-e60e-4498-8a29-d0f033bf1051, bundle public khớp local. docs/23_TELEGRAM_CONNECTION.md. Lỗi iPhone còn cần log thực tế; chưa kết luận nguyên nhân.
 - [x] M5-08 — Sửa native fetch receiver (Illegal invocation): 2 regression fail trước sửa/pass sau sửa, browser native comparison và production health trước TypeError 1 ms/sau HTTP 200 283 ms. 84 tests/14 files, gates PASS; Pages 1a4f0e48-f02e-4bbe-9ec6-e8e03852a739, hash public khớp local. docs/23_TELEGRAM_CONNECTION.md; chưa nghiệm thu real Telegram auth/Sheets/Gemini.
-- [ ] M5-09 — P1, IN_PROGRESS (LOCAL_FIX_READY, chờ quyền Worker/hotfix): workerd native + GAS mock không đổi config, adapter/route thật 503 trước sửa/200 sau sửa; sửa 3 fetch receivers ở GAS/Telegram, 8 regression/privacy tests mới. 92 tests/15 files + typecheck/lint/build/dry-run/secret scan/diff check PASS; docs/23_TELEGRAM_CONNECTION.md.
+- [x] M5-09 — DONE: Worker cc64a401 deploy 100%, source khớp artifact qua 122 tests/18 files và gates PASS. Log iOS ngày 13/10 lúc 09:40 +07 xác nhận auth 200/565 ms và vocabulary 200/4099 ms, request web-cdb6ac91020e7b5642016f0b. Live-token 502 theo dõi riêng M5-10; chưa nghiệm thu voice/FSRS toàn bộ. docs/23_TELEGRAM_CONNECTION.md.
+- [x] M5-10 — DONE: Sửa REST token payload/mask; 2 regression fail trước/pass sau, 124 tests/19 files và gates PASS. Worker e07a24e2 deploy 100% lúc 10:43 ngày 13/10, source khớp artifact, health/diag/CORS pass. Người dùng xác nhận "đã hoạt động" và yêu cầu commit/push/merge main; không có log chi tiết mới để định lượng voice latency. Rollback cc64a401. docs/23_TELEGRAM_CONNECTION.md.
 
 ## Milestone M6 — Optional / sau MVP
 
@@ -65,6 +66,11 @@
 
 ## Latest accomplished
 
+- **2026-10-13 12:43 M5-10 (nghiệm thu):** Người dùng xác nhận ứng dụng đã hoạt động sau hotfix, yêu cầu commit/push toàn bộ và merge main. Complete-Task đóng M5-10 dựa trên xác nhận này + 124 tests/19 files/gates/source production đã kiểm chứng; không suy ra QA toàn bộ milestones. Fetch origin/main vẫn d1b712f, main protected=false; Git identity hiện có. Code/docs/regression cùng commit, không đưa artifacts/secrets vào Git.
+- **2026-10-13 10:43 M5-10 (deploy):** Người dùng xác nhận riêng deploy hotfix sau auto-review. Active trước deploy vẫn cc64a401; Wrangler --no-bundle thành công, deployment 63ab0051-18f1-41cc-9f06-27902cae6280 / version e07a24e2-5aeb-4aae-93cb-c6be6a79aa1d phục vụ 100%. Source download SHA256 F551D88B... khớp artifact, secret binding names/public vars/compatibility/Cron giữ nguyên. Health/diag 200, GAS GET connected 1725 ms, CORS live-token đúng allowlist. Rollback cc64a401; chưa mint/voice thật. .artifacts/M5-10/deployment-evidence.json, docs/23_TELEGRAM_CONNECTION.md.
+- **2026-10-13 10:38 M5-10 (local):** Log iOS auth/vocabulary 200 đóng M5-09; live-token 502, user xác nhận thông báo Google HTTP 400. Probe key giả payload cũ bị reject Unknown name liveConnectConstraints trước kiểm key; payload mới qua binding rồi mới trả API_KEY_INVALID như mong đợi với key giả. Discovery/REST reference xác nhận field setup/mask. 124 tests/19 files và gates pass, diff candidate với source cc64a401 chỉ 6 dòng thêm/5 dòng xóa payload; review ZIP/source hash/rollback sẵn sàng. Auto-review từ chối deploy do quyền cũ chỉ M5-09; production không đổi. docs/23_TELEGRAM_CONNECTION.md.
+- **2026-10-13 09:08 M5-09 (deploy):** Người dùng xác nhận deploy; deployment 1d8816b9-13a8-4d3f-837f-50d2bf48ca97, version cc64a401 (100%). Wrangler --no-bundle upload đúng candidate đã kiểm thử; source tải lại SHA256 B478807C... khớp artifact. Secret binding names/vars/Cron giữ nguyên; health 200, diag 200/GAS GET connected 1813 ms, CORS frontend 204/đúng allow-origin và origin lạ không được allow. Rollback dc9f92a9. Chưa có real vocabulary/GAS POST sau deploy; giữ IN_PROGRESS, chưa commit. docs/23_TELEGRAM_CONNECTION.md.
+- **2026-10-13 M5-09 (kiểm tra trước deploy):** Public health/diag 200, GAS GET connected (1798 ms); Cloudflare read-only access đã dùng được. Active version dc9f92a9 từ 18:33 ngày 12/10 còn 3 calls this.fetchFn(...) gây Illegal invocation. Download backup bằng Wrangler from-dash, diff candidate chỉ receiver/log + CORS allowlist như repo; workerd native với auth/GAS synthetic chứng minh production 503 trước outbound, candidate 200. 122 tests/18 files, typecheck/lint/build/dry-run/secret scan pass. docs/23_TELEGRAM_CONNECTION.md.
 - **2026-10-12 M5-09 (local):** Người dùng xác nhận bằng log real Telegram Desktop auth 200; vocabulary 503 UNAVAILABLE. Workerd native tái hiện adapter/route trước 503/sau 200 cùng GAS mock; sửa receiver GAS/Telegram, thêm log whitelist. 92 tests/gates/dry-run pass; chờ xác nhận Worker access/hotfix, cần diff version/source production trước deploy. docs/23_TELEGRAM_CONNECTION.md.
 - **2026-10-12 M5-08:** Log Telegram Desktop TypeError/fetch/HTTP null 0–1 ms dẫn tới tái hiện native Window.fetch sai receiver. Sửa `.call(globalThis, ...)`, hai regression fail trước/pass sau; 84 tests và gates pass. Production 1a4f0e48, bundle hash khớp local; browser native health chuyển từ lỗi 1 ms sang HTTP 200/OK trong 283 ms. Cần người dùng xác nhận auth trên build M5-08. docs/23_TELEGRAM_CONNECTION.md.
 - **2026-10-12 M5-01 (frontend):** Người dùng xác nhận deploy. Wrangler 4.149.0 deploy Pages branch production thành công: e3229c61-7573-49a1-a05a-c957e6bfa16f; domain/menu URL trả bundle index-Ct3bC747.js, SHA256 khớp local, không còn AbortSignal.timeout, có retry và đúng API. Rollback: 21f513cc-5946-4e45-96f0-75cdbbe0dce1. Worker health 200/CORS 204; chưa live QA thiết bị. Evidence: docs/23_TELEGRAM_CONNECTION.md.
@@ -145,8 +151,18 @@
 
 | 2026-10-12 23:04 +07:00 | M5-09 | LOCAL_FIX_READY / WAITING_WORKER_AUTH | Real Telegram Desktop auth 200, vocabulary 503. Workerd native + GAS mock: real adapter/route 503 trước sửa, 200 sau sửa, cùng config; sửa 3 fetch receivers và sanitized gas_fetch_failed. 92 tests/15 files, typecheck/lint/build/dry-run PASS. Local review package .artifacts/M5-09-worker-local.zip; docs/23_TELEGRAM_CONNECTION.md. Chưa deploy Worker; Cloudflare từ chối quyền đọc bindings với OAuth Pages hiện có. | Xin xác nhận OAuth Workers và hotfix; sau xác nhận đọc version/source/binding names production, giữ rollback, diff trước deploy receiver/log. Bundle toàn bộ có M5-05/schema v2/Cron chưa nghiệm thu, không dùng đè production khi chưa đối chiếu. Giữ staged code/docs/tests, chưa commit theo yêu cầu người dùng. |
 
+| 2026-10-13 09:08 +07:00 | M5-09 | DEPLOYED_WAITING_TELEGRAM_QA | User xác nhận deploy; active dc9f92a9 đọc lại không đổi. Deployment 1d8816b9-13a8-4d3f-837f-50d2bf48ca97, version cc64a401-df62-4363-a790-94a5c265361b phục vụ 100%; source download SHA256 khớp candidate B478807C..., secret binding names/vars/Cron giữ nguyên. Health/diag 200, GAS GET connected 1813 ms, CORS allowlist pass. 122 tests/18 files và gates pass trước deploy. Rollback dc9f92a9; evidence .artifacts/M5-09-current/deployment-evidence.json và docs/23_TELEGRAM_CONNECTION.md. | Mở lại Mini App, thử vocabulary xác thực Telegram thật, đối chiếu request ID nếu lỗi; chưa suy ra GAS POST/Sheets từ diag GET. Giữ IN_PROGRESS và chưa commit. |
+
+| 2026-10-13 10:31 +07:00 | M5-09 | DONE | Worker cc64a401 deploy 100%, source SHA256 khop artifact da qua 122 tests/18 files va gates PASS. Log iOS user 2026-10-13T02:40Z xac nhan auth 200/565 ms va vocabulary 200/4099 ms; request web-cdb6ac91020e7b5642016f0b. Loi live-token 502 tach sang M5-10. docs/23_TELEGRAM_CONNECTION.md | M5-10: dieu tra Gemini live-token 502 theo request web-ea7bdefbf8fb2d5ca5fdbc4e; khong suy ra key/model/quota tu ma UPSTREAM_ERROR. |
+
+| 2026-10-13 10:43 +07:00 | M5-10 | DEPLOYED_WAITING_LIVE_QA | Người dùng xác nhận riêng M5-10; deploy version e07a24e2-5aeb-4aae-93cb-c6be6a79aa1d, deployment 63ab0051-18f1-41cc-9f06-27902cae6280 phục vụ 100%. Source tải lại SHA256 khớp artifact F551D88B..., config và secret binding names giữ nguyên; health/diag 200, CORS pass. 124 tests/19 files/gates pass trước deploy. Rollback cc64a401, evidence .artifacts/M5-10/deployment-evidence.json. | Người dùng mở lại Mini App/bấm Start; kiểm live-token 200 và voice thật, nếu lỗi nhận log/request ID/UI HTTP mới. Chưa commit, giữ task IN_PROGRESS đến khi nghiệm thu mint thật. |
+
+| 2026-10-13 12:43 +07:00 | M5-10 | DONE | Worker e07a24e2 deploy 100%, source SHA256 F551D88B khop artifact da qua 124 tests/19 files, typecheck/lint/build/dry-run/secret scan PASS. Nguoi dung xac nhan da hoat dong sau hotfix ngay 13/10/2026; auth/vocabulary iOS truoc do 200. docs/23_TELEGRAM_CONNECTION.md | Commit/push toan bo thay doi tren fix/M5-10-gemini-token-diagnostics va merge main theo yeu cau user; giu cac task live QA/backup/quota chua co evidence o trang thai pending. |
+
 ## Current blockers / risks
 
+- **Cập nhật 13/10 M5-10:** Người dùng đã xác nhận ứng dụng hoạt động sau deploy e07a24e2; hotfix DONE. Xác nhận người dùng là bằng chứng nghiệm thu hiện có, không có trace/latency voice chi tiết mới; không coi toàn bộ quota/backup/thiết bị đã kiểm chứng.
+- **Cập nhật 13/10 M5-09:** Đã deploy cc64a401 và log iOS sau deploy xác nhận vocabulary 200; task M5-09 DONE. Những ghi chú chờ quyền/deploy/nghiệm thu vocabulary trước đây là lịch sử. Voice/live-token theo M5-10, toàn bộ CRUD/FSRS/thiết bị vẫn M5-02.
 - M0-02 phiên online staging: người dùng đã đồng ý login và tạo tài nguyên staging mới; chưa phê duyệt OAuth/secrets/webhook/deploy. AI Studio lỗi permission denied/520, Google Sheets bị bộ xét duyệt tự động lỗi 429; Cloudflare đã login nhưng mở Workers & Pages bị auto-review lỗi 429. Chi tiết và thứ tự tiếp tục: docs/24_ONLINE_STAGING.md.
 
 - Các dòng DONE trước review là evidence lịch sử. Source đã sửa M5-05/M5-06; milestone dịch vụ/thiết bị vẫn pending. Xem docs/22_REVIEW_FIXES.md và docs/23_FSRS_REVIEW_FIXES.md.
@@ -157,12 +173,12 @@
 - M5-06 đạt acceptance local và frontend đã deploy sau xác nhận. Lần `git commit` bị từ chối do thiếu author identity; người dùng sau đó yêu cầu chưa cần email/commit. Giữ code/docs/tests/lockfile trong cùng staged changes. Không yêu cầu lại xác nhận deploy M5-06 đã được cấp.
 - M5-07 đã deploy log frontend trong cùng incident/quyền deploy; chưa có log từ iPhone để xác định lỗi fetch. Log chỉ giữ trong memory và cần sao chép trước khi reload/đóng cửa sổ, không tự gửi về server. Worker historical logging chưa xác minh/bật; không tìm thấy api_error không chứng minh request chưa tới Worker.
 - M5-08 nhận log Telegram Desktop và đã chứng minh native fetch sai receiver; browser production health pass sau sửa. Phiên browser cũ vẫn tải bundle M5-07 sau reload, URL có query phiên bản mới nhận M5-08; chưa xác định tầng cache. Khi người dùng thử lại phải xác nhận build trong log là M5-08, không suy ra real auth/Gemini/Sheets từ health 200.
-- M5-09: log mới đã xác nhận real Telegram Desktop auth 200 trên M5-08; vocabulary còn 503. Lỗi receiver Worker đã tái hiện và sửa local; chưa kiểm tra source/config/GAS production do thiếu quyền Worker. Quyền frontend đã cấp không bao gồm OAuth/deploy Worker. Phải diff source đang chạy và giữ rollback trước hotfix; không đưa migration/schema/Cron chưa nghiệm thu vào bản vá giới hạn receiver/log.
+- M5-09: Log trước deploy xác nhận real Telegram Desktop auth 200 trên M5-08, vocabulary 503; đã chứng minh lỗi receiver bằng source production/workerd và deploy bản sửa. Nếu sau deploy còn lỗi phải kiểm tra request mới/upstream thực tế; không kết luận HMAC/schema đúng chỉ từ health/diag. Backup source/rollback và artifact đã giữ riêng, không chạy migration trong hotfix này.
 
 ## Next session checklist
 
 - [ ] Đọc `AGENTS.md`, `PROGRESS.md`, `docs/13_MILESTONES.md`.
 - [ ] `git status --short` và đọc diff chưa commit.
-- [ ] Đã gộp `fix/M5-09-gas-unavailable` vào `feat/M0-02-online-staging`: kiểm tra typecheck/lint/test/build và xác nhận luồng deploy/nghiệm thu M0-02 / M5-09.
+- [ ] M5-10 DONE theo xác nhận người dùng; kiểm tra Git/CI main sau commit/push/merge được yêu cầu và tiếp tục QA thiết bị/backup/quota còn pending. Nếu xuất hiện lỗi mới, dùng log/request ID mới để mở task riêng.
 - [ ] Chạy setup/check cần thiết, ghi evidence và command.
 - [ ] Khi thực sự hoàn thành, chạy `scripts/Complete-Task.ps1` và commit cả PROGRESS/CHANGELOG.

@@ -27,13 +27,14 @@ export async function mintGeminiEphemeralToken(params: {
     uses: 1,
     expireTime: expireAtIso,
     newSessionExpireTime: newSessionExpireAtIso,
-    liveConnectConstraints: {
+    bidiGenerateContentSetup: {
       model: normalizedModel,
-      config: {
+      generationConfig: {
         responseModalities: ['AUDIO'],
-        sessionResumption: {},
       },
     },
+    // Without a mask Google ignores client tools, instructions and resumption settings.
+    fieldMask: 'model,generationConfig.responseModalities',
   };
 
   let res: Response;

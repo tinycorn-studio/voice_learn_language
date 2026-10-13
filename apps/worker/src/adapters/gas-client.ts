@@ -254,6 +254,12 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
         message: 'Invalid Apps Script response contract',
         status: 502,
       });
+    logStructured('info', 'repository_operation_complete', params.requestId, {
+      backend: 'gas',
+      action: params.action,
+      duration_ms: Math.max(0, Date.now() - started),
+      http_status: res.status,
+    });
     return validated.data as T;
   }
 

@@ -141,6 +141,40 @@ export async function handleWorkerRequest(
   deps: WorkerDependencies = {},
   securityStore: SecurityStateStore = defaultSecurityStore,
 ): Promise<Response> {
+  const started = performance.now();
+  const response = await handleWorkerRequestInternal(request, env, deps, securityStore);
+  const path = new URL(request.url).pathname;
+  const route = path.startsWith('/api/v1/vocabulary/')
+    ? '/api/v1/vocabulary/:id'
+    : /^\/api\/v1\/reviews\/[^/]+\/preview$/.test(path)
+      ? '/api/v1/reviews/:id/preview'
+      : [
+            '/health',
+            '/telegram/webhook',
+            '/api/v1/auth/telegram',
+            '/api/v1/vocabulary',
+            '/api/v1/live-token',
+            '/api/v1/reviews',
+            '/api/v1/reviews/due',
+            '/api/v1/reviews/submit',
+            '/api/v1/reviews/stats',
+          ].includes(path)
+        ? path
+        : 'other';
+  logStructured('info', 'api_request_complete', response.headers.get('x-request-id') ?? 'unknown', {
+    route,
+    http_status: response.status,
+    duration_ms: Math.max(0, Math.round(performance.now() - started)),
+  });
+  return response;
+}
+
+async function handleWorkerRequestInternal(
+  request: Request,
+  env: WorkerEnv,
+  deps: WorkerDependencies = {},
+  securityStore: SecurityStateStore = defaultSecurityStore,
+): Promise<Response> {
   const requestId = request.headers.get('x-request-id')?.trim().slice(0, 64) || crypto.randomUUID();
   const corsHeaders = resolveCorsHeaders(request, env);
 
@@ -179,9 +213,11 @@ export async function handleWorkerRequest(
     // 1b. POST /api/v1/client-logs — Ingest diagnostic logs from webview/mini-app
     if (request.method === 'POST' && path === '/api/v1/client-logs') {
       const rawJson = await parseOptionalRequestJson(request);
-      const data = typeof rawJson === 'object' && rawJson !== null ? (rawJson as Record<string, unknown>) : {};
+      const data =
+        typeof rawJson === 'object' && rawJson !== null ? (rawJson as Record<string, unknown>) : {};
       const logEntry = {
-        timestamp: typeof data.timestamp === 'string' ? data.timestamp : new Date(nowMs).toISOString(),
+        timestamp:
+          typeof data.timestamp === 'string' ? data.timestamp : new Date(nowMs).toISOString(),
         level: typeof data.level === 'string' ? data.level : 'info',
         message: typeof data.message === 'string' ? data.message.slice(0, 1000) : 'client event',
         details: data.details,
@@ -193,7 +229,11 @@ export async function handleWorkerRequest(
         client_level: logEntry.level,
         client_msg: logEntry.message,
       });
-      return jsonEnvelopeResponse({ ok: true, data: { received: true }, request_id: requestId }, 200, corsHeaders);
+      return jsonEnvelopeResponse(
+        { ok: true, data: { received: true }, request_id: requestId },
+        200,
+        corsHeaders,
+      );
     }
 
     // 1c. GET /api/v1/client-logs — Retrieve captured client diagnostic logs
@@ -241,7 +281,6 @@ export async function handleWorkerRequest(
         corsHeaders,
       );
     }
-
 
     // 2. POST /api/v1/auth/telegram
     if (request.method === 'POST' && path === '/api/v1/auth/telegram') {

@@ -144,7 +144,11 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   );
   const sessionFactory = useCallback<VoiceSessionFactory>(
     (callbacks) =>
-      voiceFactory(() => api.mintLiveToken(), { ...callbacks, onSaveVocabulary: saveVocabulary }),
+      voiceFactory(() => api.mintLiveToken(), {
+        ...callbacks,
+        onSaveVocabulary: saveVocabulary,
+        onCaptureDiagnostic: (metadata) => api.diagnostics.recordCapture(metadata),
+      }),
     [api, saveVocabulary, voiceFactory],
   );
   const grade = async (

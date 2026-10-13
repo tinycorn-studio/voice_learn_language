@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 18:40 +07:00
-> Phase: M5-13 plan D1 primary + latency đã hoàn tất; Sheet một chiều chỉ xem/xuất theo lựa chọn người dùng. Tasks M7 chưa triển khai; production giữ release M5-12.
-> Đang thực hiện: Chưa có task code đang chạy; M5-13 DONE (PLAN ONLY), M7-01–M7-10 PLANNED. M5-12 rating live QA vẫn pending.
-> Next action: Khi user yeu cau trien khai, bat dau M7-01 baseline/diagnostics, sau do M7-02 ACK/refresh UX va M7-03 D1 local schema; giu M5-12 rating live QA pending.
+> Updated: 2026-10-13 18:49 +07:00
+> Phase: Người dùng đã yêu cầu triển khai kế hoạch D1/latency sau khi đọc plan; bắt đầu M7-01, production chưa đổi.
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: M7-02: ACK/refresh UX, sau do M7-03 D1 schema; staging/production latency breakdown nghiem thu M7-08/M7-10.
 > Blockers: Plan chưa phải runtime; chưa có baseline/write latency breakdown, snapshot/schema Sheet thật để migrate hoặc D1 staging rehearsal. M5-12 chờ rating/Reviews/due thật. Không tạo tài nguyên/deploy/cutover trong task lập kế hoạch; CSV restore/Settings/quota/backup mở rộng vẫn task riêng.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -71,7 +71,7 @@
 
 Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùng chọn Sheet chỉ xem/xuất, sửa qua app. Tất cả tasks dưới đây chưa có implementation/deploy evidence.
 
-- [ ] M7-01 — P1, PLANNED: baseline p50/p95, metadata timings capture/API/DB/Telegram và diagnostics copy khi HTTP đều 200; privacy regression.
+- [x] M7-01 — P1, IN_PROGRESS: baseline p50/p95, metadata timings capture/API/DB/Telegram và diagnostics copy khi HTTP đều 200; privacy regression. User đã yêu cầu triển khai toàn plan, không bật Paid.
 - [ ] M7-02 — P1, PLANNED: Mini App trả tool result sau write ACK, refresh nền/gộp theo tab; Telegram ACK sớm và kết quả thật sau commit, tests không fake saved.
 - [ ] M7-03 — P1, PLANNED: D1 schema/migrations/bindings/factory, local/staging separation, unique/FK/OCC/append-only và fail-closed config.
 - [ ] M7-04 — P1, PLANNED: D1 Vocabulary/Review repositories, ts-fsrs backend, native audit/replay/atomic outbox, parity và concurrent/lost-ACK tests.
@@ -186,6 +186,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-13 14:09 +07:00 | M5-11 | DONE | Review code/production parity: 36 tests/5 files PASS va 7 synthetic probes tai hien missing tool, that mean detector, punctuation, tool-before-transcript. Public frontend M5-08 chua co Card/preview/stats; GAS v5 business code khop Git, Worker e07a24e2 100%. Bao cao docs/25_VOCABULARY_FSRS_GAP_REVIEW.md; khong sua feature/deploy/ghi Sheet. | Sua V01-V04 capture/validation va dong bo frontend FSRS V05; sau do live hoi nghia -> Words/Card -> FSRS rating -> Reviews/due, giu M1-03/M3-04/M4-04 pending den khi dat acceptance. Xu ly setup literal GAS trong dot duoc duyet; khong chay runQuickSetup de chua loi. |
 
 | 2026-10-13 18:40 +07:00 | M5-13 | DONE | PLAN ONLY: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md, ADR-010 Proposed va 10 tasks M7. User chon Sheet chi xem/xuat, sua qua app. Doi chieu source main adf0aea va official D1/Telegram/Workers docs; 21 local links, task consistency, tracked/changed-file secret scan, git diff --check PASS. Khong sua runtime, khong tao D1/import/deploy; khong chay lai app tests trong task docs-only. | Khi user yeu cau trien khai, bat dau M7-01 baseline/diagnostics, sau do M7-02 ACK/refresh UX va M7-03 D1 local schema; giu M5-12 rating live QA pending. |
+
+| 2026-10-13 18:49 +07:00 | M7-01 | DONE | Local diagnostics capture/API/GAS metadata whitelist va copy khi HTTP deu 200. 139 tests/20 files + 1 baseline test PASS, typecheck/lint/build/secret scan/diff check PASS. GAS VM 30 create/30 review, 1/3 upstream calls; synthetic timings khong phai production. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. Chua deploy. | M7-02: ACK/refresh UX, sau do M7-03 D1 schema; staging/production latency breakdown nghiem thu M7-08/M7-10. |
 
 ## Current blockers / risks
 

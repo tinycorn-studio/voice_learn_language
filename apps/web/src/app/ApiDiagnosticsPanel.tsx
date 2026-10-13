@@ -3,11 +3,15 @@ import type { LearningApiClient } from '../services/learning-api-client.js';
 
 export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
   const entries = useSyncExternalStore(api.diagnostics.subscribe, api.diagnostics.getSnapshot);
+  const capture = useSyncExternalStore(
+    api.diagnostics.subscribe,
+    api.diagnostics.getCaptureSnapshot,
+  );
   const [checking, setChecking] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const lastFailure = [...entries].reverse().find((entry) => entry.code !== 'OK');
-  if (!lastFailure) return null;
+  if (entries.length === 0 && capture.length === 0) return null;
 
   const checkConnection = async () => {
     setChecking(true);
@@ -34,17 +38,21 @@ export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
 
   return (
     <section className="api-diagnostics" aria-label="Chẩn đoán kết nối">
-      <p>
-        Mã lỗi gần nhất: <strong>{lastFailure.code}</strong>
-      </p>
-      <p>
-        Mã đối chiếu: <code>{lastFailure.request_id}</code>
-      </p>
+      {lastFailure && (
+        <>
+          <p>
+            Mã lỗi gần nhất: <strong>{lastFailure.code}</strong>
+          </p>
+          <p>
+            Mã đối chiếu: <code>{lastFailure.request_id}</code>
+          </p>
+        </>
+      )}
       <details>
         <summary>Log chẩn đoán</summary>
         <p>
-          Giữ tối đa 30 lần gọi trong phiên này; log mất khi đóng ứng dụng. Không chứa token hay nội
-          dung học.
+          Giữ tối đa 30 lần gọi và 100 mốc ghi nhận trong phiên này; log mất khi đóng ứng dụng.
+          Không chứa token hay nội dung học.
         </p>
         <div className="diagnostic-actions">
           <button disabled={checking} onClick={() => void checkConnection()}>

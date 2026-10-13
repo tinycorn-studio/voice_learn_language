@@ -8,6 +8,7 @@ import {
   type VoiceSessionState,
 } from '@voice-chat/shared';
 import { VocabularyCapture, type VocabularyCaptureStatus } from './vocabulary-capture.js';
+import type { CaptureDiagnostic } from './capture-diagnostics.js';
 
 export interface WebSocketLike {
   readyState: number;
@@ -38,6 +39,7 @@ export interface GeminiLiveClientCallbacks {
   onError?: (message: string) => void;
   onInterrupted?: () => void;
   onVocabularyCaptureStatus?: (status: VocabularyCaptureStatus) => void;
+  onCaptureDiagnostic?: (metadata: CaptureDiagnostic) => void;
 }
 export interface GeminiLiveConnectOptions {
   ephemeralToken: string;
@@ -152,6 +154,7 @@ export class GeminiLiveSessionClient {
       },
       status: (status) => this.callbacks.onVocabularyCaptureStatus?.(status),
       clarify: (reason) => this.callbacks.onClarificationNeeded?.(reason),
+      diagnostic: (metadata) => this.callbacks.onCaptureDiagnostic?.(metadata),
     });
   }
   public getResumptionHandle(): string | null {

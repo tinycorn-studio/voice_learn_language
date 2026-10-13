@@ -1,5 +1,9 @@
 import type { ApiErrorCode } from '@voice-chat/shared';
 import type { TelegramWebAppWindow } from '../integrations/telegram/telegram-adapter.js';
+import {
+  captureDiagnosticSchema,
+  type CaptureDiagnostic,
+} from '../features/voice/services/capture-diagnostics.js';
 
 export type DiagnosticCode =
   | ApiErrorCode
@@ -101,10 +105,24 @@ export function safeServerRequestId(value: string): string | null {
 /** Bounded, memory-only diagnostics. Accepts metadata only, never Request/Response/body/Error. */
 export class ApiDiagnostics {
   private entries: readonly ApiDiagnostic[] = [];
+  private capture: readonly (CaptureDiagnostic & { timestamp: string })[] = [];
   private readonly listeners = new Set<() => void>();
   public constructor(private readonly baseUrl: string) {}
 
   public readonly getSnapshot = (): readonly ApiDiagnostic[] => this.entries;
+  public readonly getCaptureSnapshot = () => this.capture;
+  public recordCapture(metadata: CaptureDiagnostic): void {
+    const parsed = captureDiagnosticSchema.safeParse(metadata);
+    if (!parsed.success) return;
+    this.capture = Object.freeze([
+      ...this.capture.slice(-99),
+      Object.freeze({
+        ...parsed.data,
+        timestamp: new Date().toISOString(),
+      }),
+    ]);
+    this.listeners.forEach((listener) => listener());
+  }
   public readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -166,7 +184,7 @@ export class ApiDiagnostics {
 
   public exportReport(): string {
     return JSON.stringify(
-      { format: 'mini-app-api-diagnostics-v1', attempts: this.entries },
+      { format: 'mini-app-api-diagnostics-v1', attempts: this.entries, capture: this.capture },
       null,
       2,
     );

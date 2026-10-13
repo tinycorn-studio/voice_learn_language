@@ -31,6 +31,7 @@ function setup() {
     onAudioChunk: vi.fn(),
     onError: vi.fn(),
     onVocabularyCaptureStatus: vi.fn(),
+    onCaptureDiagnostic: vi.fn(),
     onSaveVocabulary: vi
       .fn<(_event: VerifiedSaveVocabularyEvent) => Promise<{ ok: boolean }>>()
       .mockResolvedValue({ ok: true }),
@@ -75,6 +76,10 @@ describe('M5-12 vocabulary capture recovery', () => {
     expect(callbacks.onSaveVocabulary.mock.calls[0]?.[0].source_excerpt).toBe(
       'What does overwhelmed mean',
     );
+    expect(callbacks.onCaptureDiagnostic.mock.calls.map(([entry]) => entry.stage)).toEqual(
+      expect.arrayContaining(['inquiry_detected', 'persistence_started', 'persistence_saved']),
+    );
+    expect(JSON.stringify(callbacks.onCaptureDiagnostic.mock.calls)).not.toContain('overwhelmed');
   });
   it('recovers a missing tool once after the assistant turn, deduplicating late/new tool IDs', async () => {
     vi.useFakeTimers();

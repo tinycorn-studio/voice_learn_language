@@ -164,4 +164,6 @@ Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 byte
 
 ## Contract testing
 
+M7-01 (local, chưa deploy): bản chẩn đoán frontend `mini-app-api-diagnostics-v1` giữ `attempts` và thêm `capture` metadata bounded 100 (stage/reason/path/elapsed_ms/capture_id/timestamp). Không thêm route thu transcript; dữ liệu chỉ giữ memory và copy theo thao tác người dùng. Worker/GAS log timing chỉ route template/action/status/correlation, không body hoặc raw errors.
+
 Maintain JSON fixtures under `tests/contracts/` (tạo M2); valid/invalid/tamper/duplicate. Never use raw user voice content/secret trong fixtures.

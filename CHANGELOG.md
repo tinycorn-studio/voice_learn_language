@@ -4,6 +4,10 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ## [Unreleased]
 
+### Planned
+
+- 2026-10-13 M5-13: Kế hoạch giảm latency Mini App/Telegram và chuyển D1 thành kho chính, Sheet đồng bộ một chiều chỉ xem/xuất theo lựa chọn người dùng. Có tasks M7-01–M7-10, transaction/FSRS/replay, full migration/cutover/rollback, durable outbox và Free quota/performance gates. ADR-010 Proposed; chưa sửa runtime, tạo D1, import hoặc deploy. docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md.
+
 ### Verified
 
 - 2026-10-13 18:16 +07:00 M5-12: Người dùng xác nhận từ đã save trên Sheet và /review Telegram đã hiện sau lượt thử hỏi nghĩa. GitHub CI 38365870013 SUCCESS cho source 0e073519 đã push. Không sửa code hoặc deploy lại; còn chờ rating/Reviews/due thật để hoàn tất nghiệm thu FSRS.
@@ -86,3 +90,4 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 - 2026-10-13 10:31 +07:00 — M5-09: Worker cc64a401 deploy 100%, source SHA256 khop artifact da qua 122 tests/18 files va gates PASS. Log iOS user 2026-10-13T02:40Z xac nhan auth 200/565 ms va vocabulary 200/4099 ms; request web-cdb6ac91020e7b5642016f0b. Loi live-token 502 tach sang M5-10. docs/23_TELEGRAM_CONNECTION.md. Next: M5-10: dieu tra Gemini live-token 502 theo request web-ea7bdefbf8fb2d5ca5fdbc4e; khong suy ra key/model/quota tu ma UPSTREAM_ERROR.
 - 2026-10-13 12:43 +07:00 — M5-10: Worker e07a24e2 deploy 100%, source SHA256 F551D88B khop artifact da qua 124 tests/19 files, typecheck/lint/build/dry-run/secret scan PASS. Nguoi dung xac nhan da hoat dong sau hotfix ngay 13/10/2026; auth/vocabulary iOS truoc do 200. docs/23_TELEGRAM_CONNECTION.md. Next: Commit/push toan bo thay doi tren fix/M5-10-gemini-token-diagnostics va merge main theo yeu cau user; giu cac task live QA/backup/quota chua co evidence o trang thai pending.
 - 2026-10-13 14:09 +07:00 — M5-11: Review code/production parity: 36 tests/5 files PASS va 7 synthetic probes tai hien missing tool, that mean detector, punctuation, tool-before-transcript. Public frontend M5-08 chua co Card/preview/stats; GAS v5 business code khop Git, Worker e07a24e2 100%. Bao cao docs/25_VOCABULARY_FSRS_GAP_REVIEW.md; khong sua feature/deploy/ghi Sheet.. Next: Sua V01-V04 capture/validation va dong bo frontend FSRS V05; sau do live hoi nghia -> Words/Card -> FSRS rating -> Reviews/due, giu M1-03/M3-04/M4-04 pending den khi dat acceptance. Xu ly setup literal GAS trong dot duoc duyet; khong chay runQuickSetup de chua loi.
+- 2026-10-13 18:40 +07:00 — M5-13: PLAN ONLY: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md, ADR-010 Proposed va 10 tasks M7. User chon Sheet chi xem/xuat, sua qua app. Doi chieu source main adf0aea va official D1/Telegram/Workers docs; 21 local links, task consistency, tracked/changed-file secret scan, git diff --check PASS. Khong sua runtime, khong tao D1/import/deploy; khong chay lai app tests trong task docs-only.. Next: Khi user yeu cau trien khai, bat dau M7-01 baseline/diagnostics, sau do M7-02 ACK/refresh UX va M7-03 D1 local schema; giu M5-12 rating live QA pending.

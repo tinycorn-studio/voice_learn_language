@@ -4,6 +4,8 @@
 > **Trạng thái:** web/Worker/Apps Script đã triển khai; voice/auth/vocabulary được người dùng xác nhận. Frontend M5-12 bổ sung capture và FSRS UI đã public; luồng hỏi nghĩa → Sheet/Card → review cùng các gate vận hành còn chờ live QA. Xem `PROGRESS.md` và `docs/26_VOCABULARY_CAPTURE_RELEASE.md`.
 > **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
+Kế hoạch tiếp theo (chưa triển khai): [D1 primary và giảm độ trễ Mini App/Telegram](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md). Người dùng chọn Sheet chỉ xem/xuất; mọi chỉnh sửa qua app. Tasks M7 và ADR-010 đang ở giai đoạn kế hoạch.
+
 ## Mục tiêu
 
 Ứng dụng luyện hội thoại tiếng Anh bằng giọng nói sử dụng Gemini Live API, tự nhận diện yêu cầu học từ (vd. _What does overwhelmed mean?_), ghi từ vào Google Sheets qua Apps Script, và ôn tập bằng Telegram Bot/Telegram Mini App với Spaced Repetition. Ưu tiên free tier, không tự vận hành VPS hay máy tính 24/7, bảo mật và dễ duy trì qua nhiều phiên coding-agent.

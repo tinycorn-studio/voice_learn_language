@@ -101,3 +101,14 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Decision: frontend điều phối transcript/tool theo snapshot câu hỏi, một event ID/operation cho mỗi inquiry, persistence tách khỏi audio message queue. Nếu model bỏ tool, recovery một lần sau turnComplete qua clientContent trên cùng Live session; không thêm backend text-model service hoặc gọi AI mỗi audio chunk. Validation deterministic vẫn chặn câu thường/target bịa; source lưu là transcript thật.
 - Rationale: M5-11 tái hiện tool/ASR không theo thứ tự, khác dấu câu và việc model trả lời nhưng bỏ tool. [Google Live reference](https://ai.google.dev/api/live) không bảo đảm thứ tự input transcription; [client content](https://ai.google.dev/gemini-api/docs/live-api/capabilities#incremental-content-updates) được hỗ trợ trong phiên.
 - Tradeoff: AI vẫn phải sinh nghĩa/tool hợp lệ; recovery có cap 10/Start và timeout, không hứa lưu khi chưa có ACK. Model có thể phát thêm lời, cần live QA. State capture/queue chỉ giữ trong phiên; quyền lưu và FSRS vẫn nằm tại Worker/GAS.
+
+## ADR-010 — D1 primary, Sheet mirror một chiều và outbox bền vững
+
+- Date: 2026-10-13
+- Status: Proposed / PLAN ONLY (M5-13); người dùng yêu cầu kế hoạch D1 và chọn Sheet chỉ xem/xuất, chưa có implementation/cutover.
+- Decision dự kiến: Worker repository dùng Cloudflare D1 làm nguồn dữ liệu có thẩm quyền cho Words/Cards/Reviews/Events/Settings/Users/Dispatch. Giữ API/domain, ts-fsrs backend và Card OCC; mutations commit atomically cùng outbox. Sheet nhận canonical snapshots một chiều qua HMAC batch, không còn nằm trên đường tương tác app/Bot.
+- Rationale: source hiện có ba GAS round trips cho review, Telegram ACK sau persistence, Mini App đợi refresh phụ; D1 loại dependency Sheets khỏi write/read chính và hỗ trợ transaction. Repository interfaces đã tách sẵn.
+- Execution: D1 batch + SQL guard cho atomic OCC/replay; outbox có lease/retry/dead-letter, Cron xử lý batch. waitUntil chỉ hỗ trợ chạy sớm, không là durable queue. Chưa cần Queues/R2/Paid; mọi entrypoint chọn cùng một backend, không tự fallback GAS khi D1 lỗi.
+- Migration: full snapshot bảy tabs, preserve IDs/due/native logs/versions/legacy HMAC fingerprints; freeze/drain trước final import; staging parity/restore/CPU/quota/latency gates trước cutover. Sau write D1 đầu tiên rollback code vẫn giữ D1; quay GAS cần full reverse migration/verify, không dùng mirror trễ.
+- Tradeoff: Sheet có lag, chỉnh thủ công không đồng bộ ngược; thêm schema/migration/outbox vận hành, D1 Free vẫn có quota và 500 MB/database. D1 không làm nhanh model Gemini; đo capture riêng. M5-12 rating live QA vẫn pending, không coi plan đã nghiệm thu FSRS.
+- Tham chiếu: [plan M5-13](27_D1_PERFORMANCE_MIGRATION_PLAN.md), [D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [pricing](https://developers.cloudflare.com/d1/platform/pricing/), [Worker context](https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil).

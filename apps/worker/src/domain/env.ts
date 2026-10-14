@@ -13,6 +13,8 @@ export interface WorkerEnv {
   GAS_EXEC_URL: string;
   ALLOWED_ORIGIN?: string;
   DATA_BACKEND?: 'gas' | 'd1';
+  SHEET_MIRROR_ENABLED?: 'true' | 'false';
+  SHEET_MIRROR_EPOCH?: string;
   DB?: Pick<D1Database, 'prepare' | 'batch'>;
 }
 

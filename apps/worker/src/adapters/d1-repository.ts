@@ -24,6 +24,7 @@ import {
   type ReviewSubmitResponse,
   type ReviewPreviewResponse,
   type ReviewStatsResponse,
+  type MirrorEntity,
 } from '@voice-chat/shared';
 import { AppError, logStructured } from '../domain/env.js';
 import type {
@@ -47,12 +48,6 @@ function storedJson(value: string): unknown {
   } catch {
     throw new AppError({ code: 'UPSTREAM_ERROR', message: 'Invalid stored JSON', status: 502 });
   }
-}
-export interface MirrorEntity {
-  tab: string;
-  id: string;
-  version: number;
-  row: Row;
 }
 const jsonRow = z.object({ record_json: z.string() });
 const eventRow = z.object({
@@ -434,7 +429,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           entities: [
             { tab: 'Words', id: word.word_id, version: word.version, row: word },
             ...(card
-              ? [{ tab: 'Cards', id: card.card_id, version: card.row_version, row: card }]
+              ? [{ tab: 'Cards' as const, id: card.card_id, version: card.row_version, row: card }]
               : []),
           ],
         });

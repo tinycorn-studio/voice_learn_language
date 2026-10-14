@@ -243,8 +243,8 @@ function doPost(e) {
     if (typeof body.payload !== 'string' || typeof body.signature !== 'string') {
       return jsonResponse_({ ok: false, error: { code: 'INVALID_ENVELOPE', message: 'Missing payload or signature' } });
     }
-    if (body.payload.length > 12000) {
-      return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Payload exceeds 12000 chars' } });
+    if (body.payload.length > 60000) {
+      return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Payload exceeds 60000 chars' } });
     }
 
     var props = PropertiesService.getScriptProperties();
@@ -275,6 +275,16 @@ function doPost(e) {
     }
 
     var ss = SpreadsheetApp.openById(sheetId);
+    if (event.action === 'mirror.applyBatch') {
+      return handleWithBusinessError_(function () { return applyMirrorBatch_(ss, event, props); });
+    }
+    if (body.payload.length > 12000) {
+      return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Business payload exceeds 12000 chars' } });
+    }
+    if (props.getProperty('DATA_AUTHORITY') === 'd1' && [ACTION_UPSERT, ACTION_UPDATE, ACTION_DELETE,
+      ACTION_REVIEW_RECORD, ACTION_REVIEW_CLAIM_DIGEST, ACTION_REVIEW_FINISH_DIGEST, ACTION_USER_PREFERENCES, ACTION_MIGRATION_V3].indexOf(event.action) >= 0) {
+      return jsonResponse_({ ok: false, error: { code: 'FORBIDDEN', message: 'D1 is authoritative; Sheet is read-only' } });
+    }
     if (event.action === ACTION_UPSERT) {
       return handleWithBusinessError_(function () { return upsertWord_(ss, event); });
     }
@@ -364,6 +374,116 @@ function verifySignature_(payload, incomingSignature, secret) {
     difference |= expected.charCodeAt(i) ^ actual.charCodeAt(i);
   }
   return difference === 0;
+}
+
+function canonicalJson_(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson_).join(',') + ']';
+  if (value !== null && typeof value === 'object') return '{' + Object.keys(value).sort().map(function (key) {
+    return JSON.stringify(key) + ':' + canonicalJson_(value[key]);
+  }).join(',') + '}';
+  return JSON.stringify(value);
+}
+
+/** Row metadata and values are written in the same range; partial cross-tab writes replay safely. */
+function applyMirrorBatch_(ss, event, props) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var data = event.data || {};
+    if (props.getProperty('DATA_AUTHORITY') !== 'd1' || props.getProperty('MIRROR_ENABLED') !== 'true' ||
+        !props.getProperty('MIRROR_EPOCH')) throw new Error('FORBIDDEN:Mirror is not enabled');
+    if (data.epoch !== props.getProperty('MIRROR_EPOCH')) throw new Error('CONFLICT:Mirror epoch mismatch');
+    if (!Array.isArray(data.jobs) || !data.jobs.length || data.jobs.length > 3) throw new Error('CONFLICT:Invalid mirror jobs');
+    var layouts = {
+      Words: ['word_id', WORDS_COLUMNS], Cards: ['card_id', CARDS_COLUMNS], Reviews: ['review_id', REVIEWS_COLUMNS],
+      Events: ['event_id', EVENTS_COLUMNS], Settings: ['user_id', SETTINGS_COLUMNS], Users: ['user_id', USERS_COLUMNS],
+      DailyDispatchLog: ['dispatch_id', DISPATCH_COLUMNS]
+    };
+    var tables = {};
+    var ids = [];
+    data.jobs.forEach(function (job) {
+      if (!job || typeof job.event_id !== 'string' || job.event_id.length > 160 || !Array.isArray(job.entities) ||
+          !job.entities.length || job.entities.length > 10) throw new Error('CONFLICT:Invalid mirror job');
+      ids.push(job.event_id);
+      job.entities.forEach(function (entity) {
+        var layout = entity && Object.prototype.hasOwnProperty.call(layouts, entity.tab) && layouts[entity.tab];
+        var row = entity && entity.row;
+        if (!layout || !row || typeof row !== 'object' || Array.isArray(row) || typeof entity.id !== 'string' ||
+            row[layout[0]] !== entity.id || row.user_id !== event.user_id || !Number.isSafeInteger(entity.version) || entity.version < 0)
+          throw new Error('CONFLICT:Invalid mirror entity');
+        Object.keys(row).forEach(function (key) {
+          var value = row[key];
+          if (!(value === null || typeof value === 'boolean' || typeof value === 'number' && isFinite(value) ||
+              typeof value === 'string' && value.length <= 48000)) throw new Error('CONFLICT:Invalid mirror cell');
+        });
+        if (entity.tab === 'Words' && row.version !== entity.version || entity.tab === 'Cards' && row.row_version !== entity.version)
+          throw new Error('CONFLICT:Mirror version mismatch');
+        var table = tables[entity.tab];
+        if (!table) {
+          var sheet = ss.getSheetByName(entity.tab);
+          if (!sheet) throw new Error('CONFLICT:Missing mirror tab');
+          var grid = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+          var headers = grid[0].map(String);
+          layout[1].forEach(function (column) { if (headers.indexOf(column) < 0) throw new Error('CONFLICT:Missing mirror column'); });
+          ['_mirror_version', '_mirror_json', '_mirror_epoch'].forEach(function (column) { if (headers.indexOf(column) < 0) headers.push(column); });
+          grid[0] = headers;
+          var index = Object.create(null);
+          for (var i = 1; i < grid.length; i++) {
+            var id = String(grid[i][headers.indexOf(layout[0])] || '');
+            if (!id) continue;
+            if (Object.prototype.hasOwnProperty.call(index, id)) throw new Error('CONFLICT:Duplicate mirror entity');
+            index[id] = i;
+          }
+          table = tables[entity.tab] = { sheet: sheet, grid: grid, headers: headers, index: index, first: Infinity, last: -1 };
+        }
+        var oldIndex = Object.prototype.hasOwnProperty.call(table.index, entity.id) ? table.index[entity.id] : -1;
+        var oldRow = oldIndex >= 0 ? table.grid[oldIndex] : [];
+        var rawVersion = oldRow[table.headers.indexOf('_mirror_version')];
+        var oldVersion = rawVersion === undefined || rawVersion === '' ? -1 : Number(rawVersion);
+        var oldEpoch = String(oldRow[table.headers.indexOf('_mirror_epoch')] || '');
+        var json = canonicalJson_(row);
+        if (oldEpoch && oldEpoch !== data.epoch) throw new Error('CONFLICT:Existing mirror epoch mismatch');
+        if (oldVersion > entity.version) return;
+        if (oldVersion === entity.version) {
+          if (String(oldRow[table.headers.indexOf('_mirror_json')]) !== json) throw new Error('CONFLICT:Same mirror version differs');
+          return;
+        }
+        if (oldIndex >= 0 && (entity.tab === 'Reviews' || entity.tab === 'Events')) {
+          layout[1].forEach(function (column) {
+            var oldValue = oldRow[table.headers.indexOf(column)];
+            if (oldValue instanceof Date) oldValue = oldValue.toISOString();
+            if (stripLeadingQuote_(String(oldValue === undefined || oldValue === null ? '' : oldValue)) !== String(row[column] === undefined || row[column] === null ? '' : row[column]))
+              throw new Error('CONFLICT:Immutable mirror row differs');
+          });
+        }
+        if (oldIndex >= 0 && oldVersion < 0 && (entity.tab === 'Words' || entity.tab === 'Cards') &&
+            Number(oldRow[table.headers.indexOf(entity.tab === 'Words' ? 'version' : 'row_version')]) > entity.version) return;
+        var values = table.headers.map(function (column) {
+          if (column === '_mirror_version') return entity.version;
+          if (column === '_mirror_json') return json;
+          if (column === '_mirror_epoch') return data.epoch;
+          var value = row[column];
+          return value === undefined || value === null ? '' : typeof value === 'string' ? safeCell_(value) : value;
+        });
+        var target = oldIndex >= 0 ? oldIndex : table.grid.length;
+        table.grid[target] = values; table.index[entity.id] = target;
+        table.first = Math.min(table.first, target); table.last = Math.max(table.last, target);
+      });
+    });
+    // Validate every entity before the first write. A crash between tabs is repaired by
+    // replaying the same versions; no append-only audit row is overwritten with new data.
+    Object.keys(tables).forEach(function (name) {
+      var table = tables[name];
+      if (table.last < 0) return;
+      table.sheet.getRange(1, 1, 1, table.headers.length).setValues([table.headers]);
+      var rows = table.grid.slice(table.first, table.last + 1).map(function (row) {
+        return table.headers.map(function (_column, index) { return row[index] === undefined ? '' : row[index]; });
+      });
+      table.sheet.getRange(table.first + 1, 1, rows.length, table.headers.length).setValues(rows);
+    });
+    SpreadsheetApp.flush();
+    return { applied_event_ids: ids };
+  } finally { lock.releaseLock(); }
 }
 
 function upsertWord_(ss, event) {

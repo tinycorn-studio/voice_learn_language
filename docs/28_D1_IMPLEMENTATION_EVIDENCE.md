@@ -38,3 +38,11 @@
 - 10 integration tests trên workerd D1 local PASS; full suite **162 tests/26 files PASS**, typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Fixture retry được sửa để truyền SecurityStateStore mới bằng tham số thứ tư; đã chạy lại đủ 10 test sau sửa fixture. Artifacts `.artifacts/M7-05/`.
 - Cloudflare `d1 list --json` đã thành công và trả `[]` ngày 14/10; lỗi 10000 trước đó hiện không tái hiện, chưa kết luận nguyên nhân. Chưa tạo DB remote hoặc deploy M7; config production vẫn GAS/Cron cũ. Cron mỗi phút chỉ bật ở staging/cutover sau mirror/migration gates.
 - Telegram không hỗ trợ fencing token cho edit: lease lớn hơn HTTP timeout giúp serialize lượt đang chạy; trường hợp request ngoại vi đến rất muộn sau timeout vẫn cần kiểm chứng trong staging. Không coi local suite là SLA mạng hoặc nghiệm thu thiết bị thật.
+
+## M7-06 — 14/10/2026, local
+
+- Cron D1 drain một Telegram job và một mirror event/tick, bounded Free subrequests; mirror event gồm nhiều entity snapshots, HMAC fresh timestamp, owner/epoch/body validation. Global durable lease + job CAS, backoff/jitter, tối đa tám attempts, permanent conflicts dead-letter; explicit requeue và queue health age/count không xuất nội dung.
+- GAS mirror dưới ScriptLock, preflight cả batch trước writes; metadata `_mirror_version/_mirror_json/_mirror_epoch` ghi cùng range với row. Older versions ACK/skip; same-version different snapshot/epoch/immutable audit conflict. Partial cross-tab write hoặc lost ACK replay sửa nốt, không thêm Reviews/Events trùng. Formula injection được escape ở cells, snapshot canonical JSON giữ nguyên.
+- Mirror chỉ bật khi GAS DATA_AUTHORITY=d1/MIRROR_ENABLED=true/MIRROR_EPOCH khớp Worker và D1 source_epoch. Legacy business writers bị chặn khi authority d1. Production config vẫn gas/mirror=false, source GAS chưa push/redeploy.
+- Frozen rebuild duyệt đủ bảy entity tables, deterministic content jobs/checkpoints qua unique IDs, rerun không nhân outbox; dead jobs không bị xóa. Đây là operator tool local, không gọi rebuild toàn DB trong Cron/HTTP request Free.
+- **169 tests/27 files PASS**, typecheck/lint/build/Worker dry-run PASS, thêm bảy workerd D1 ↔ GAS VM fault-injection tests. `.artifacts/M7-06/`. Remote Google/D1 staging, throughput/mirror p95 và Free CPU còn M7-08; chưa coi tests synthetic là nghiệm thu production.

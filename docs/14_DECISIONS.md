@@ -105,7 +105,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 ## ADR-010 — D1 primary, Sheet mirror một chiều và outbox bền vững
 
 - Date: 2026-10-13
-- Status: Proposed / PLAN ONLY (M5-13); người dùng yêu cầu kế hoạch D1 và chọn Sheet chỉ xem/xuất, chưa có implementation/cutover.
+- Status: Accepted for implementation (M7); người dùng yêu cầu triển khai và chọn Sheet chỉ xem/xuất. Production cutover chưa thực hiện; evidence local tại docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - Decision dự kiến: Worker repository dùng Cloudflare D1 làm nguồn dữ liệu có thẩm quyền cho Words/Cards/Reviews/Events/Settings/Users/Dispatch. Giữ API/domain, ts-fsrs backend và Card OCC; mutations commit atomically cùng outbox. Sheet nhận canonical snapshots một chiều qua HMAC batch, không còn nằm trên đường tương tác app/Bot.
 - Rationale: source hiện có ba GAS round trips cho review, Telegram ACK sau persistence, Mini App đợi refresh phụ; D1 loại dependency Sheets khỏi write/read chính và hỗ trợ transaction. Repository interfaces đã tách sẵn.
 - Execution: D1 batch + SQL guard cho atomic OCC/replay; outbox có lease/retry/dead-letter, Cron xử lý batch. waitUntil chỉ hỗ trợ chạy sớm, không là durable queue. Chưa cần Queues/R2/Paid; mọi entrypoint chọn cùng một backend, không tự fallback GAS khi D1 lỗi.
@@ -123,3 +123,8 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 
 - D1 Events dùng HMAC builder tương thích GAS field order, metadata fingerprint_scheme phân biệt imported/verified/legacy-unverified. Cùng key hiện hữu của Worker, không đưa key vào export. Imported Event được replay trước đọc Word/Card; đổi payload hoặc thiếu snapshot trả conflict.
 - Transaction ghi Word/Card/Review/Event/outbox cùng batch; SQL guards kiểm active owner và Card version. Word version chỉ bảo vệ compatibility mirror khỏi overwrite; khi hai Card độc lập cùng sửa mirror, retry bounded với Card version riêng còn đúng.
+
+### Bổ sung M7-06 — mirror row metadata
+
+- Không dựa vào appendRow hoặc event ACK memory: GAS viết canonical snapshot/version/epoch cùng row dưới ScriptLock. Preflight toàn batch, writes theo table ranges; partial cross-tab failure replay được. Reviews/Events immutable, version cũ bỏ qua và same-version mismatch conflict.
+- Một mirror event/tick (nhiều entity rows), global lease 60 giây, Google HTTP timeout 15 giây, bounded attempts/dead-letter và explicit rebuild. Throughput/CPU/lag được đo staging trước khi tăng batch budget; không gắn synchronous mirror vào API persistence.

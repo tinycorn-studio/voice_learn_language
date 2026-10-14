@@ -12,6 +12,7 @@ import {
 import { createRepositories } from './adapters/repository-factory.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
+import { processSheetMirror } from './adapters/sheet-mirror.js';
 import {
   formatReviewResult,
   processTelegramDeliveries,
@@ -1010,8 +1011,9 @@ export default {
         env.DB,
         new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),
         new Date(controller.scheduledTime).toISOString(),
-        3,
+        1,
       );
+      await processSheetMirror(env.DB, env, new Date(controller.scheduledTime).toISOString());
       const time = new Date(controller.scheduledTime);
       if (time.getUTCHours() !== 1 || time.getUTCMinutes() > 5) return;
     }

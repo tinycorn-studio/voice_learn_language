@@ -1,4 +1,5 @@
 export * from './contracts/api.js';
+export * from './contracts/mirror.js';
 export * from './srs/engine.js';
 export * from './srs/fsrs-engine.js';
 export * from './utils/normalize.js';

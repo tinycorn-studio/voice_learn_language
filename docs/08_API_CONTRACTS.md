@@ -166,6 +166,10 @@ Response GAS `{ok:boolean,data?:{},error?:{code,message}}`; Worker validate sche
 
 Webhook đã xác thực mới được gắn trusted `TelegramMutationContext`; HTTP review body không nhận context này. ACK callback trước mutation, kết quả thành công chỉ tạo sau domain commit. D1 lưu update ID và delivery atomic với review/preferences; `/review` lưu command trước trả HTTP 200. Delivery được drain qua waitUntil và Cron, tối đa ba jobs/lượt, lease 30 giây và tối đa ba attempts. Edit cùng message serialize và bỏ revision cũ; send mất ACK không tự retry, dead-letter `unknown_outcome` cần đối chiếu thủ công. Digest claimed hết hai phút thành unknown; finish replay cùng token/status/message ID idempotent, terminal status không bị ghi đè.
 
+## Sheet mirror — M7-06 local, chưa deploy
+
+Internal signed action `mirror.applyBatch`, data `{epoch,jobs:[{event_id,entities:[{tab,id,version,row}]}]}`. Bảy tab names allowlist; Word/Card schema, ID/user/version và scalar cells được validate. Maximum signed payload 60.000 chars cho mirror; business actions vẫn 12.000. GAS trả `{ok:true,data:{applied_event_ids:[...]}}` chỉ sau flush; Worker xác minh ACK đúng job. Epoch phải khớp config Worker, source_epoch D1 và Script Properties; Sheet read-only với legacy writers khi authority=d1. Retry ký timestamp mới, snapshot/version không đổi. Unknown network ACK được retry vì mirror idempotent; Telegram send unknown vẫn không retry.
+
 Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.
 
 ## Contract testing

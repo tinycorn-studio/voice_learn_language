@@ -241,6 +241,7 @@ export class GasRepositoryAdapter implements VocabularyRepository, ReviewReposit
       'review.claimDigest': dailyDigestClaimSchema,
       'review.finishDigest': z.object({ updated: z.boolean() }),
       'user.preferences': z.object({ updated: z.boolean(), notifications_enabled: z.boolean() }),
+      'mirror.applyBatch': z.object({ applied_event_ids: z.array(z.string()) }),
       'migration.schemaV3': z.object({
         migrated_cards: z.number().int().nonnegative(),
         status: z.string(),

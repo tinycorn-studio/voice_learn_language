@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-14 08:33 +07:00
-> Phase: M7-01–M7-04 DONE LOCAL; M7-05 đang dở, M7-06–M7-10 chưa hoàn tất. Các nhánh M7 chưa push/merge; production vẫn GAS.
+> Updated: 2026-10-14 08:42 +07:00
+> Phase: M7-01–M7-05 DONE LOCAL; M7-06 đang triển khai. Các nhánh M7 chưa push/merge; production vẫn GAS.
 > Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M7-06 Sheet mirror/outbox; M7-07 full snapshot/import/verify, then staging M7-08.
-> Blockers: Cloudflare D1 list vẫn Authentication error 10000 dù OAuth liệt kê d1 (write), chưa xác định nguyên nhân. Chưa có full snapshot/schema Sheet thật, migration/restore rehearsal hoặc benchmark production. M5-12 chờ rating/Reviews/due thật; CSV restore/Settings/quota/backup mở rộng còn pending. Chưa tạo D1 remote/import/cutover.
+> Next action: M7-07 full seven-tab snapshot/import/verify/rollback tools; then M7-08 real staging rehearsal.
+> Blockers: D1 list đã truy cập được 14/10 và trả []; lỗi 10000 trước đó chưa rõ nguyên nhân. Chưa có full snapshot/schema Sheet thật, migration/restore rehearsal hoặc benchmark production. M5-12 chờ rating/Reviews/due thật; CSV restore/Settings/quota/backup mở rộng còn pending. Chưa tạo D1 remote/import/cutover.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
@@ -76,7 +76,7 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-03 — P1, DONE LOCAL: 146 tests/24 files/gates PASS, workerd D1 constraints/batch rollback, factory fail closed và GAS vẫn production. Remote staging gate M7-08.
 - [x] M7-04 — P1, DONE LOCAL: 152 tests/25 files/gates PASS, D1 CRUD/FSRS/native audit/atomic replay-outbox và GAS HMAC legacy, concurrent/crash tests. Remote D1 auth error 10000, chưa deploy.
 - [x] M7-05 — P1, DONE LOCAL: 162 tests/26 files và gates PASS; Telegram mutation/update/delivery atomic, lease/revision/retry/unknown, commands/legacy keyboard và digest OCC/atomic mirror. Chưa deploy; docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- [ ] M7-06 — P1, PLANNED: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence.
+- [x] M7-06 — P1, IN_PROGRESS: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. Acceptance: tests concurrency/lost ACK/rebuild/dead-letter, đủ gates trước deploy.
 - [ ] M7-07 — P1, PLANNED: full Sheet exporter/importer/dry-run/verify, legacy fingerprint HMAC parity, freeze/drain, backup manifests và rollback tools.
 - [ ] M7-08 — P1, PLANNED: staging D1 runtime thật, migration/restore rehearsal, data parity, FSRS/concurrency/security/fault injection và benchmark Free CPU/quota.
 - [ ] M7-09 — P1, PLANNED: production cutover sau code/gates/backup review, freeze/final snapshot/import/verify, mọi entrypoint chọn D1 và smoke thật.
@@ -200,6 +200,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-14 08:23 +07:00 | M7-05 | IN_PROGRESS / STATUS_AUDIT | Chỉ audit, không sửa runtime/deploy. HEAD ec9c0e6, worktree sạch trước audit; remote main adf0aea và không có nhánh M7. Lint PASS; typecheck FAIL TS2379 tại telegram-delivery-store.ts:67 (callback_data optional). Chưa chạy lại full tests/build; 152 tests PASS thuộc M7-04, không phải chứng nhận WIP hiện tại. D1 list vẫn lỗi 10000 dù scope d1 (write). Worker active e07a24e2 100%, Pages vẫn index-C2NMt0rU.js; production GAS. | Hoàn thiện M7-05 và gates, rồi M7-06/07; giải quyết D1 auth và staging M7-08 trước cutover M7-09/QA M7-10. |
 
 | 2026-10-14 08:33 +07:00 | M7-05 | DONE | DONE LOCAL: 162 tests/26 files PASS; typecheck/lint/build/Worker dry-run/secret scan/diff PASS; 10 D1 Telegram tests for isolate replay, atomic rollback, edit ordering, unknown sends and digest. D1 list accessible, no remote DB or deployment. docs/28_D1_IMPLEMENTATION_EVIDENCE.md | M7-06 Sheet mirror/outbox; M7-07 full snapshot/import/verify, then staging M7-08. |
+
+| 2026-10-14 08:42 +07:00 | M7-06 | DONE | DONE LOCAL: 169 tests/27 files; typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Seven D1-GAS mirror tests: lost ACK, outage independence, partial crash replay, lease/version/epoch, dead-letter/requeue and frozen rebuild. Production gas/mirror=false, GAS source not pushed. docs/28_D1_IMPLEMENTATION_EVIDENCE.md | M7-07 full seven-tab snapshot/import/verify/rollback tools; then M7-08 real staging rehearsal. |
 
 ## Current blockers / risks
 

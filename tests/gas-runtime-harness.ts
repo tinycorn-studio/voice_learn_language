@@ -47,6 +47,13 @@ export class InMemorySheet {
         }
         targetRow[col - 1] = val;
       },
+      setValues: (values: unknown[][]): void => {
+        for (let r = 0; r < values.length; r++) {
+          while (this.rows.length < row + r) this.rows.push([]);
+          const targetRow = this.rows[row - 1 + r]!;
+          for (let c = 0; c < (values[r]?.length ?? 0); c++) targetRow[col - 1 + c] = values[r]![c];
+        }
+      },
     };
   }
 }

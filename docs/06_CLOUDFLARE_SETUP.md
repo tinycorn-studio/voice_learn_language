@@ -73,6 +73,8 @@ crons = ["* * * * *"]
 
 M7-11: Cron mỗi phút drain một Telegram delivery và một mirror event trên D1; hai processor độc lập, lỗi được log sanitized để retry. Handler chỉ claim digest lúc 01:00–01:05 UTC (08:00–08:05 +07). Một digest mỗi ngày, tối đa 3 send attempts; sent/unknown không tự gửi lại. Cron **không đảm bảo chạy đúng phút tuyệt đối**; dispatch phải dedupe. Theo dõi scheduled invocation failures, outbox lag/dead-letter và Telegram deliveries. Thay Cron có thể cần thời gian truyền cấu hình; kiểm cả schedule API lẫn outbox attempt/ACK thật.
 
+M7-11 còn kích hoạt một mirror job bằng `ctx.waitUntil` sau mutation thành công, giảm thời gian chờ Sheet và không block HTTP/voice. Cùng global lease/CAS ngăn overlap với Cron; network lỗi vẫn để pending/backoff. Không dùng foreground success làm bằng chứng Cron đã chạy: kiểm scheduled invocation riêng. Nhánh này bỏ qua read/token/auth/error responses.
+
 Pages project hiện dùng nhánh production tên `production`, không phải `main`. Build với `VITE_APP_VERSION`, deploy `--branch production`, kiểm Environment=Production và hash bundle trên URL chính trước báo thành công. `--branch main` tạo Preview trong cấu hình này.
 
 Sheet mirror cần GAS source đã push/version/redeploy và RPC signed `migration.enableMirror` sau frozen export/import/verify thành công: `DATA_AUTHORITY=d1`, `MIRROR_ENABLED=true`, `MIRROR_EPOCH` khớp Worker/D1. Legacy GAS writers tiếp tục bị khóa; không unfreeze GAS để sửa dữ liệu sau cutover. Xem docs/31_D1_ROLLOUT_RECOVERY.md.

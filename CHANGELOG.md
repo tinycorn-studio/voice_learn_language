@@ -1,5 +1,7 @@
 # CHANGELOG
 
+- 2026-10-14 14:21 +07:00 — M7-11: kích hoạt mirror nền sau commit D1 để Sheet không phải chờ lượt Cron; Google treo/lỗi không block API và giữ job retry. 181 tests/gates đạt, chờ CI/deploy/ACK production; Cron invocation còn cần xác nhận riêng.
+
 - 2026-10-14 14:05 +07:00 — M7-11 IN_PROGRESS: phục hồi dữ liệu Sheet thật vào D1, giữ lịch sử ôn/FSRS và owner khác; GAS v7 nhận mirror, Worker drain mỗi phút, Mini App production M7-11. API lưu/chấm/retry đạt; chờ scheduled ACK/CI/Git, nghiệm thu thiết bị còn M7-10. Chi tiết docs/31_D1_ROLLOUT_RECOVERY.md.
 
 Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript hoặc thông tin định danh cá nhân.

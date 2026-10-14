@@ -13,7 +13,8 @@ import {
 } from '../apps/worker/src/adapters/sheet-mirror.js';
 import { signGasPayload } from '../apps/worker/src/adapters/gas-client.js';
 import type { WorkerEnv } from '../apps/worker/src/domain/env.js';
-import { handleScheduledTick } from '../apps/worker/src/entry.js';
+import worker, { handleScheduledTick } from '../apps/worker/src/entry.js';
+import { issueSessionToken } from '../apps/worker/src/auth/telegram-auth.js';
 
 const USER = 'telegram:123';
 const ENV: WorkerEnv = {
@@ -31,6 +32,7 @@ const runtimes: Awaited<ReturnType<typeof createD1RuntimeHarness>>[] = [];
 afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await Promise.all(runtimes.splice(0).map((r) => r.dispose()));
 });
 async function setup() {
@@ -93,6 +95,55 @@ const now = () => new Date().toISOString();
 const future = (minutes: number) => new Date(Date.now() + minutes * 60000).toISOString();
 
 describe('M7-06 D1 -> Sheet mirror', () => {
+  it('returns committed API success before background Google completes and retains failed jobs for retry', async () => {
+    const { db, gas } = await setup();
+    const session = await issueSessionToken({ userId: USER, signingSecret: ENV.GAS_SHARED_SECRET });
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const began = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        started();
+        await gate;
+        throw new TypeError('Google offline');
+      }),
+    );
+    const work: Promise<unknown>[] = [];
+    const response = await worker.fetch(
+      new Request('https://worker.example/api/v1/vocabulary', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          event_id: 'background_create',
+          word: 'background',
+          meaning_vi: 'nền',
+        }),
+      }),
+      { ...ENV, DB: db },
+      {
+        waitUntil: (promise) => {
+          work.push(promise);
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+    expect(work).toHaveLength(1);
+    await began;
+    expect(gas.spreadsheet.getSheetByName('Words')!.rows).toHaveLength(1);
+    expect((await db.prepare('SELECT COUNT(*) AS n FROM words').first())?.['n']).toBe(2);
+    release();
+    await Promise.all(work);
+    expect(
+      await db.prepare('SELECT status,attempts FROM sync_outbox ORDER BY sequence LIMIT 1').first(),
+    ).toEqual({ status: 'pending', attempts: 1 });
+  });
   it('drains mirror on daytime minute ticks while claiming digest only inside its morning window', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-14T06:00:00.000Z'));

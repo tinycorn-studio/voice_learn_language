@@ -3,8 +3,8 @@
 > Updated: 2026-10-14 14:05 +07:00
 > Phase: M7 PRODUCTION RECOVERY — dữ liệu Sheet thật đã verify/import D1, GAS v7 mirror enabled, Worker Cron mỗi phút và Pages M7-11 đã deploy; M7-10 thiết bị/vận hành còn pending.
 > Đang thực hiện: M7-11 IN_PROGRESS — phục hồi/production deploy đã xong, chờ Cron propagate/ACK mirror thật, CI và Git merge.
-> Next action: Xác minh ba jobs create/review/delete có ACK Sheet qua Cron mới; push/CI/merge và cập nhật evidence docs/31_D1_ROLLOUT_RECOVERY.md.
-> Blockers: Chưa thấy scheduled attempt sau đổi Cron lúc 14:00:47; không tự ghi delivered để vượt gate. M7-10 chưa có voice/Telegram rating/CPU/p95/device/restore evidence thật.
+> Next action: M7-11 gia cố mirror bằng waitUntil sau mutation commit vì Cron chưa fire sau propagation; regression không block API khi Google lỗi, deploy/Worker ACK thật, CI/merge. Cron tự chạy còn theo dõi riêng M7-10.
+> Blockers: Cron cấu hình mỗi phút nhưng chưa có scheduled attempt lúc 14:18; không tự ghi delivered để vượt gate. GAS mirror/manual parity đã đạt. M7-10 chưa có voice/Telegram rating/CPU/p95/device/restore evidence thật.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch fix/M7-11-complete-d1-rollout.
 
 ## Legend
@@ -79,9 +79,9 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-06 — P1, DONE: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
 - [x] M7-08 — P1, DONE STAGING: database voice-learn-staging-db (a8306e2e), 3 migrations, batch rollback & constraints verified, synthetic import/verify/export, 50 create/50 review benchmarks (p50: 504/507ms, p95: 590/598ms), FSRS shadow parity, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- [ ] M7-09 — P1, PARTIAL_DEPLOY / REOPENED M7-11: Worker fcf0c1dc/D1 binding chạy thật; chưa có migration run/full Sheet parity evidence, Cron/front chưa đồng bộ. Audit 14/10 13:34; giữ D1 authority và backup trước sửa.
+- [ ] M7-09 — P1, RECOVERED_WAITING_MIRROR / M7-11: dữ liệu Sheet đã import/hash/integrity verify, migration_run verified, GAS v7/Worker 71a97fbc/Pages M7-11 đã deploy; chờ scheduled mirror ACK trước đóng cutover. Audit cũ 13:34 lưu docs/31_D1_ROLLOUT_RECOVERY.md.
 - [ ] M7-10 — P1, LIVE_QA_PENDING / REOPENED M7-11: production 0 Reviews, outbox chưa attempt; chưa có live rating/due/mirror hoặc device/CPU/restore evidence đủ đóng task. Synthetic/local suite không thay real QA.
-- [ ] M7-11 — P1, IN_PROGRESS: hoàn thiện rollout D1 sau audit; acceptance: backup/Sheet-D1 parity, Cron mỗi phút/mirror ACK thật, frontend hash/build đúng, FSRS/backend retry checks, gates/CI và Git merge; ghi riêng live user/device criteria còn thiếu, không tự đóng M7-10 nếu chưa đạt.
+- [ ] M7-11 — P1, IN_PROGRESS: hoàn thiện rollout D1 sau audit; acceptance: backup/Sheet-D1 parity, Cron mỗi phút và Worker mirror ACK thật (post-commit waitUntil không block API; Cron chưa fire là gate vận hành M7-10), frontend hash/build đúng, FSRS/backend retry checks, gates/CI và Git merge; ghi riêng live user/device criteria còn thiếu, không tự đóng M7-10 nếu chưa đạt.
 
 ## Latest accomplished
 

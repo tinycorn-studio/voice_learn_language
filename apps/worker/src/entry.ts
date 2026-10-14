@@ -1016,6 +1016,25 @@ export default {
     ctx?: { waitUntil(work: Promise<unknown>): void },
   ): Promise<Response> {
     const response = await handleWorkerRequest(request, env);
+    const path = new URL(request.url).pathname;
+    if (
+      ctx &&
+      env.DATA_BACKEND === 'd1' &&
+      env.DB &&
+      response.ok &&
+      ['POST', 'PATCH', 'DELETE'].includes(request.method) &&
+      (path === '/telegram/webhook' ||
+        path === '/api/v1/vocabulary' ||
+        path.startsWith('/api/v1/vocabulary/') ||
+        ['/api/v1/reviews', '/api/v1/reviews/submit', '/api/reviews/submit'].includes(path))
+    ) {
+      // Kick one durable job after commit; lease/Cron recover overlap, outage and process loss.
+      ctx.waitUntil(
+        processSheetMirror(env.DB, env, new Date().toISOString()).catch(() =>
+          logStructured('warn', 'sheet_mirror_deferred', 'background'),
+        ),
+      );
+    }
     if (
       ctx &&
       env.DATA_BACKEND === 'd1' &&

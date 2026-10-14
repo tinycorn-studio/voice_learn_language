@@ -562,7 +562,10 @@ export function importStatements(db: DatabaseBinding, plan: MigrationPlan): Stat
   return statements;
 }
 
-/** Frozen target only; bounded atomic chunks and durable checkpoints make reruns safe after a crash. */
+/**
+ * Frozen target only; bounded atomic chunks and durable checkpoints make reruns safe after a crash.
+ * preserveOtherOwners scopes verification to the manifest owner; conflicting IDs still fail closed.
+ */
 export async function importSnapshot(
   db: DatabaseBinding,
   plan: MigrationPlan,
@@ -659,6 +662,7 @@ async function readD1Records(db: DatabaseBinding, table: string, ownerId?: strin
   }
 }
 
+/** Exact canonical owner/ID hashes; integrity and foreign-key checks always cover the whole DB. */
 export async function verifyImport(
   db: DatabaseBinding,
   plan: MigrationPlan,
@@ -688,7 +692,7 @@ export async function verifyImport(
   return { ok: !plan.quarantine.length && !mismatches.length && integrity, mismatches, integrity };
 }
 
-/** Full D1 backup for reverse migration into a separate frozen GAS target. */
+/** D1 domain backup for reverse migration; onlyOwner requires a separate full SQL safety backup. */
 export async function exportD1Snapshot(
   db: DatabaseBinding,
   ownerId: string,

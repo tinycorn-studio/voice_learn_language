@@ -6,6 +6,8 @@
 
 Đang triển khai local: [D1 primary và giảm độ trễ Mini App/Telegram](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md). Người dùng chọn Sheet chỉ xem/xuất; mọi chỉnh sửa qua app. Evidence và phần còn thiếu tại [tiến độ](PROGRESS.md) và [bằng chứng M7](docs/28_D1_IMPLEMENTATION_EVIDENCE.md); production vẫn GAS, chưa cutover D1.
 
+Đã hoàn thiện local đến M7-07 và tạm dừng theo yêu cầu người dùng; phiên sau đọc [bàn giao D1](docs/30_D1_PAUSE_HANDOFF.md) và [runbook migration](docs/29_D1_MIGRATION_RUNBOOK.md) trước khi bắt đầu staging M7-08.
+
 ## Mục tiêu
 
 Ứng dụng luyện hội thoại tiếng Anh bằng giọng nói sử dụng Gemini Live API, tự nhận diện yêu cầu học từ (vd. _What does overwhelmed mean?_), ghi từ vào Google Sheets qua Apps Script, và ôn tập bằng Telegram Bot/Telegram Mini App với Spaced Repetition. Ưu tiên free tier, không tự vận hành VPS hay máy tính 24/7, bảo mật và dễ duy trì qua nhiều phiên coding-agent.

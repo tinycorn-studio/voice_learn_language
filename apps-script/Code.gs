@@ -74,6 +74,9 @@ function setupSheets() {
   var sheetId = props.getProperty('SHEET_ID');
   if (!sheetId) throw new Error('Missing SHEET_ID in Script Properties');
   var ss = SpreadsheetApp.openById(sheetId);
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+  assertBusinessWritesEnabled_();
   ensureTabWithHeaders_(ss, 'Words', WORDS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Cards', CARDS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Events', EVENTS_COLUMNS);
@@ -82,6 +85,7 @@ function setupSheets() {
   ensureTabWithHeaders_(ss, 'Settings', SETTINGS_COLUMNS);
   ensureTabWithHeaders_(ss, 'DailyDispatchLog', DISPATCH_COLUMNS);
   SpreadsheetApp.flush();
+  } finally { lock.releaseLock(); }
 }
 
 
@@ -102,6 +106,7 @@ function migrateSchemaV2() {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     [['Events', 'result_json'], ['DailyDispatchLog', 'claim_token']].forEach(function (entry) {
       var sheet = ss.getSheetByName(entry[0]);
       if (!sheet) throw new Error('Missing migration tab');
@@ -121,6 +126,7 @@ function migrateSchemaV3(dryRun) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    if (!dryRun) assertBusinessWritesEnabled_();
     var res = migrateSchemaV3_(ss, Boolean(dryRun));
     if (!dryRun) props.setProperty('SCHEMA_VERSION', '3');
     return res;
@@ -278,6 +284,15 @@ function doPost(e) {
     if (event.action === 'mirror.applyBatch') {
       return handleWithBusinessError_(function () { return applyMirrorBatch_(ss, event, props); });
     }
+    if (event.action === 'migration.freeze') {
+      return handleWithBusinessError_(function () { return setMigrationFreeze_(event, props); });
+    }
+    if (event.action === 'migration.exportPage') {
+      return handleWithBusinessError_(function () { return exportSnapshotPage_(ss, event, props); });
+    }
+    if (event.action === 'migration.restoreBatch') {
+      return handleWithBusinessError_(function () { return restoreSnapshotBatch_(ss, event, props); });
+    }
     if (body.payload.length > 12000) {
       return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Business payload exceeds 12000 chars' } });
     }
@@ -335,7 +350,9 @@ function doPost(e) {
 
     return jsonResponse_({ ok: false, error: { code: 'ACTION_NOT_IMPLEMENTED', message: 'Unsupported action' } });
   } catch (err) {
-    console.error('GAS_doPost_failed', String(err && err.message || 'unknown').slice(0, 120));
+    // Spreadsheet exceptions can contain cell contents or private document identifiers.
+    var safeRequestId = event && /^[a-zA-Z0-9_-]{1,80}$/.test(String(event.request_id || '')) ? event.request_id : 'unknown';
+    console.error('GAS_doPost_failed', JSON.stringify({ request_id: safeRequestId, reason: 'internal_operation_failed' }));
     return jsonResponse_({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal Apps Script error' } });
   }
 }
@@ -382,6 +399,109 @@ function canonicalJson_(value) {
     return JSON.stringify(key) + ':' + canonicalJson_(value[key]);
   }).join(',') + '}';
   return JSON.stringify(value);
+}
+
+function assertBusinessWritesEnabled_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('WRITES_ENABLED') === 'false' || props.getProperty('DATA_AUTHORITY') === 'd1')
+    throw new Error('FORBIDDEN:Writes are paused or D1 is authoritative');
+}
+
+/** Acquiring the same lock drains earlier writers; every writer rechecks inside its lock. */
+function setMigrationFreeze_(event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {};
+    if (typeof data.freeze !== 'boolean') throw new Error('CONFLICT:Invalid freeze flag');
+    if (data.freeze) {
+      if (props.getProperty('WRITES_ENABLED') !== 'false' || !props.getProperty('FREEZE_ID')) {
+        props.setProperty('FREEZE_ID', Utilities.getUuid());
+        props.setProperty('FROZEN_AT', new Date().toISOString());
+      }
+      props.setProperty('WRITES_ENABLED', 'false');
+    } else {
+      if (!data.freeze_id || data.freeze_id !== props.getProperty('FREEZE_ID') || props.getProperty('DATA_AUTHORITY') === 'd1')
+        throw new Error('CONFLICT:Cannot reopen this source');
+      // A reverse-restored GAS target becomes authoritative again. Retain the verified
+      // backup file, but clear transient snapshot metadata so later GAS edits are current.
+      var ss = SpreadsheetApp.openById(props.getProperty('SHEET_ID'));
+      snapshotTabs_().forEach(function (name) {
+        var sheet = ss.getSheetByName(name); if (!sheet || sheet.getLastRow() < 2) return;
+        var headers = headerMap_(sheet);
+        ['_snapshot_json', '_mirror_json', '_mirror_version', '_mirror_epoch'].forEach(function (column) {
+          if (headers[column]) sheet.getRange(2, headers[column], sheet.getLastRow() - 1, 1)
+            .setValues(Array(sheet.getLastRow() - 1).fill(null).map(function () { return ['']; }));
+        });
+      });
+      props.setProperty('WRITES_ENABLED', 'true');
+    }
+    return { frozen: props.getProperty('WRITES_ENABLED') === 'false', freeze_id: props.getProperty('FREEZE_ID'), frozen_at: props.getProperty('FROZEN_AT') };
+  } finally { lock.releaseLock(); }
+}
+
+function snapshotTabs_() { return ['Words', 'Cards', 'Reviews', 'Events', 'Settings', 'Users', 'DailyDispatchLog']; }
+function checkSnapshotFreeze_(data, props) {
+  if (props.getProperty('WRITES_ENABLED') !== 'false' || !data.freeze_id || data.freeze_id !== props.getProperty('FREEZE_ID'))
+    throw new Error('CONFLICT:Snapshot requires the current write freeze');
+}
+function exportSnapshotPage_(ss, event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {}; checkSnapshotFreeze_(data, props);
+    if (snapshotTabs_().indexOf(data.tab) < 0 || !Number.isSafeInteger(data.offset) || data.offset < 0 ||
+        !Number.isSafeInteger(data.limit) || data.limit < 1 || data.limit > 50) throw new Error('CONFLICT:Invalid export page');
+    var sheet = ss.getSheetByName(data.tab);
+    if (!sheet) throw new Error('CONFLICT:Missing snapshot tab');
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+    var count = Math.max(0, sheet.getLastRow() - 1);
+    var length = Math.min(data.limit, Math.max(0, count - data.offset));
+    var rows = length ? sheet.getRange(data.offset + 2, 1, length, headers.length).getValues() : [];
+    rows = rows.map(function (row) { return row.map(function (value) { return value instanceof Date ? value.toISOString() : value; }); });
+    return { tab: data.tab, headers: headers, total_rows: count, offset: data.offset, rows: rows,
+      freeze_id: props.getProperty('FREEZE_ID'), frozen_at: props.getProperty('FROZEN_AT'), schema_version: props.getProperty('SCHEMA_VERSION') || 'unknown' };
+  } finally { lock.releaseLock(); }
+}
+
+/** Reverse migration target only: frozen GAS authority, identical rows replay, conflicts stop. */
+function restoreSnapshotBatch_(ss, event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {}; checkSnapshotFreeze_(data, props);
+    if (props.getProperty('DATA_AUTHORITY') === 'd1') throw new Error('FORBIDDEN:Restore into a separate GAS target');
+    var ids = { Words: 'word_id', Cards: 'card_id', Reviews: 'review_id', Events: 'event_id', Settings: 'user_id', Users: 'user_id', DailyDispatchLog: 'dispatch_id' };
+    if (!Object.prototype.hasOwnProperty.call(ids, data.tab) || !Array.isArray(data.headers) || !data.headers.length || data.headers.length > 100 ||
+        !Array.isArray(data.rows) || data.rows.length > 50) throw new Error('CONFLICT:Invalid restore batch');
+    data.headers.forEach(function (header) { if (typeof header !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]{0,80}$/.test(header)) throw new Error('CONFLICT:Invalid restore header'); });
+    if (new Set(data.headers).size !== data.headers.length) throw new Error('CONFLICT:Duplicate restore headers');
+    var idIndex = data.headers.indexOf(ids[data.tab]); var userIndex = data.headers.indexOf('user_id');
+    if (idIndex < 0 || userIndex < 0) throw new Error('CONFLICT:Missing restore identity');
+    var sheet = ss.getSheetByName(data.tab);
+    var grid = sheet && sheet.getLastRow() ? sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues() : [data.headers];
+    if (canonicalJson_(grid[0]) !== canonicalJson_(data.headers)) throw new Error('CONFLICT:Restore headers differ');
+    var index = Object.create(null);
+    for (var i = 1; i < grid.length; i++) {
+      var id = String(grid[i][idIndex]);
+      if (Object.prototype.hasOwnProperty.call(index, id)) throw new Error('CONFLICT:Duplicate target IDs');
+      index[id] = grid[i];
+    }
+    var appended = [];
+    data.rows.forEach(function (row) {
+      if (!Array.isArray(row) || row.length !== data.headers.length || !String(row[idIndex]) || row[userIndex] !== event.user_id)
+        throw new Error('CONFLICT:Invalid restore row');
+      var safe = row.map(function (value) {
+        if (!(value === null || typeof value === 'boolean' || typeof value === 'number' && isFinite(value) || typeof value === 'string' && value.length <= 48000))
+          throw new Error('CONFLICT:Invalid restore cell');
+        return value === null ? '' : typeof value === 'string' ? safeCell_(value) : value;
+      });
+      var old = index[String(row[idIndex])];
+      if (old) {
+        if (canonicalJson_(old.map(String)) !== canonicalJson_(safe.map(String))) throw new Error('CONFLICT:Restore row differs');
+      } else { appended.push(safe); index[String(row[idIndex])] = safe; }
+    });
+    if (!sheet) { sheet = ss.insertSheet(data.tab); sheet.getRange(1, 1, 1, data.headers.length).setValues([data.headers]); }
+    if (appended.length) sheet.getRange(sheet.getLastRow() + 1, 1, appended.length, data.headers.length).setValues(appended);
+    SpreadsheetApp.flush(); return { restored: appended.length };
+  } finally { lock.releaseLock(); }
 }
 
 /** Row metadata and values are written in the same range; partial cross-tab writes replay safely. */
@@ -505,6 +625,7 @@ function upsertWord_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var eh = headerMap_(events);
     var wh = headerMap_(words);
     requireColumns_(eh, EVENTS_COLUMNS);
@@ -636,6 +757,7 @@ function updateWord_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var wh = headerMap_(words);
     var eh = headerMap_(events);
     requireColumns_(wh, WORDS_COLUMNS);
@@ -698,6 +820,7 @@ function deleteWord_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var wh = headerMap_(words);
     var eh = headerMap_(events);
     requireColumns_(wh, WORDS_COLUMNS);
@@ -1007,6 +1130,7 @@ function recordReview_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var wh = headerMap_(words);
     var eh = headerMap_(events);
     var rh = headerMap_(reviews);
@@ -1313,6 +1437,7 @@ function claimDailyDigest_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var uh = headerMap_(users);
     var dh = headerMap_(dispatchLog);
     requireColumns_(uh, USERS_COLUMNS);
@@ -1405,6 +1530,7 @@ function finishDailyDigest_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var h = headerMap_(sheet);
     requireColumns_(h, DISPATCH_COLUMNS);
     var row = findRow_(sheet, h['dispatch_id'], String(d.dispatch_id));
@@ -1432,6 +1558,7 @@ function updateUserPreferences_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var uh = headerMap_(users);
     var eh = headerMap_(events);
     requireColumns_(uh, USERS_COLUMNS);

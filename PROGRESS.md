@@ -1,9 +1,9 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-14 08:42 +07:00
-> Phase: M7-01–M7-05 DONE LOCAL; M7-06 đang triển khai. Các nhánh M7 chưa push/merge; production vẫn GAS.
-> Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M7-07 full seven-tab snapshot/import/verify/rollback tools; then M7-08 real staging rehearsal.
+> Updated: 2026-10-14 09:08 +07:00
+> Phase: M7-01–M7-07 DONE LOCAL; TẠM DỪNG theo yêu cầu người dùng. Các nhánh M7 chưa push/merge; production vẫn GAS.
+> Đang thực hiện: Tạm dừng sau M7-07; không tự chạy M7-08, tạo tài nguyên/automation hoặc deploy.
+> Next action: Chỉ tiếp tục khi người dùng yêu cầu; đọc docs/30_D1_PAUSE_HANDOFF.md và docs/29_D1_MIGRATION_RUNBOOK.md. Bắt đầu M7-08 staging/parity/restore/benchmark, rồi mới M7-09 cutover và M7-10 live QA.
 > Blockers: D1 list đã truy cập được 14/10 và trả []; lỗi 10000 trước đó chưa rõ nguyên nhân. Chưa có full snapshot/schema Sheet thật, migration/restore rehearsal hoặc benchmark production. M5-12 chờ rating/Reviews/due thật; CSV restore/Settings/quota/backup mở rộng còn pending. Chưa tạo D1 remote/import/cutover.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
@@ -77,12 +77,14 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-04 — P1, DONE LOCAL: 152 tests/25 files/gates PASS, D1 CRUD/FSRS/native audit/atomic replay-outbox và GAS HMAC legacy, concurrent/crash tests. Remote D1 auth error 10000, chưa deploy.
 - [x] M7-05 — P1, DONE LOCAL: 162 tests/26 files và gates PASS; Telegram mutation/update/delivery atomic, lease/revision/retry/unknown, commands/legacy keyboard và digest OCC/atomic mirror. Chưa deploy; docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [x] M7-06 — P1, IN_PROGRESS: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. Acceptance: tests concurrency/lost ACK/rebuild/dead-letter, đủ gates trước deploy.
-- [ ] M7-07 — P1, PLANNED: full Sheet exporter/importer/dry-run/verify, legacy fingerprint HMAC parity, freeze/drain, backup manifests và rollback tools.
+- [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
 - [ ] M7-08 — P1, PLANNED: staging D1 runtime thật, migration/restore rehearsal, data parity, FSRS/concurrency/security/fault injection và benchmark Free CPU/quota.
 - [ ] M7-09 — P1, PLANNED: production cutover sau code/gates/backup review, freeze/final snapshot/import/verify, mọi entrypoint chọn D1 và smoke thật.
 - [ ] M7-10 — P1, PLANNED: live rating/Reviews/due, mirror outage/recovery, quota/growth/backup restore và bàn giao evidence còn thiếu.
 
 ## Latest accomplished
+
+- **2026-10-14 09:08 M7-07:** Hoàn thiện local đến M7-07, 177 tests/28 files và typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full freeze/export/checksum/quarantine/import/verify/rollback tools, CLI persistent local smoke và reverse restore/edit pass. Người dùng yêu cầu tạm dừng vì quota; đã lưu bàn giao chi tiết docs/30_D1_PAUSE_HANDOFF.md, runbook docs/29_D1_MIGRATION_RUNBOOK.md. Không tạo D1 remote, xử lý dữ liệu thật, push/merge hoặc deploy M7; production GAS giữ nguyên.
 
 - **2026-10-13 M5-13:** Hoàn thành plan D1 primary + latency theo yêu cầu người dùng; Sheet chỉ xem/xuất, sửa qua app. Có schema/repository/FSRS atomic/replay HMAC legacy, Telegram ACK/delivery, outbox/Cron mirror, full snapshot/cutover/rollback và targets/quota. Docs-only checks pass; Complete-Task đóng đúng task lập kế hoạch, M7 còn PLANNED. Branch feat/M5-13-d1-migration-plan; production không thay đổi.
 
@@ -203,9 +205,11 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 | 2026-10-14 08:42 +07:00 | M7-06 | DONE | DONE LOCAL: 169 tests/27 files; typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Seven D1-GAS mirror tests: lost ACK, outage independence, partial crash replay, lease/version/epoch, dead-letter/requeue and frozen rebuild. Production gas/mirror=false, GAS source not pushed. docs/28_D1_IMPLEMENTATION_EVIDENCE.md | M7-07 full seven-tab snapshot/import/verify/rollback tools; then M7-08 real staging rehearsal. |
 
+| 2026-10-14 09:08 +07:00 | M7-07 | DONE | DONE LOCAL: 177 tests/28 files PASS; typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full seven-tab freeze/export/checksum/quarantine, INSERT-only chunk resume/full verify, native FSRS/HMAC replay, reverse restore/edit and CLI persistent local smoke. No real data/import/resource/deploy. Runbook docs/29_D1_MIGRATION_RUNBOOK.md; paused at user request, handoff docs/30_D1_PAUSE_HANDOFF.md | TAM DUNG theo yeu cau; chi tiep tuc M7-08 khi user yeu cau. Doc docs/30_D1_PAUSE_HANDOFF.md; staging/benchmark/parity/restore truoc M7-09 cutover va M7-10 live QA. |
+
 ## Current blockers / risks
 
-- **M7 audit 14/10:** Code M7-05 chưa typecheck pass và chưa có delivery integration evidence. M7-06 mirror processor/GAS batch, M7-07 migration tools, M7-08 staging/benchmark, M7-09 cutover, M7-10 live QA chưa hoàn tất. Remote D1 lỗi xác thực 10000; scope đã có d1 (write), không kết luận đơn thuần thiếu scope. M7 code chỉ local; production Worker e07a24e2/Pages M5-12 còn GAS.
+- **M7 sau triển khai local 14/10:** M7-01–M7-07 đã hoàn tất/gates PASS; M7-08 staging/real REST batch/backup-data parity/benchmark, M7-09 cutover và M7-10 live QA còn pending. D1 list đã trả [] thành công, chưa tạo remote DB; 10000 là lỗi trước đó không còn tái hiện. Tạm dừng theo yêu cầu; xem docs/30_D1_PAUSE_HANDOFF.md. Production Worker e07a24e2/Pages M5-12 vẫn GAS, nhánh M7 chưa push/merge.
 
 - **M5-12:** Pages mới đã đồng bộ FSRS UI và capture; người dùng xác nhận từ save Sheet và /review Telegram hiện, chờ chấm Good/Reviews/due. CI source 0e073519 và a76cb973 SUCCESS; đã merge main theo yêu cầu người dùng. Recovery vẫn cần Gemini tạo tool hợp lệ, có timeout/budget và UI báo thất bại, không giả saved. Chưa đọc headers trực tiếp hoặc thay GAS setup literal.
 
@@ -227,7 +231,7 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 - [ ] Đọc `AGENTS.md`, `PROGRESS.md`, `docs/13_MILESTONES.md`.
 - [ ] `git status --short` và đọc diff chưa commit.
-- [ ] Đọc plan docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md và evidence docs/28_D1_IMPLEMENTATION_EVIDENCE.md; tiếp tục M7-05 từ ec9c0e6, sửa typecheck và bổ sung tests. M7-01–M7-04 đã xong local; production vẫn GAS, chưa push các nhánh M7.
+- [ ] Đang tạm dừng sau M7-07. Khi người dùng yêu cầu tiếp tục, đọc docs/30_D1_PAUSE_HANDOFF.md/docs/29_D1_MIGRATION_RUNBOOK.md rồi chọn M7-08; không quay về WIP ec9c0e6. M7-01–M7-07 DONE LOCAL, production GAS, chưa push các nhánh M7.
 - [ ] M5-12 source đã merge main adf0aea, production ae4031d8. User xác nhận Sheet và /review, rating/Reviews/due thật còn pending; nghiệm thu cùng M7-08/M7-10, không tự đóng từ plan.
 - [ ] Chạy setup/check cần thiết, ghi evidence và command.
 - [ ] Khi thực sự hoàn thành, chạy `scripts/Complete-Task.ps1` và commit cả PROGRESS/CHANGELOG.

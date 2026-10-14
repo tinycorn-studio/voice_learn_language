@@ -128,3 +128,9 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 
 - Không dựa vào appendRow hoặc event ACK memory: GAS viết canonical snapshot/version/epoch cùng row dưới ScriptLock. Preflight toàn batch, writes theo table ranges; partial cross-tab failure replay được. Reviews/Events immutable, version cũ bỏ qua và same-version mismatch conflict.
 - Một mirror event/tick (nhiều entity rows), global lease 60 giây, Google HTTP timeout 15 giây, bounded attempts/dead-letter và explicit rebuild. Throughput/CPU/lag được đo staging trước khi tăng batch budget; không gắn synchronous mirror vào API persistence.
+
+### Bổ sung M7-07 — migration manifest bất biến
+
+- Full raw snapshot bảy tabs có tab/global checksums, freeze/drain dưới ScriptLock, giữ cột ngoài schema và quarantine thay vì tự sửa/lược lịch sử. Import INSERT-only, atomic bounded chunks/checkpoints + verify canonical ID/hash toàn bảng; không dùng business mutations để nhập lịch sử, không tự mở writers.
+- Reverse migration dùng target GAS riêng/frozen và JSON metadata để bảo toàn null/optional values; verify trước reopen, xóa transient metadata khi GAS authority mở ghi lại. Full SQL backup vẫn cần cho operational tables. CLI private artifacts/process env, không đưa dữ liệu/credentials lên Git hoặc terminal.
+- Remote REST batch transaction/real service parity phải được kiểm chứng ở staging M7-08; local task không thay quyền hoặc tạo DB/deploy.

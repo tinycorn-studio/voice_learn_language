@@ -52,12 +52,13 @@ async function setup() {
     SHEET_ID: 'synthetic',
     OWNER_USER_ID: USER,
     GAS_SHARED_SECRET: ENV.GAS_SHARED_SECRET,
-    DATA_AUTHORITY: 'd1',
+    DATA_AUTHORITY: 'gas',
     MIRROR_ENABLED: 'true',
     MIRROR_EPOCH: ENV.SHEET_MIRROR_EPOCH!,
   };
   const gas = createGasRuntimeHarness(props);
   gas.setupSheets();
+  props.DATA_AUTHORITY = 'd1';
   const fetchFn: typeof fetch = async (_url, init) =>
     new Response(gas.doPost(String(init?.body)).bodyText);
   async function jobs() {

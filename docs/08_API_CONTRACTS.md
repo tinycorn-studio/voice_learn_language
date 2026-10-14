@@ -170,6 +170,10 @@ Webhook đã xác thực mới được gắn trusted `TelegramMutationContext`;
 
 Internal signed action `mirror.applyBatch`, data `{epoch,jobs:[{event_id,entities:[{tab,id,version,row}]}]}`. Bảy tab names allowlist; Word/Card schema, ID/user/version và scalar cells được validate. Maximum signed payload 60.000 chars cho mirror; business actions vẫn 12.000. GAS trả `{ok:true,data:{applied_event_ids:[...]}}` chỉ sau flush; Worker xác minh ACK đúng job. Epoch phải khớp config Worker, source_epoch D1 và Script Properties; Sheet read-only với legacy writers khi authority=d1. Retry ký timestamp mới, snapshot/version không đổi. Unknown network ACK được retry vì mirror idempotent; Telegram send unknown vẫn không retry.
 
+## Migration operator actions — M7-07 local, chưa deploy
+
+CLI dùng signer HMAC riêng gọi GAS trực tiếp, không thêm public Worker routes hoặc nhận admin action từ frontend. `migration.freeze` data `{freeze:boolean,freeze_id?:string}` → `{frozen,freeze_id,frozen_at}`; `migration.exportPage` data `{freeze_id,tab,offset,limit:1..50}` → `{tab,headers,total_rows,offset,rows,freeze_id,frozen_at,schema_version}`; `migration.restoreBatch` data `{freeze_id,tab,headers,rows:0..50}` → `{restored:number}`. Owner/timestamp/signature kiểm trước dispatch; restore chỉ GAS target riêng/frozen, authority=d1 từ chối. Payload operator tối đa 60.000 chars; writes business vẫn 12.000. Freeze/drain/recheck bảo vệ mọi business writer, setup và schema migration; unfreeze cần đúng ID/authority và clear transient snapshot metadata. Runbook docs/29_D1_MIGRATION_RUNBOOK.md.
+
 Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.
 
 ## Contract testing

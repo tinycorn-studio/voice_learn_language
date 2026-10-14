@@ -567,6 +567,7 @@ export async function importSnapshot(
   db: DatabaseBinding,
   plan: MigrationPlan,
   epoch: string,
+  options: { preserveOtherOwners?: boolean } = {},
 ): Promise<void> {
   z.string()
     .regex(/^[a-zA-Z0-9_-]{1,80}$/)
@@ -621,7 +622,7 @@ export async function importSnapshot(
       db.prepare('DELETE FROM mutation_guards WHERE guard_id=?').bind(guard),
     ]);
   }
-  const verified = await verifyImport(db, plan);
+  const verified = await verifyImport(db, plan, options);
   if (!verified.ok) throw new Error('Imported data does not match manifest; keep writes frozen');
   const finalGuard = crypto.randomUUID();
   await db.batch([
@@ -638,16 +639,16 @@ export async function importSnapshot(
   ]);
 }
 
-async function readD1Records(db: DatabaseBinding, table: string): Promise<Row[]> {
+async function readD1Records(db: DatabaseBinding, table: string, ownerId?: string): Promise<Row[]> {
   const result: Row[] = [];
   let cursor = 0;
   while (true) {
     const rows = (
       await db
         .prepare(
-          `SELECT rowid AS cursor,record_json FROM ${table} WHERE rowid>? ORDER BY rowid LIMIT 50`,
+          `SELECT rowid AS cursor,record_json FROM ${table} WHERE rowid>? ${ownerId ? 'AND user_id=?' : ''} ORDER BY rowid LIMIT 50`,
         )
-        .bind(cursor)
+        .bind(cursor, ...(ownerId ? [ownerId] : []))
         .all()
     ).results;
     if (!rows.length) return result;
@@ -658,10 +659,18 @@ async function readD1Records(db: DatabaseBinding, table: string): Promise<Row[]>
   }
 }
 
-export async function verifyImport(db: DatabaseBinding, plan: MigrationPlan) {
+export async function verifyImport(
+  db: DatabaseBinding,
+  plan: MigrationPlan,
+  options: { preserveOtherOwners?: boolean } = {},
+) {
   const mismatches: { tab: Tab; reason: string }[] = [];
   for (const tab of TABS) {
-    const actual = await readD1Records(db, TABLES[tab]);
+    const actual = await readD1Records(
+      db,
+      TABLES[tab],
+      options.preserveOtherOwners ? plan.snapshot.owner_id : undefined,
+    );
     const expected = [...plan.records[tab]].sort((a, b) =>
       String(a[MIRROR_IDS[tab]]).localeCompare(String(b[MIRROR_IDS[tab]]), 'en'),
     );
@@ -685,6 +694,7 @@ export async function exportD1Snapshot(
   ownerId: string,
   freezeId: string,
   frozenAt: string,
+  options: { onlyOwner?: boolean } = {},
 ): Promise<Snapshot> {
   if (
     (await db
@@ -694,9 +704,9 @@ export async function exportD1Snapshot(
     throw new Error('Freeze D1 writes before export');
   const tabs: Snapshot['tabs'] = {};
   for (const tab of TABS) {
-    const rows = (await readD1Records(db, TABLES[tab])).map((row) =>
-      z.record(cellSchema).parse(row),
-    );
+    const rows = (
+      await readD1Records(db, TABLES[tab], options.onlyOwner ? ownerId : undefined)
+    ).map((row) => z.record(cellSchema).parse(row));
     if (rows.some((r) => r['user_id'] !== ownerId)) throw new Error('Foreign owner in D1 backup');
     const headers = [
       ...new Set([

@@ -105,7 +105,7 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 ## ADR-010 — D1 primary, Sheet mirror một chiều và outbox bền vững
 
 - Date: 2026-10-13 (Cập nhật hoàn tất: 2026-10-14)
-- Status: Accepted (Hoàn tất triển khai production M7-09 và nghiệm thu M7-10)
+- Status: Accepted (D1 là authority production; M7-11 phục hồi rollout, M7-10 nghiệm thu thiết bị/vận hành còn pending)
 - Decision: Worker repository dùng Cloudflare D1 làm nguồn dữ liệu chính thức có thẩm quyền (Authoritative Single Source of Truth) cho toàn bộ Words, Cards, Reviews, Events, Settings, Users, và Daily Dispatches. Giữ nguyên API contract và domain schema; ts-fsrs chạy có thẩm quyền tại Worker; Card OCC bảo vệ tính toàn vẹn trạng thái thẻ; mutations commit nguyên tử (atomic batch transaction) cùng outbox event. Google Sheet chuyển thành một chiều (read-only/export backup) nhận dữ liệu qua batch mirror có ký HMAC từ Cron/outbox, tách biệt hoàn toàn khỏi đường tương tác trực tiếp của Mini App và Telegram Bot.
 - Rationale: Google Apps Script Web App có độ trễ cao (p50 ~2.000–4.000 ms, cold start >5.000 ms) và thiếu hỗ trợ giao dịch ACID đa bảng, gây nghẽn trải nghiệm người dùng khi hội thoại và chấm thẻ. Chuyển sang Cloudflare D1 (khu vực APAC) giúp giảm độ trễ ghi xuống ~500–600 ms, độ trễ đọc xuống ~150–200 ms, hỗ trợ transaction rollback nguyên tử và loại bỏ sự phụ thuộc thời gian thực vào Google Sheets.
 - Execution: Triển khai 3 SQL migrations (`0001_d1_primary.sql`, `0002_telegram_message_lease.sql`, `0003_sync_processor_lease.sql`). D1 batch kết hợp SQL guard `mutation_guards` cho rollback nguyên tử; `sync_outbox` và `telegram_deliveries` được ghi nhận trong cùng transaction với dữ liệu nghiệp vụ; Cron định kỳ xử lý mirror sang Sheet.

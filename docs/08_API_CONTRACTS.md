@@ -172,6 +172,8 @@ Internal signed action `mirror.applyBatch`, data `{epoch,jobs:[{event_id,entitie
 
 ## Migration operator actions — M7-07 / M7-08 / M7-09
 
+M7-11 bổ sung internal signed `migration.enableMirror` data `{freeze_id,epoch}` → `{authority:"d1",mirror_enabled:true,epoch}`. Cần đúng freeze hiện tại; epoch cũ khác bị từ chối. Giữ WRITES_ENABLED=false cho legacy business actions; mirror snapshots vẫn được nhận dưới ScriptLock. Worker không expose action này cho client công khai; chỉ operator HMAC sau D1 parity/backup.
+
 CLI dùng signer HMAC riêng gọi GAS trực tiếp, không thêm public Worker routes hoặc nhận admin action từ frontend. `migration.freeze` data `{freeze:boolean,freeze_id?:string}` → `{frozen,freeze_id,frozen_at}`; `migration.exportPage` data `{freeze_id,tab,offset,limit:1..50}` → `{tab,headers,total_rows,offset,rows,freeze_id,frozen_at,schema_version}`; `migration.restoreBatch` data `{freeze_id,tab,headers,rows:0..50}` → `{restored:number}`. Owner/timestamp/signature kiểm trước dispatch; restore chỉ GAS target riêng/frozen, authority=d1 từ chối. Payload operator tối đa 60.000 chars; writes business vẫn 12.000. Freeze/drain/recheck bảo vệ mọi business writer, setup và schema migration; unfreeze cần đúng ID/authority và clear transient snapshot metadata. Runbook docs/29_D1_MIGRATION_RUNBOOK.md.
 
 Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.

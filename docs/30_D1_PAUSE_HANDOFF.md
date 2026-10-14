@@ -1,5 +1,7 @@
 # Bàn giao tạm dừng sau M7-07 — 14/10/2026
 
+> Tài liệu lịch sử tại điểm dừng M7-07. Người dùng đã yêu cầu tiếp tục; trạng thái mới nhất tại PROGRESS.md và docs/31_D1_ROLLOUT_RECOVERY.md. Không dùng các trạng thái production/Git bên dưới làm trạng thái hiện tại.
+
 **Yêu cầu người dùng:** hoàn thiện M7-07 rồi tạm dừng do quota; lưu đủ thông tin để phiên sau tiếp tục. Không tự chạy M7-08, tạo automation, tài nguyên remote, deploy/push/merge trong lúc tạm dừng.
 
 ## Điểm tiếp nối

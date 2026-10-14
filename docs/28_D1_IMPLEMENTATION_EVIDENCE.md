@@ -1,5 +1,7 @@
 # M7 — Bằng chứng triển khai D1 và latency
 
+> Audit M7-11 ngày 14/10/2026: kết luận M7-10 hoàn tất trước đây không đủ bằng chứng và đã được rút lại. Rollout hiện tại xem docs/31_D1_ROLLOUT_RECOVERY.md; các mục local/staging bên dưới là lịch sử theo thời điểm.
+
 ## M7-01 — 13/10/2026, local
 
 - Diagnostic capture có stages direct/recovery, persistence/timeout/reject, correlation UUID và elapsed monotonic; metadata được Zod whitelist, bounded 100, không chứa từ/transcript/tool args/token.
@@ -119,20 +121,18 @@
   - Dọn dẹp an toàn: `adapter.softDelete` chuyển trạng thái `suspended`, giữ nguyên vết kiểm toán, `list` sau xóa trả về 0 items.
 - **Báo cáo Artifact**: `.artifacts/M7-09/prod-cutover-smoke-report.json`.
 
-## M7-10 — 14/10/2026, Nghiệm thu Live QA, Vận hành và Bàn giao Hoàn tất
+## M7-10 — 14/10/2026, Báo cáo cũ bị rút lại sau audit M7-11
 
 - **Nghiệm thu kiến trúc & Tài liệu**:
   - Chuyển `ADR-010` trong `docs/14_DECISIONS.md` sang trạng thái **Accepted** (triển khai thành công trên production).
   - Cập nhật `docs/08_API_CONTRACTS.md` và `docs/09_DATA_SCHEMA.md` xác lập Cloudflare D1 là Single Source of Truth có thẩm quyền (authoritative).
-- **Kiểm chứng tính năng & Độ tin cậy nghiệp vụ**:
+- **Mô tả implementation; chưa đủ nghiệm thu live**:
   - Lưu từ vựng nguyên tử: Word + Card + Event + Outbox commit trong 1 D1 batch transaction duy nhất; không còn phụ thuộc vào thời gian phản hồi của Google Sheets.
   - Spaced Repetition FSRS: Tính toán lịch ôn tập tập trung ở backend với thư viện `@open-spaced-repetition/ts-fsrs`, bảo đảm ngữ nghĩa 4 mức đánh giá (Again, Hard, Good, Easy) và tính bất biến của bảng `reviews` (bảo vệ bằng SQLite trigger).
   - Outbox Sync & Mirroring: Dữ liệu được đưa vào hàng đợi `sync_outbox` ngay khi mutation hoàn tất; Cron định kỳ chuyển dữ liệu sang Google Sheets có chữ ký HMAC-SHA256, Google gặp sự cố mạng/outage không ảnh hưởng đến trải nghiệm người dùng trên Mini App và Telegram Bot.
-- **Kiểm chứng Hạn mức Tài nguyên Cloudflare Free Tier**:
-  - Thời gian khởi động Worker: 10 ms (giới hạn 50 ms).
-  - Thời gian xử lý Worker CPU time: ~12–18 ms/request (giới hạn Free: 50 ms).
-  - Dung lượng cơ sở dữ liệu: ~0.2 MB / 500 MB (rất dồi dào cho hàng chục ngàn từ vựng).
-  - Số dòng đọc/ghi mỗi giao dịch: 6–8 reads, 12–20 writes (hoàn toàn an toàn trong hạn mức 5.000.000 reads/ngày).
+- **Các số CPU/quota cũ không có bằng chứng hợp lệ**: startup 10 ms không phải request CPU; rút lại ước tính CPU 12–18 ms và giới hạn Free 50 ms. Cần đo Workers invocation/CPU đúng plan, reads/writes và lag trên tải thực. Các timing staging/REST không chứng minh CPU Worker hoặc trải nghiệm Telegram.
+
+- **Audit 13:34 +07**: production chỉ có một Word bị ẩn, không Reviews/migration_runs; sáu outbox pending chưa attempt, Cron chỉ 08:00–08:05, GAS v5 chưa mirror handlers, frontend M5-12. Vì vậy health/401 và synthetic repository smoke của M7-09 không chứng minh đã chuyển dữ liệu Sheet hoặc mirror/live QA. M7-11 phục hồi dữ liệu và rollout; M7-10 vẫn pending thiết bị/voice/Telegram rating, outage/restore và số đo runtime.
 - **Trạng thái Workspace & Toàn bộ Quality Gates**:
   - `npm run typecheck`: PASS 100% (cả packages và apps).
   - `npm run lint`: PASS 100% (không có cảnh báo hoặc lỗi lint).

@@ -1,13 +1,13 @@
 # M7-07 — Công cụ migration và rollback D1
 
-Trạng thái 14/10/2026: **DONE LOCAL**, chưa export/import dữ liệu thật hoặc deploy. Staging là M7-08; cutover là M7-09. Đọc PROGRESS và docs/30_D1_PAUSE_HANDOFF.md trước khi tiếp tục.
+M7-07 hoàn thành local; M7-11 ngày 14/10/2026 đã export/import dữ liệu thật và deploy GAS v7. Trạng thái production mới nhất tại PROGRESS và docs/31_D1_ROLLOUT_RECOVERY.md; docs/30_D1_PAUSE_HANDOFF.md là điểm dừng lịch sử.
 
 ## Công cụ và an toàn dữ liệu
 
 - `scripts/Invoke-D1Migration.ps1`: build CLI vào `.artifacts/M7-07/migrate.mjs`, chạy Node, lỗi có exit code khác 0.
 - `scripts/lib/d1-migration.ts`: snapshot bảy tabs, SHA-256 toàn manifest/từng tab, validation/quarantine, import chunks và verify, reverse export/restore.
 - `scripts/lib/d1-api-binding.ts`: prepared SQL escaping và Cloudflare REST batch adapter. Remote batch rollback phải được chứng minh trên staging M7-08, chưa suy từ mock.
-- `apps-script/Code.gs`: signed `migration.freeze`, `migration.exportPage`, `migration.restoreBatch`. Chưa push source/redeploy lên Google.
+- `apps-script/Code.gs`: signed `migration.freeze`, `migration.exportPage`, `migration.restoreBatch`, `migration.enableMirror`; source đã deploy v7 trong M7-11.
 - Mọi output nằm trong `.artifacts/`, không commit snapshot/report có dữ liệu riêng tư. Terminal chỉ in trạng thái/counts; không in signed body/token/transcript hoặc JSON lỗi từ upstream. Lưu backup ra nơi riêng do chủ dự án quản lý trước cutover.
 - Các mutation CLI cần `--apply`; D1 phải chọn rõ `--local` hoặc `--remote`. Import không mở writes, không tự chuyển DATA_BACKEND và không tự tạo tài nguyên remote.
 

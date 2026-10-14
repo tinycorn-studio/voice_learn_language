@@ -86,6 +86,7 @@ Plan: [27_D1_PERFORMANCE_MIGRATION_PLAN.md](27_D1_PERFORMANCE_MIGRATION_PLAN.md)
 | M7-08 | Staging rehearsal | Runtime thật, verify 100%/restore rehearsal, security/fault/concurrency/FSRS, latency và Free CPU/quota gates |
 | M7-09 | Production cutover | Được phép sau artifact review; freeze/drain/final snapshot, verify, mọi writer D1, live smoke và rollback code giữ D1 |
 | M7-10 | Operational QA | Rating/due audit thật, mirror outage/recovery, growth/quota/backup restore; ghi đúng các device/criteria chưa kiểm chứng |
+| M7-11 | Sửa rollout sau audit | Backup/Sheet-D1 parity, giữ dữ liệu hiện có, Cron mỗi phút/mirror ACK, frontend production hash, backend FSRS/replay, gates/CI/Git; không thay nghiệm thu thiết bị M7-10 |
 
 Dependencies: M7-01 → M7-03 → M7-04 → M7-05/M7-06/M7-07 → M7-08 → M7-09 → M7-10. M7-02 thực hiện sớm sau baseline; không chờ chuyển kho để cải thiện UX.
 

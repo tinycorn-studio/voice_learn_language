@@ -11,9 +11,9 @@ SHEET_MIRROR_EPOCH = "prod_cutover_01"
 GEMINI_MODEL = "models/gemini-3.8-live"
 ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
 
-# First attempt 08:00 +07, then minute ticks through 08:05 for bounded retries/recovery.
+# Background delivery/mirror every minute; handler limits daily digest to 08:00–08:05 +07.
 [triggers]
-crons = ["0-5 1 * * *"]
+crons = ["* * * * *"]
 
 [[d1_databases]]
 binding = "DB"

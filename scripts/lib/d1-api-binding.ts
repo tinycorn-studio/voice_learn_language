@@ -66,8 +66,8 @@ export function createD1ApiBinding(params: {
       },
     );
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Cloudflare D1 API failed (${response.status}): ${errorText}`);
+      // Upstream error bodies can echo SQL/private records; retain only the status.
+      throw new Error(`Cloudflare D1 API failed (${response.status})`);
     }
     const body: unknown = await response.json();
     const result = responseSchema.parse(body).result;

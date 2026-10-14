@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { canonicalJson, mirrorJobSchema } from '@voice-chat/shared';
 import { createD1RuntimeHarness } from './d1-runtime-harness.js';
 import { createGasRuntimeHarness } from './gas-runtime-harness.js';
@@ -12,6 +13,7 @@ import {
 } from '../apps/worker/src/adapters/sheet-mirror.js';
 import { signGasPayload } from '../apps/worker/src/adapters/gas-client.js';
 import type { WorkerEnv } from '../apps/worker/src/domain/env.js';
+import { handleScheduledTick } from '../apps/worker/src/entry.js';
 
 const USER = 'telegram:123';
 const ENV: WorkerEnv = {
@@ -27,6 +29,7 @@ const ENV: WorkerEnv = {
 };
 const runtimes: Awaited<ReturnType<typeof createD1RuntimeHarness>>[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await Promise.all(runtimes.splice(0).map((r) => r.dispose()));
 });
@@ -90,6 +93,43 @@ const now = () => new Date().toISOString();
 const future = (minutes: number) => new Date(Date.now() + minutes * 60000).toISOString();
 
 describe('M7-06 D1 -> Sheet mirror', () => {
+  it('drains mirror on daytime minute ticks while claiming digest only inside its morning window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-14T06:00:00.000Z'));
+    const { db, repo, gas, fetchFn } = await setup();
+    const claim = vi.spyOn(repo, 'claimDailyDigest');
+    const nextNoon = new Date();
+    nextNoon.setUTCDate(nextNoon.getUTCDate() + 1);
+    nextNoon.setUTCHours(6, 0, 0, 0);
+    const clock = new Date();
+    await handleScheduledTick(clock.getTime(), { ...ENV, DB: db }, { reviewRepo: repo, fetchFn });
+    expect(claim).not.toHaveBeenCalled();
+    expect(gas.spreadsheet.getSheetByName('Words')!.rows).toHaveLength(2);
+    await handleScheduledTick(
+      nextNoon.getTime(),
+      { ...ENV, DB: db },
+      { reviewRepo: repo, fetchFn },
+    );
+    expect(claim).not.toHaveBeenCalled();
+    nextNoon.setUTCHours(1);
+    const botFetch: typeof fetch = async () =>
+      Response.json({ ok: true, result: { message_id: 123 } });
+    await handleScheduledTick(
+      nextNoon.getTime(),
+      { ...ENV, DB: db },
+      { reviewRepo: repo, fetchFn: botFetch },
+    );
+    await handleScheduledTick(
+      nextNoon.getTime() + 60000,
+      { ...ENV, DB: db },
+      { reviewRepo: repo, fetchFn: botFetch },
+    );
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect((await db.prepare('SELECT status FROM daily_dispatches').first())?.['status']).toBe(
+      'sent',
+    );
+    expect(readFileSync('apps/worker/wrangler.toml', 'utf8')).toContain('crons = ["* * * * *"]');
+  });
   it('Google outage never blocks authoritative create/review and lost ACK retry does not duplicate rows', async () => {
     const { db, repo, created, gas, fetchFn } = await setup();
     await repo.recordReview(

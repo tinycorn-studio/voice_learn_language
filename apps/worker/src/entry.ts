@@ -979,6 +979,36 @@ async function parseOptionalRequestJson(request: Request): Promise<unknown> {
   }
 }
 
+/** Minute tick drains durable work; daily digest stays within its UTC+7 morning window. */
+export async function handleScheduledTick(
+  scheduledTime: number,
+  env: WorkerEnv,
+  deps: WorkerDependencies = {},
+): Promise<void> {
+  if (env.DATA_BACKEND === 'd1' && env.DB) {
+    const now = new Date(scheduledTime).toISOString();
+    const fetchFn = deps.fetchFn ?? fetch;
+    const outcomes = await Promise.allSettled([
+      processTelegramDeliveries(
+        env.DB,
+        new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn),
+        now,
+        1,
+      ),
+      processSheetMirror(env.DB, env, now, fetchFn),
+    ]);
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status === 'rejected')
+        logStructured('warn', 'background_job_deferred', `cron_${scheduledTime}`, {
+          processor: index === 0 ? 'telegram' : 'sheet_mirror',
+        });
+    });
+    const time = new Date(scheduledTime);
+    if (time.getUTCHours() !== 1 || time.getUTCMinutes() > 5) return;
+  }
+  await handleScheduledCron(scheduledTime, env, deps);
+}
+
 export default {
   async fetch(
     request: Request,
@@ -1006,17 +1036,6 @@ export default {
     return response;
   },
   async scheduled(controller: { scheduledTime: number }, env: WorkerEnv): Promise<void> {
-    if (env.DATA_BACKEND === 'd1' && env.DB) {
-      await processTelegramDeliveries(
-        env.DB,
-        new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),
-        new Date(controller.scheduledTime).toISOString(),
-        1,
-      );
-      await processSheetMirror(env.DB, env, new Date(controller.scheduledTime).toISOString());
-      const time = new Date(controller.scheduledTime);
-      if (time.getUTCHours() !== 1 || time.getUTCMinutes() > 5) return;
-    }
-    await handleScheduledCron(controller.scheduledTime, env);
+    await handleScheduledTick(controller.scheduledTime, env);
   },
 };

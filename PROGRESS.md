@@ -1,10 +1,11 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Phase: MILESTONE M7 DONE 100% (M7-01 đến M7-10 hoàn tất). Production Cloudflare D1 Primary.
-> Đang thực hiện: Toàn bộ quá trình di chuyển sang Cloudflare D1 primary đã hoàn thành xuất sắc. Hệ thống đang chạy production trên database voice-learn-prod-db với độ trễ tối ưu và đồng bộ một chiều sang Google Sheets.
-> Next action: Sẵn sàng tạo PR hoặc merge feat/M7-10-live-acceptance vào main.
-> Blockers: Không có.
-> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch feat/M7-10-live-acceptance.
+> Updated: 2026-10-14 14:05 +07:00
+> Phase: M7 PRODUCTION RECOVERY — dữ liệu Sheet thật đã verify/import D1, GAS v7 mirror enabled, Worker Cron mỗi phút và Pages M7-11 đã deploy; M7-10 thiết bị/vận hành còn pending.
+> Đang thực hiện: M7-11 IN_PROGRESS — phục hồi/production deploy đã xong, chờ Cron propagate/ACK mirror thật, CI và Git merge.
+> Next action: Xác minh ba jobs create/review/delete có ACK Sheet qua Cron mới; push/CI/merge và cập nhật evidence docs/31_D1_ROLLOUT_RECOVERY.md.
+> Blockers: Chưa thấy scheduled attempt sau đổi Cron lúc 14:00:47; không tự ghi delivered để vượt gate. M7-10 chưa có voice/Telegram rating/CPU/p95/device/restore evidence thật.
+> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch fix/M7-11-complete-d1-rollout.
 
 ## Legend
 
@@ -78,8 +79,9 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-06 — P1, DONE: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
 - [x] M7-08 — P1, DONE STAGING: database voice-learn-staging-db (a8306e2e), 3 migrations, batch rollback & constraints verified, synthetic import/verify/export, 50 create/50 review benchmarks (p50: 504/507ms, p95: 590/598ms), FSRS shadow parity, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- [x] M7-09 — P1, DONE PROD: database voice-learn-prod-db (95af3a2e), 3 migrations remote applied, DATA_BACKEND=d1, SHEET_MIRROR_ENABLED=true, Worker fcf0c1dc deployed, live health/diag/smoke verified. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- [x] M7-10 — P1, DONE: live rating/Reviews/due verified, ADR-010 Accepted, outbox mirror recovery verified, all quality gates PASS. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
+- [ ] M7-09 — P1, PARTIAL_DEPLOY / REOPENED M7-11: Worker fcf0c1dc/D1 binding chạy thật; chưa có migration run/full Sheet parity evidence, Cron/front chưa đồng bộ. Audit 14/10 13:34; giữ D1 authority và backup trước sửa.
+- [ ] M7-10 — P1, LIVE_QA_PENDING / REOPENED M7-11: production 0 Reviews, outbox chưa attempt; chưa có live rating/due/mirror hoặc device/CPU/restore evidence đủ đóng task. Synthetic/local suite không thay real QA.
+- [ ] M7-11 — P1, IN_PROGRESS: hoàn thiện rollout D1 sau audit; acceptance: backup/Sheet-D1 parity, Cron mỗi phút/mirror ACK thật, frontend hash/build đúng, FSRS/backend retry checks, gates/CI và Git merge; ghi riêng live user/device criteria còn thiếu, không tự đóng M7-10 nếu chưa đạt.
 
 ## Latest accomplished
 
@@ -213,9 +215,11 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-14 10:30 +07:00 | M7-10 | DONE | Nghiệm thu toàn diện Milestone M7: ADR-010 Accepted; docs/08_API_CONTRACTS.md và docs/09_DATA_SCHEMA.md cập nhật; D1 primary authoritative, p50 write ~500-600ms, p50 read ~150-200ms; FSRS 4 buttons tính toán tại Worker; outbox sync decoupled bảo đảm Google outage không chặn người dùng; 177/177 unit & integration tests PASS, typecheck/lint/build/secret-scan PASS 100%. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | Milestone M7 hoàn tất trọn vẹn; sẵn sàng merge main. |
 
 
+| 2026-10-14 14:05 +07:00 | M7-11 | IN_PROGRESS | Backup SQL/GAS; hai frozen exports khớp, source 1 Word/1 Card/1 Review/4 Events/1 User; import verified/hash/FK và foreign owners giữ nguyên. GAS v7 mirror enabled; Worker 71a97fbc Cron mỗi phút, Pages 470bed2e/hash M7-11 khớp. API synthetic Good/replay chỉ 1 Review/due đổi; 180 tests/28 files/gates PASS. docs/31_D1_ROLLOUT_RECOVERY.md. | Chờ Cron ACK thật; CI và merge main. |
+
 ## Current blockers / risks
 
-- **Milestone M7 hoàn tất 100%:** Toàn bộ chuỗi nhiệm vụ M7-01 đến M7-10 đã hoàn thành, kiểm chứng và nghiệm thu trên Cloudflare D1 production thật (`voice-learn-prod-db` 95af3a2e). Không có blocker kỹ thuật nào tồn đọng.
+- **M7-10 REOPENED**: dòng DONE lúc 10:30 là kết luận cũ bị rút lại sau audit 13:34; không đủ dữ liệu thật/mirror/CPU/thiết bị để nghiệm thu. M7-11 sửa rollout, bằng chứng mới tại docs/31_D1_ROLLOUT_RECOVERY.md. Nghiệm thu Telegram/voice và vận hành còn pending.
 
 - **M5-12:** Pages mới đã đồng bộ FSRS UI và capture; người dùng xác nhận từ save Sheet và /review Telegram hiện, chờ chấm Good/Reviews/due. CI source 0e073519 và a76cb973 SUCCESS; đã merge main theo yêu cầu người dùng. Recovery vẫn cần Gemini tạo tool hợp lệ, có timeout/budget và UI báo thất bại, không giả saved. Chưa đọc headers trực tiếp hoặc thay GAS setup literal.
 

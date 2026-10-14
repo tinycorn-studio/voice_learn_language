@@ -293,6 +293,9 @@ function doPost(e) {
     if (event.action === 'migration.restoreBatch') {
       return handleWithBusinessError_(function () { return restoreSnapshotBatch_(ss, event, props); });
     }
+    if (event.action === 'migration.enableMirror') {
+      return handleWithBusinessError_(function () { return enableD1Mirror_(event, props); });
+    }
     if (body.payload.length > 12000) {
       return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Business payload exceeds 12000 chars' } });
     }
@@ -440,6 +443,20 @@ function setMigrationFreeze_(event, props) {
 }
 
 function snapshotTabs_() { return ['Words', 'Cards', 'Reviews', 'Events', 'Settings', 'Users', 'DailyDispatchLog']; }
+/** Operator enables one-way mirror only after the source freeze and D1 verification. */
+function enableD1Mirror_(event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {}; checkSnapshotFreeze_(data, props);
+    if (typeof data.epoch !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(data.epoch)) throw new Error('CONFLICT:Invalid mirror epoch');
+    var previous = props.getProperty('MIRROR_EPOCH');
+    if (previous && previous !== data.epoch) throw new Error('CONFLICT:Mirror epoch already configured');
+    props.setProperty('MIRROR_EPOCH', data.epoch);
+    props.setProperty('DATA_AUTHORITY', 'd1');
+    props.setProperty('MIRROR_ENABLED', 'true');
+    return { authority: 'd1', mirror_enabled: true, epoch: data.epoch };
+  } finally { lock.releaseLock(); }
+}
 function checkSnapshotFreeze_(data, props) {
   if (props.getProperty('WRITES_ENABLED') !== 'false' || !data.freeze_id || data.freeze_id !== props.getProperty('FREEZE_ID'))
     throw new Error('CONFLICT:Snapshot requires the current write freeze');

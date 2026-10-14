@@ -4,9 +4,9 @@
 > **Trạng thái:** web/Worker/Apps Script đã triển khai; voice/auth/vocabulary được người dùng xác nhận. Frontend M5-12 bổ sung capture và FSRS UI đã public; luồng hỏi nghĩa → Sheet/Card → review cùng các gate vận hành còn chờ live QA. Xem `PROGRESS.md` và `docs/26_VOCABULARY_CAPTURE_RELEASE.md`.
 > **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
-Đang triển khai local: [D1 primary và giảm độ trễ Mini App/Telegram](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md). Người dùng chọn Sheet chỉ xem/xuất; mọi chỉnh sửa qua app. Evidence và phần còn thiếu tại [tiến độ](PROGRESS.md) và [bằng chứng M7](docs/28_D1_IMPLEMENTATION_EVIDENCE.md); production vẫn GAS, chưa cutover D1.
+Production dùng [D1 primary](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md); Sheet chỉ xem/xuất, mọi chỉnh sửa qua app. Dữ liệu Sheet cũ đã phục hồi và đối chiếu D1 trong M7-11. Xem [tiến độ](PROGRESS.md) và [báo cáo rollout](docs/31_D1_ROLLOUT_RECOVERY.md) để phân biệt kiểm chứng backend với nghiệm thu Telegram/thiết bị còn thiếu.
 
-Đã hoàn thiện local đến M7-07 và tạm dừng theo yêu cầu người dùng; phiên sau đọc [bàn giao D1](docs/30_D1_PAUSE_HANDOFF.md) và [runbook migration](docs/29_D1_MIGRATION_RUNBOOK.md) trước khi bắt đầu staging M7-08.
+Đã tiếp tục theo yêu cầu người dùng sau điểm tạm dừng M7-07. [Bàn giao cũ](docs/30_D1_PAUSE_HANDOFF.md) là lịch sử; vận hành theo [runbook migration](docs/29_D1_MIGRATION_RUNBOOK.md) và báo cáo rollout mới.
 
 ## Mục tiêu
 
@@ -18,7 +18,7 @@
 - ✅ Source đã sửa R01–R09 theo review M5-04, có tests hồi quy và tích hợp App → Worker → Apps Script VM. Bằng chứng/giới hạn trong [báo cáo sửa lỗi](docs/22_REVIEW_FIXES.md):
   - `packages/shared`: Zod contracts, bộ phát hiện từ vựng (`detectVocabularyIntent` đạt 30/30 mẫu câu 0 FP / 0 FN), bộ lập lịch SRS (`Again/Hard/Good/Easy`), xuất/nhập CSV, chống formula injection.
   - `apps/web`: đăng nhập Telegram qua Worker, dữ liệu API thật, PCM AudioWorklet → Gemini trực tiếp → playback, reconnect có budget/Stop; Flashcards và CRUD lưu backend rồi mới báo thành công. Không có dữ liệu mẫu; mở ngoài Mini App chưa được xác thực.
-  - `apps/worker`: xác thực Telegram `initData`, ephemeral token `uses:1`, HMAC Apps Script, webhook retry và Cron `0-5 1 * * *` (08:00–08:05 UTC+7) với tối đa ba send attempts khi lỗi xác định.
+  - `apps/worker`: xác thực Telegram `initData`, ephemeral token `uses:1`, D1 authoritative CRUD/FSRS, HMAC mirror Apps Script, webhook retry; Cron mỗi phút drain mirror/Telegram, digest giới hạn 08:00–08:05 UTC+7 với tối đa ba send attempts khi lỗi xác định.
   - `apps-script/Code.gs`: HMAC, `LockService`, mutation replay/unique key; schema v3 Words/Cards/Reviews/Settings. FSRS có lịch từng Card độc lập, preview backend, retry/OCC và native audit; xem [review FSRS](docs/23_FSRS_REVIEW_FIXES.md).
 - ⬜ Chờ cấu hình tài khoản & khoá bí mật thật (`M0-02`, `M3-01`) để chạy nghiệm thu thiết bị thật & triển khai production (`M1-02`, `M5`).
 - ⚠️ Giá, quota, tên model và lệnh CLI có thể đổi; kiểm tra tài liệu nguồn trước mỗi đợt triển khai.

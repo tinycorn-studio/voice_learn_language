@@ -131,6 +131,64 @@ async function reseal(snapshot: Snapshot) {
 }
 
 describe('M7-07 full data migration and rollback', () => {
+  it('scopes recovery to one owner and preserves all foreign records without weakening strict verification', async () => {
+    const { snapshot } = await source();
+    const plan = await planMigration(snapshot);
+    const runtime = await createD1RuntimeHarness();
+    runtimes.push(runtime);
+    const repo = new D1RepositoryAdapter(runtime.db, KEY);
+    await repo.upsert('telegram:999', 'foreign', { ...WORD, event_id: 'foreign_existing_create' });
+    const foreign = (await runtime.db.prepare('SELECT record_json FROM words').all()).results;
+    await runtime.db
+      .prepare("UPDATE system_state SET value='false' WHERE key='writes_enabled'")
+      .run();
+    const backup = await exportD1Snapshot(runtime.db, USER, 'scoped', new Date().toISOString(), {
+      onlyOwner: true,
+    });
+    expect(backup.tabs['Words']?.rows).toEqual([]);
+    await expect(importSnapshot(runtime.db, plan, 'scoped')).rejects.toThrow('does not match');
+    await importSnapshot(runtime.db, plan, 'scoped', { preserveOtherOwners: true });
+    expect(await verifyImport(runtime.db, plan, { preserveOtherOwners: true })).toMatchObject({
+      ok: true,
+    });
+    expect((await verifyImport(runtime.db, plan)).ok).toBe(false);
+    expect(
+      (
+        await runtime.db
+          .prepare('SELECT record_json FROM words WHERE user_id=?')
+          .bind('telegram:999')
+          .all()
+      ).results,
+    ).toEqual(foreign);
+    expect(
+      await runtime.db
+        .prepare("SELECT value FROM system_state WHERE key='writes_enabled'")
+        .first('value'),
+    ).toBe('false');
+  });
+
+  it('enables mirror only for the current frozen source and rejects changing its epoch', async () => {
+    const { call, props, repo } = gasSetup();
+    await expect(
+      call('migration.enableMirror', { freeze_id: 'stale', epoch: 'prod_cutover_01' }),
+    ).rejects.toThrow();
+    const freeze = z
+      .object({ freeze_id: z.string() })
+      .parse(await call('migration.freeze', { freeze: true }));
+    const data = { freeze_id: freeze.freeze_id, epoch: 'prod_cutover_01' };
+    expect(await call('migration.enableMirror', data)).toEqual({
+      authority: 'd1',
+      mirror_enabled: true,
+      epoch: data.epoch,
+    });
+    expect(await call('migration.enableMirror', data)).toMatchObject({ mirror_enabled: true });
+    expect(props['WRITES_ENABLED']).toBe('false');
+    await expect(call('migration.enableMirror', { ...data, epoch: 'other' })).rejects.toThrow();
+    await expect(
+      call('migration.freeze', { freeze: false, freeze_id: freeze.freeze_id }),
+    ).rejects.toThrow();
+    await expect(repo.upsert(USER, 'blocked-writer', WORD)).rejects.toThrow();
+  });
   it('exports seven frozen tabs, imports/replays once and preserves independent Cards, native audits, settings and dispatch', async () => {
     const { snapshot, repo: gasRepo, created, rating } = await source();
     expect(Object.keys(snapshot.tabs)).toHaveLength(7);

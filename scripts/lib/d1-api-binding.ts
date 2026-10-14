@@ -4,17 +4,32 @@ import type { DatabaseBinding, Statement } from '../../apps/worker/src/adapters/
 /** Used by offline migration tools only. Prepared values never enter terminal output. */
 export function renderSql(sql: string, values: unknown[]): string {
   let index = 0;
-  const result = sql.replace(/'(?:''|[^'])*'|\?/g, (token) => {
-    if (token !== '?') return token;
-    if (index >= values.length) throw new Error('Missing SQL binding');
-    const value = values[index++];
-    if (value === null) return 'NULL';
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-    if (typeof value === 'string') return `'${value.replace(/'/g, "''")}'`;
-    throw new Error('Unsupported SQL binding');
-  });
+  const parts: string[] = [];
+  const regex = /'(?:''|[^'])*'|\?/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(sql)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(sql.slice(lastIndex, match.index).replace(/\s+/g, ' '));
+    }
+    const token = match[0];
+    if (token === '?') {
+      if (index >= values.length) throw new Error('Missing SQL binding');
+      const value = values[index++];
+      if (value === null) parts.push('NULL');
+      else if (typeof value === 'number' && Number.isFinite(value)) parts.push(String(value));
+      else if (typeof value === 'string') parts.push(`'${value.replace(/'/g, "''")}'`);
+      else throw new Error('Unsupported SQL binding');
+    } else {
+      parts.push(token);
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < sql.length) {
+    parts.push(sql.slice(lastIndex).replace(/\s+/g, ' '));
+  }
   if (index !== values.length) throw new Error('Extra SQL binding');
-  return result;
+  return parts.join('').trim();
 }
 const responseSchema = z.object({
   success: z.literal(true),

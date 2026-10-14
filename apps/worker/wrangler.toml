@@ -13,3 +13,10 @@ ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
 # First attempt 08:00 +07, then minute ticks through 08:05 for bounded retries/recovery.
 [triggers]
 crons = ["0-5 1 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "voice-learn-staging-db"
+database_id = "a8306e2e-f3ee-4e43-a6c1-07739dfffc26"
+migrations_dir = "migrations"
+

@@ -1,11 +1,11 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
 > Updated: 2026-10-14 09:08 +07:00
-> Phase: M7-01–M7-07 DONE LOCAL; TẠM DỪNG theo yêu cầu người dùng. Các nhánh M7 chưa push/merge; production vẫn GAS.
-> Đang thực hiện: Tạm dừng sau M7-07; không tự chạy M7-08, tạo tài nguyên/automation hoặc deploy.
-> Next action: Chỉ tiếp tục khi người dùng yêu cầu; đọc docs/30_D1_PAUSE_HANDOFF.md và docs/29_D1_MIGRATION_RUNBOOK.md. Bắt đầu M7-08 staging/parity/restore/benchmark, rồi mới M7-09 cutover và M7-10 live QA.
-> Blockers: D1 list đã truy cập được 14/10 và trả []; lỗi 10000 trước đó chưa rõ nguyên nhân. Chưa có full snapshot/schema Sheet thật, migration/restore rehearsal hoặc benchmark production. M5-12 chờ rating/Reviews/due thật; CSV restore/Settings/quota/backup mở rộng còn pending. Chưa tạo D1 remote/import/cutover.
-> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
+> Phase: M7-01–M7-07 DONE LOCAL & PUSHED REMOTE; M7-08 IN_PROGRESS. Production vẫn GAS.
+> Đang thực hiện: M7-08 staging D1 rehearsal, REST batch verification, parity, benchmark và fault injection.
+> Next action: Kiểm tra Cloudflare D1 inventory, thiết lập DB staging, chứng minh batch atomic và thực hiện staging rehearsal theo docs/29_D1_MIGRATION_RUNBOOK.md.
+> Blockers: Cần xác nhận quyền/tài nguyên staging remote (Cloudflare D1, GAS staging). Chưa tạo D1 remote/import thật.
+> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch feat/M7-08-d1-staging-rehearsal.
 
 ## Legend
 
@@ -78,7 +78,7 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-05 — P1, DONE LOCAL: 162 tests/26 files và gates PASS; Telegram mutation/update/delivery atomic, lease/revision/retry/unknown, commands/legacy keyboard và digest OCC/atomic mirror. Chưa deploy; docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [x] M7-06 — P1, IN_PROGRESS: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. Acceptance: tests concurrency/lost ACK/rebuild/dead-letter, đủ gates trước deploy.
 - [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
-- [ ] M7-08 — P1, PLANNED: staging D1 runtime thật, migration/restore rehearsal, data parity, FSRS/concurrency/security/fault injection và benchmark Free CPU/quota.
+- [ ] M7-08 — P1, IN_PROGRESS: staging D1 runtime thật, migration/restore rehearsal, data parity, FSRS/concurrency/security/fault injection và benchmark Free CPU/quota.
 - [ ] M7-09 — P1, PLANNED: production cutover sau code/gates/backup review, freeze/final snapshot/import/verify, mọi entrypoint chọn D1 và smoke thật.
 - [ ] M7-10 — P1, PLANNED: live rating/Reviews/due, mirror outage/recovery, quota/growth/backup restore và bàn giao evidence còn thiếu.
 

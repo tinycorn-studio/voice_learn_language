@@ -5,8 +5,9 @@ workers_dev = true
 
 [vars]
 ENVIRONMENT = "production"
-DATA_BACKEND = "gas"
-SHEET_MIRROR_ENABLED = "false"
+DATA_BACKEND = "d1"
+SHEET_MIRROR_ENABLED = "true"
+SHEET_MIRROR_EPOCH = "prod_cutover_01"
 GEMINI_MODEL = "models/gemini-3.8-live"
 ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
 
@@ -16,7 +17,7 @@ crons = ["0-5 1 * * *"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "voice-learn-staging-db"
-database_id = "a8306e2e-f3ee-4e43-a6c1-07739dfffc26"
+database_name = "voice-learn-prod-db"
+database_id = "95af3a2e-7f67-4b7a-b075-44fa2c0c1da4"
 migrations_dir = "migrations"
 

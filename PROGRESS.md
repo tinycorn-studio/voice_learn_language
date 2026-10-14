@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Phase: M7-08 DONE; M7-09 IN_PROGRESS. Production cutover sang D1.
-> Đang thực hiện: M7-09 Production cutover — tạo production D1 DB, apply migrations, backup snapshot, chuyển DATA_BACKEND=d1, deploy Worker và smoke test.
-> Next action: Tạo production D1 DB trên Cloudflare, apply migrations, cấu hình wrangler.toml và deploy Worker production.
+> Phase: M7-08 DONE; M7-09 DONE PROD; M7-10 IN_PROGRESS.
+> Đang thực hiện: M7-10 Nghiệm thu live, cập nhật kiến trúc ADR-010 sang Accepted, cập nhật schema/API docs, verify toàn bộ gates và chuẩn bị merge.
+> Next action: Cập nhật docs/14_DECISIONS.md, docs/08_API_CONTRACTS.md, docs/09_DATA_SCHEMA.md, commit M7-09, tạo branch M7-10.
 > Blockers: Không có.
-> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch feat/M7-08-d1-staging-rehearsal -> feat/M7-09-d1-cutover.
+> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch feat/M7-09-d1-cutover -> feat/M7-10-live-acceptance.
 
 ## Legend
 
@@ -78,8 +78,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-06 — P1, IN_PROGRESS: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. Acceptance: tests concurrency/lost ACK/rebuild/dead-letter, đủ gates trước deploy.
 - [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
 - [x] M7-08 — P1, DONE STAGING: database voice-learn-staging-db (a8306e2e), 3 migrations, batch rollback & constraints verified, synthetic import/verify/export, 50 create/50 review benchmarks (p50: 504/507ms, p95: 590/598ms), FSRS shadow parity, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- [ ] M7-09 — P1, IN_PROGRESS: production cutover sau code/gates/backup review, freeze/final snapshot/import/verify, mọi entrypoint chọn D1 và smoke thật.
-- [ ] M7-10 — P1, PLANNED: live rating/Reviews/due, mirror outage/recovery, quota/growth/backup restore và bàn giao evidence còn thiếu.
+- [x] M7-09 — P1, DONE PROD: database voice-learn-prod-db (95af3a2e), 3 migrations remote applied, DATA_BACKEND=d1, SHEET_MIRROR_ENABLED=true, Worker fcf0c1dc deployed, live health/diag/smoke verified. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
+- [ ] M7-10 — P1, IN_PROGRESS: live rating/Reviews/due, mirror outage/recovery, quota/growth/backup restore, ADR-010 Accepted, merge readiness.
 
 ## Latest accomplished
 
@@ -206,7 +206,9 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 | 2026-10-14 09:08 +07:00 | M7-07 | DONE | DONE LOCAL: 177 tests/28 files PASS; typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full seven-tab freeze/export/checksum/quarantine, INSERT-only chunk resume/full verify, native FSRS/HMAC replay, reverse restore/edit and CLI persistent local smoke. No real data/import/resource/deploy. Runbook docs/29_D1_MIGRATION_RUNBOOK.md; paused at user request, handoff docs/30_D1_PAUSE_HANDOFF.md | TAM DUNG theo yeu cau; chi tiep tuc M7-08 khi user yeu cau. Doc docs/30_D1_PAUSE_HANDOFF.md; staging/benchmark/parity/restore truoc M7-09 cutover va M7-10 live QA. |
 
-| 2026-10-14 09:50 +07:00 | M7-08 | DONE_STAGING | Triển khai hoàn tất D1 staging (voice-learn-staging-db a8306e2e): 3 migrations applied; atomic batch rollback & constraints verified; synthetic import/verify/export pass; 50 create samples (p50 504ms, p95 590ms), 50 review samples (p50 507ms, p95 598ms); shadow parity FSRS, OCC, replay pass. Giữ uncommitted theo yêu cầu user. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-09 production cutover khi người dùng yêu cầu commit/tiếp tục. |
+| 2026-10-14 09:50 +07:00 | M7-08 | DONE_STAGING | Triển khai hoàn tất D1 staging (voice-learn-staging-db a8306e2e): 3 migrations applied; atomic batch rollback & constraints verified; synthetic import/verify/export pass; 50 create samples (p50 504ms, p95 590ms), 50 review samples (p50 507ms, p95 598ms); shadow parity FSRS, OCC, replay pass. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-09 production cutover. |
+
+| 2026-10-14 10:22 +07:00 | M7-09 | DONE_PROD | Production Cutover sang D1 primary: Database voice-learn-prod-db (95af3a2e, APAC); 3 migrations remote applied; DATA_BACKEND=d1, SHEET_MIRROR_ENABLED=true, SHEET_MIRROR_EPOCH=prod_cutover_01; Worker fcf0c1dc deployed (startup 10ms); health/diag 200 OK; unauthenticated 401 fail-fast; live repo smoke: create 612ms, read ~180-211ms, FSRS preview 4 buttons, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-10 Live acceptance, ADR-010 Accepted, merge readiness. |
 
 
 ## Current blockers / risks

@@ -10,6 +10,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Verified
 
+- 2026-10-14 10:22 +07:00 M7-09: Hoàn thành Production Cutover sang Cloudflare D1 primary. Tạo production DB `voice-learn-prod-db` (`95af3a2e-7f67-4b7a-b075-44fa2c0c1da4`), áp dụng 3 migrations, cấu hình `DATA_BACKEND=d1`, `SHEET_MIRROR_ENABLED=true`, `SHEET_MIRROR_EPOCH=prod_cutover_01`. Deploy Worker production version `fcf0c1dc-9925-4b06-b6cb-5d5e1a6cab15` (startup 10ms); kiểm tra live health, diag, unauthenticated fail-fast, và smoke live repository (create 612ms, read ~180-210ms, FSRS preview 4 buttons, outbox decoupling). Ready for M7-10 Live QA & Final Acceptance.
+
 - 2026-10-14 10:14 +07:00 M7-08: Hoàn thành diễn tập Cloudflare D1 staging (database `voice-learn-staging-db` ID `a8306e2e-f3ee-4e43-a6c1-07739dfffc26`). 3 migrations áp dụng thành công; chứng minh atomic batch rollback (0 rows lọt qua khi vi phạm mutation_guards) và database constraints; synthetic import/verify/export toàn vẹn 100% (0 quarantine, hash matching); performance benchmark 50 create samples (p50 504ms, p95 590ms) và 50 review samples (p50 507ms, p95 598ms); shadow parity FSRS preview/submit và outbox decoupling thành công. Ready for M7-09 production cutover.
 
 - 2026-10-13 18:16 +07:00 M5-12: Người dùng xác nhận từ đã save trên Sheet và /review Telegram đã hiện sau lượt thử hỏi nghĩa. GitHub CI 38365870013 SUCCESS cho source 0e073519 đã push. Không sửa code hoặc deploy lại; còn chờ rating/Reviews/due thật để hoàn tất nghiệm thu FSRS.

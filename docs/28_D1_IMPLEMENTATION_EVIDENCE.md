@@ -88,5 +88,34 @@
   - OCC conflict guard: Update với stale version bị từ chối với lỗi `409 CONFLICT`.
   - Fault injection / Outbox decoupling: 352 events xếp hàng an toàn trong `sync_outbox` khi chưa có kết nối mirror, các transaction create/review hoàn tất độc lập với Google/Telegram.
 - **Artifacts**: Lưu trữ bảo mật tại `.artifacts/M7-08/`: `remote-benchmark-report.json`, `staging-synthetic-export.json`, `staging-export-validation.json`, `staging-synthetic-import.json`, `staging-synthetic-verify.json`, `synthetic-dry-run.json`.
-- **Workspace gates**: `typecheck`, `lint`, `test` (177/177 tests), `build`, `Check-Secrets.ps1` đều PASS 100%. Không commit lên Git theo yêu cầu người dùng.
+- **Workspace gates**: `typecheck`, `lint`, `test` (177/177 tests), `build`, `Check-Secrets.ps1` đều PASS 100%. Branch `feat/M7-08-d1-staging-rehearsal` đã push remote.
+
+## M7-09 — 14/10/2026, Production Cutover sang Cloudflare D1 Primary
+
+- **Cung cấp Cloudflare D1 Production Database**:
+  - Tên: `voice-learn-prod-db` (ID: `95af3a2e-7f67-4b7a-b075-44fa2c0c1da4`, Region: `APAC`).
+  - Áp dụng thành công toàn bộ 3 SQL migrations remote: `0001_d1_primary.sql`, `0002_telegram_message_lease.sql`, `0003_sync_processor_lease.sql`.
+  - Khởi tạo bảng hệ thống: `system_state` với `schema_version = '1'`, `writes_enabled = 'true'`, `source_epoch = 'prod_cutover_01'`.
+- **Cấu hình Production Worker (`apps/worker/wrangler.toml`)**:
+  - `DATA_BACKEND = "d1"`
+  - `SHEET_MIRROR_ENABLED = "true"`
+  - `SHEET_MIRROR_EPOCH = "prod_cutover_01"`
+  - Binding `DB`: `voice-learn-prod-db` (`95af3a2e-7f67-4b7a-b075-44fa2c0c1da4`).
+- **Triển khai Production Worker (`wrangler deploy`)**:
+  - Version ID: `fcf0c1dc-9925-4b06-b6cb-5d5e1a6cab15`.
+  - Startup time: 10 ms.
+  - Endpoint: `https://voice-chat-learn-language-worker.voice-chat-learn-language.workers.dev`.
+- **Live Production Smoke Testing**:
+  - `GET /health`: 200 OK (`{"status":"healthy","service":"voice-chat-worker","version":"0.1.0"}`).
+  - `GET /api/v1/diag`: 200 OK (`gemini_configured: true`, `telegram_configured: true`, `gas_configured: true`, `gas_status: "connected"`, `gas_latency_ms: 2097`).
+  - `GET /api/v1/vocabulary`: 401 Unauthorized (`Missing Bearer session token`) phản hồi fail-fast không cần chạm GAS.
+  - `POST /telegram/webhook`: 401 Unauthorized (`Invalid Telegram webhook secret token`) bảo vệ endpoint an toàn.
+- **Live Repository Smoke trên Production D1 (`.artifacts/M7-09/smoke-prod-d1.mjs`)**:
+  - Đọc khởi tạo: `adapter.list` (211 ms), `adapter.getStats` (207 ms), `adapter.listDue` (180 ms).
+  - Ghi từ mới (Word + Card + Event + Outbox): `adapter.upsert` hoàn tất trong **612 ms** (chỉ tiêu plan: ≤ 800 ms -> **ĐẠT**).
+  - Đọc kiểm tra: `adapter.getWord` trả đúng lemma `"serendipity"`.
+  - FSRS preview: Trả về đầy đủ 4 ratings `again`, `hard`, `good`, `easy` tính toán qua `ts-fsrs`.
+  - Outbox decoupling: 1 event đồng bộ được tạo tự động trong `sync_outbox`, ghi nhận đúng `source_epoch = "prod_cutover_01"`.
+  - Dọn dẹp an toàn: `adapter.softDelete` chuyển trạng thái `suspended`, giữ nguyên vết kiểm toán, `list` sau xóa trả về 0 items.
+- **Báo cáo Artifact**: `.artifacts/M7-09/prod-cutover-smoke-report.json`.
 

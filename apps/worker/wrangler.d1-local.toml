@@ -1,0 +1,15 @@
+# Local development only; this synthetic UUID must never be used for a remote deploy.
+name = "voice-chat-learn-language-d1-local"
+main = "src/entry.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+ENVIRONMENT = "development"
+DATA_BACKEND = "d1"
+ALLOWED_ORIGIN = "http://localhost:5173"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "voice-chat-learn-language-local"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"

@@ -63,3 +63,15 @@ Digest claim theo ngày UTC+7/user; sent/failed/unknown và claim_token bảo v�
 Gọi migrateSchemaV3(true) để inspect, false để apply. Dry-run trả migrated_cards/status=DRY_RUN, không ghi kể cả tabs/properties. Apply tạo Cards/Settings, append headers thiếu của Reviews/Events/Dispatch/Cards/Settings và đặt SCHEMA_VERSION=3. Không ghi đè Card hiện có; cold start memory legacy có archive. Đọc fallback cho Word chưa có Card không tạo dòng. Ghi bắt buộc layout v3: migrate trước khi mở writers.
 
 Chi tiết backup, nghiệm thu và rollback giữ lịch sử: [FSRS_MIGRATION.md](FSRS_MIGRATION.md).
+
+## Cloudflare D1 Primary SQL Schema — M7-09 Production Cutover (Authoritative)
+
+`apps/worker/migrations/0001_d1_primary.sql` giữ domain v3 trong `record_json`, thêm cột owner/ID/version/due indexed với CHECK parity, FK owner và Reviews append-only trigger. Events có fingerprint_scheme/result snapshot; outbox/delivery/migration/system_state là bảng vận hành. SQL guard `mutation_guards` trong DB.batch rollback nếu OCC/maintenance sai. Database chính thức tại Production là `voice-learn-prod-db` (`95af3a2e-7f67-4b7a-b075-44fa2c0c1da4`, Region: APAC).
+
+M7-05: migration `0002_telegram_message_lease.sql` thêm index chat/message/status/lease để serialize edits xuyên isolates. Users và DailyDispatchLog JSON thêm `version` (legacy mặc định 0); mọi preference/dispatch transition tăng version và enqueue mirror cùng transaction. Telegram deliveries `pending/leased/delivered/dead`, `last_error=unknown_outcome` cần xử lý thủ công; update dedup/result tồn tại sau restart. Claimed digest quá hai phút thành unknown, không gửi lại tự động.
+
+M7-06: migration `0003_sync_processor_lease.sql` thêm singleton lease để serialize mirror processors. Sheet mirror tự append `_mirror_version,_mirror_json,_mirror_epoch` vào tabs nhận snapshot; giá trị legacy version 0 hợp lệ, Word/Card vẫn positive. Row metadata và giá trị cùng một setValues range; không có ACID xuyên tabs, replay canonical snapshot sửa partial writes. Immutable Reviews/Events không nhận payload khác.
+
+M7-07 / M7-08 / M7-09: snapshot voice-d1-snapshot-v1 giữ raw headers/cells bảy tabs, SHA-256 từng tab/toàn manifest, owner/freeze/timestamps/schema metadata. Reverse export thêm `_snapshot_json` để preserve null/optional fields; verify trước reopen GAS và clear transient metadata khi unfreeze, backup file không đổi. migration_runs có immutable source checksum, trạng thái importing/verified và chunk checkpoint. `writes_enabled = 'true'`, `source_epoch = 'prod_cutover_01'` đã được kích hoạt trên production D1.
+
+M7-11 bổ sung tùy chọn thư viện operator `exportD1Snapshot(..., {onlyOwner:true})`, `importSnapshot/verifyImport(..., {preserveOtherOwners:true})` để phục hồi một owner vào DB đã có owner khác. Mặc định vẫn kiểm toàn DB và từ chối foreign owner. Opt-in chỉ giới hạn so sánh ID/hash theo owner bound SQL, không overwrite ID xung đột; quick_check/FK vẫn toàn DB. Full SQL backup và checksum dữ liệu owner khác trước/sau bắt buộc trong runbook phục hồi. Không thay auth/runtime repository hoặc mở đường import công khai.

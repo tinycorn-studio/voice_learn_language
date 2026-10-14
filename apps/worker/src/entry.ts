@@ -9,9 +9,14 @@ import {
   vocabularyUpdateRequestSchema,
   type ReviewRating,
 } from '@voice-chat/shared';
-import { GasRepositoryAdapter } from './adapters/gas-client.js';
+import { createRepositories } from './adapters/repository-factory.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
+import { processSheetMirror } from './adapters/sheet-mirror.js';
+import {
+  formatReviewResult,
+  processTelegramDeliveries,
+} from './adapters/telegram-delivery-store.js';
 import {
   issueSessionToken,
   verifySessionToken,
@@ -141,6 +146,40 @@ export async function handleWorkerRequest(
   deps: WorkerDependencies = {},
   securityStore: SecurityStateStore = defaultSecurityStore,
 ): Promise<Response> {
+  const started = performance.now();
+  const response = await handleWorkerRequestInternal(request, env, deps, securityStore);
+  const path = new URL(request.url).pathname;
+  const route = path.startsWith('/api/v1/vocabulary/')
+    ? '/api/v1/vocabulary/:id'
+    : /^\/api\/v1\/reviews\/[^/]+\/preview$/.test(path)
+      ? '/api/v1/reviews/:id/preview'
+      : [
+            '/health',
+            '/telegram/webhook',
+            '/api/v1/auth/telegram',
+            '/api/v1/vocabulary',
+            '/api/v1/live-token',
+            '/api/v1/reviews',
+            '/api/v1/reviews/due',
+            '/api/v1/reviews/submit',
+            '/api/v1/reviews/stats',
+          ].includes(path)
+        ? path
+        : 'other';
+  logStructured('info', 'api_request_complete', response.headers.get('x-request-id') ?? 'unknown', {
+    route,
+    http_status: response.status,
+    duration_ms: Math.max(0, Math.round(performance.now() - started)),
+  });
+  return response;
+}
+
+async function handleWorkerRequestInternal(
+  request: Request,
+  env: WorkerEnv,
+  deps: WorkerDependencies = {},
+  securityStore: SecurityStateStore = defaultSecurityStore,
+): Promise<Response> {
   const requestId = request.headers.get('x-request-id')?.trim().slice(0, 64) || crypto.randomUUID();
   const corsHeaders = resolveCorsHeaders(request, env);
 
@@ -153,9 +192,15 @@ export async function handleWorkerRequest(
   const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
   const fetchFn = deps.fetchFn ?? fetch;
 
-  const gasAdapter = new GasRepositoryAdapter(env.GAS_EXEC_URL, env.GAS_SHARED_SECRET, fetchFn);
-  const vocabRepo = deps.vocabRepo ?? gasAdapter;
-  const reviewRepo = deps.reviewRepo ?? gasAdapter;
+  const resolveRepositories = async () => {
+    if (deps.vocabRepo && deps.reviewRepo)
+      return { vocabulary: deps.vocabRepo, review: deps.reviewRepo };
+    const selected = await createRepositories(env, fetchFn);
+    return {
+      vocabulary: deps.vocabRepo ?? selected.vocabulary,
+      review: deps.reviewRepo ?? selected.review,
+    };
+  };
 
   try {
     // 1. GET /health
@@ -179,9 +224,11 @@ export async function handleWorkerRequest(
     // 1b. POST /api/v1/client-logs — Ingest diagnostic logs from webview/mini-app
     if (request.method === 'POST' && path === '/api/v1/client-logs') {
       const rawJson = await parseOptionalRequestJson(request);
-      const data = typeof rawJson === 'object' && rawJson !== null ? (rawJson as Record<string, unknown>) : {};
+      const data =
+        typeof rawJson === 'object' && rawJson !== null ? (rawJson as Record<string, unknown>) : {};
       const logEntry = {
-        timestamp: typeof data.timestamp === 'string' ? data.timestamp : new Date(nowMs).toISOString(),
+        timestamp:
+          typeof data.timestamp === 'string' ? data.timestamp : new Date(nowMs).toISOString(),
         level: typeof data.level === 'string' ? data.level : 'info',
         message: typeof data.message === 'string' ? data.message.slice(0, 1000) : 'client event',
         details: data.details,
@@ -193,7 +240,11 @@ export async function handleWorkerRequest(
         client_level: logEntry.level,
         client_msg: logEntry.message,
       });
-      return jsonEnvelopeResponse({ ok: true, data: { received: true }, request_id: requestId }, 200, corsHeaders);
+      return jsonEnvelopeResponse(
+        { ok: true, data: { received: true }, request_id: requestId },
+        200,
+        corsHeaders,
+      );
     }
 
     // 1c. GET /api/v1/client-logs — Retrieve captured client diagnostic logs
@@ -241,7 +292,6 @@ export async function handleWorkerRequest(
         corsHeaders,
       );
     }
-
 
     // 2. POST /api/v1/auth/telegram
     if (request.method === 'POST' && path === '/api/v1/auth/telegram') {
@@ -303,6 +353,7 @@ export async function handleWorkerRequest(
       }
 
       const update = parsedUpdate.data;
+      const { review: reviewRepo } = await resolveRepositories();
       return await securityStore.processTelegramUpdate(update.update_id, requestId, async () => {
         const ownerNumericId = Number(env.OWNER_TELEGRAM_ID.trim());
         const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
@@ -331,6 +382,18 @@ export async function handleWorkerRequest(
           const cardIdOrWordId = match[1];
           const rating = match[2] as ReviewRating;
           const eventId = `tgcb_${update.update_id}_${cardIdOrWordId}`.slice(0, 80);
+          const ackStarted = performance.now();
+          const acknowledged = await botClient
+            .answerCallbackQuery({
+              callbackQueryId: cb.id,
+              text: 'Đang ghi nhận…',
+              timeoutMs: 1000,
+            })
+            .catch(() => false);
+          logStructured('info', 'telegram_callback_ack', requestId, {
+            acknowledged,
+            duration_ms: Math.round(performance.now() - ackStarted),
+          });
           const result = await reviewRepo.recordReview(
             `telegram:${ownerNumericId}`,
             requestId,
@@ -342,13 +405,25 @@ export async function handleWorkerRequest(
               ...(match[3] ? { version: Number(match[3]) } : {}),
             },
             new Date(nowMs).toISOString(),
+            ...(env.DATA_BACKEND === 'd1'
+              ? [
+                  {
+                    updateId: update.update_id,
+                    chatId: String(cb.message?.chat.id ?? cb.from.id),
+                    ...(cb.message?.message_id ? { messageId: cb.message.message_id } : {}),
+                  },
+                ]
+              : []),
           );
 
-          if (cb.id) {
-            await botClient.answerCallbackQuery({
-              callbackQueryId: cb.id,
-              text: `Đã ghi nhận (${rating})! Lần ôn kế tiếp: ${new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short' }).format(new Date(result.next_due_at))}.`,
-            });
+          if (cb.id && env.DATA_BACKEND !== 'd1') {
+            const text = formatReviewResult(rating, result.next_due_at);
+            const delivered = await (
+              cb.message?.message_id
+                ? botClient.editReviewResult(cb.message.chat.id, cb.message.message_id, text)
+                : botClient.answerCallbackQuery({ callbackQueryId: cb.id, text, timeoutMs: 1000 })
+            ).catch(() => false);
+            if (!delivered) logStructured('warn', 'telegram_result_delivery_failed', requestId);
           }
 
           return jsonEnvelopeResponse(
@@ -375,16 +450,22 @@ export async function handleWorkerRequest(
           const userId = `telegram:${ownerNumericId}`;
 
           if (text.startsWith('/pause')) {
+            const confirmation =
+              '⏸ Đã tạm dừng gửi nhắc ôn từ vựng hàng ngày. Gõ /start để bật lại.';
             await reviewRepo.updateUserPreferences(
               userId,
               requestId,
               `tgcmd_pause_${update.update_id}`,
               { telegram_chat_id: chatId, notifications_enabled: false },
+              ...(env.DATA_BACKEND === 'd1'
+                ? [{ updateId: update.update_id, chatId, confirmationText: confirmation }]
+                : []),
             );
-            await botClient.sendMessage({
-              chatId,
-              text: '⏸ Đã tạm dừng gửi nhắc ôn từ vựng hàng ngày. Gõ /start để bật lại.',
-            });
+            if (env.DATA_BACKEND !== 'd1')
+              await botClient.sendMessage({
+                chatId,
+                text: confirmation,
+              });
             return jsonEnvelopeResponse(
               { ok: true, data: { handled: 'pause' }, request_id: requestId },
               200,
@@ -392,16 +473,22 @@ export async function handleWorkerRequest(
           }
 
           if (text.startsWith('/start')) {
+            const confirmation =
+              '👋 Chào mừng bạn! Đã bật thông báo ôn từ vựng lúc 08:00 sáng (UTC+7). Gõ /review để ôn ngay.';
             await reviewRepo.updateUserPreferences(
               userId,
               requestId,
               `tgcmd_start_${update.update_id}`,
               { telegram_chat_id: chatId, notifications_enabled: true },
+              ...(env.DATA_BACKEND === 'd1'
+                ? [{ updateId: update.update_id, chatId, confirmationText: confirmation }]
+                : []),
             );
-            await botClient.sendMessage({
-              chatId,
-              text: '👋 Chào mừng bạn! Đã bật thông báo ôn từ vựng lúc 08:00 sáng (UTC+7). Gõ /review để ôn ngay.',
-            });
+            if (env.DATA_BACKEND !== 'd1')
+              await botClient.sendMessage({
+                chatId,
+                text: confirmation,
+              });
             return jsonEnvelopeResponse(
               { ok: true, data: { handled: 'start' }, request_id: requestId },
               200,
@@ -411,7 +498,25 @@ export async function handleWorkerRequest(
           if (text.startsWith('/review')) {
             const due = await reviewRepo.listDue(userId, requestId, 5);
             const first = due.items[0];
-            if (!first) {
+            if (env.DATA_BACKEND === 'd1' && reviewRepo.acceptTelegramCommand) {
+              await reviewRepo.acceptTelegramCommand(userId, requestId, update.update_id, chatId, {
+                kind: 'send',
+                text: first
+                  ? TelegramBotClient.formatDigestMessage(
+                      formatLocalDateAsiaHoChiMinh(new Date(nowMs)),
+                      due.items,
+                    )
+                  : '🎉 Hiện tại không có từ vựng nào đến hạn ôn tập!',
+                ...(first
+                  ? {
+                      inline_keyboard: TelegramBotClient.buildQuizKeyboard(
+                        first.card_id ?? first.word_id,
+                        first.row_version ?? first.version,
+                      ),
+                    }
+                  : {}),
+              });
+            } else if (!first) {
               await botClient.sendMessage({
                 chatId,
                 text: '🎉 Hiện tại không có từ vựng nào đến hạn ôn tập!',
@@ -490,6 +595,7 @@ export async function handleWorkerRequest(
       );
     }
 
+    const { vocabulary: vocabRepo, review: reviewRepo } = await resolveRepositories();
     // 5. POST /api/v1/vocabulary (`M3-02`)
     if (request.method === 'POST' && path === '/api/v1/vocabulary') {
       const rawJson = await parseRequestJson(request);
@@ -760,8 +866,7 @@ export async function handleScheduledCron(
   const requestId = `cron_${scheduledTimeMs}`;
   const localDate = formatLocalDateAsiaHoChiMinh(new Date(scheduledTimeMs));
   const fetchFn = deps.fetchFn ?? fetch;
-  const gasAdapter = new GasRepositoryAdapter(env.GAS_EXEC_URL, env.GAS_SHARED_SECRET, fetchFn);
-  const reviewRepo = deps.reviewRepo ?? gasAdapter;
+  const reviewRepo = deps.reviewRepo ?? (await createRepositories(env, fetchFn)).review;
   const userId = `telegram:${env.OWNER_TELEGRAM_ID.trim()}`;
 
   const claim = await reviewRepo.claimDailyDigest(
@@ -874,11 +979,82 @@ async function parseOptionalRequestJson(request: Request): Promise<unknown> {
   }
 }
 
+/** Minute tick drains durable work; daily digest stays within its UTC+7 morning window. */
+export async function handleScheduledTick(
+  scheduledTime: number,
+  env: WorkerEnv,
+  deps: WorkerDependencies = {},
+): Promise<void> {
+  if (env.DATA_BACKEND === 'd1' && env.DB) {
+    const now = new Date(scheduledTime).toISOString();
+    const fetchFn = deps.fetchFn ?? fetch;
+    const outcomes = await Promise.allSettled([
+      processTelegramDeliveries(
+        env.DB,
+        new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn),
+        now,
+        1,
+      ),
+      processSheetMirror(env.DB, env, now, fetchFn),
+    ]);
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status === 'rejected')
+        logStructured('warn', 'background_job_deferred', `cron_${scheduledTime}`, {
+          processor: index === 0 ? 'telegram' : 'sheet_mirror',
+        });
+    });
+    const time = new Date(scheduledTime);
+    if (time.getUTCHours() !== 1 || time.getUTCMinutes() > 5) return;
+  }
+  await handleScheduledCron(scheduledTime, env, deps);
+}
+
 export default {
-  async fetch(request: Request, env: WorkerEnv): Promise<Response> {
-    return handleWorkerRequest(request, env);
+  async fetch(
+    request: Request,
+    env: WorkerEnv,
+    ctx?: { waitUntil(work: Promise<unknown>): void },
+  ): Promise<Response> {
+    const response = await handleWorkerRequest(request, env);
+    const path = new URL(request.url).pathname;
+    if (
+      ctx &&
+      env.DATA_BACKEND === 'd1' &&
+      env.DB &&
+      response.ok &&
+      ['POST', 'PATCH', 'DELETE'].includes(request.method) &&
+      (path === '/telegram/webhook' ||
+        path === '/api/v1/vocabulary' ||
+        path.startsWith('/api/v1/vocabulary/') ||
+        ['/api/v1/reviews', '/api/v1/reviews/submit', '/api/reviews/submit'].includes(path))
+    ) {
+      // Kick one durable job after commit; lease/Cron recover overlap, outage and process loss.
+      ctx.waitUntil(
+        processSheetMirror(env.DB, env, new Date().toISOString()).catch(() =>
+          logStructured('warn', 'sheet_mirror_deferred', 'background'),
+        ),
+      );
+    }
+    if (
+      ctx &&
+      env.DATA_BACKEND === 'd1' &&
+      env.DB &&
+      request.method === 'POST' &&
+      new URL(request.url).pathname === '/telegram/webhook' &&
+      response.ok
+    ) {
+      ctx.waitUntil(
+        processTelegramDeliveries(
+          env.DB,
+          new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),
+          new Date().toISOString(),
+          3,
+        ).catch(() => logStructured('warn', 'telegram_delivery_deferred', 'background')),
+      );
+    }
+    return response;
   },
   async scheduled(controller: { scheduledTime: number }, env: WorkerEnv): Promise<void> {
-    await handleScheduledCron(controller.scheduledTime, env);
+    await handleScheduledTick(controller.scheduledTime, env);
   },
 };

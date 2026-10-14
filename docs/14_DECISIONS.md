@@ -101,3 +101,34 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Decision: frontend điều phối transcript/tool theo snapshot câu hỏi, một event ID/operation cho mỗi inquiry, persistence tách khỏi audio message queue. Nếu model bỏ tool, recovery một lần sau turnComplete qua clientContent trên cùng Live session; không thêm backend text-model service hoặc gọi AI mỗi audio chunk. Validation deterministic vẫn chặn câu thường/target bịa; source lưu là transcript thật.
 - Rationale: M5-11 tái hiện tool/ASR không theo thứ tự, khác dấu câu và việc model trả lời nhưng bỏ tool. [Google Live reference](https://ai.google.dev/api/live) không bảo đảm thứ tự input transcription; [client content](https://ai.google.dev/gemini-api/docs/live-api/capabilities#incremental-content-updates) được hỗ trợ trong phiên.
 - Tradeoff: AI vẫn phải sinh nghĩa/tool hợp lệ; recovery có cap 10/Start và timeout, không hứa lưu khi chưa có ACK. Model có thể phát thêm lời, cần live QA. State capture/queue chỉ giữ trong phiên; quyền lưu và FSRS vẫn nằm tại Worker/GAS.
+
+## ADR-010 — D1 primary, Sheet mirror một chiều và outbox bền vững
+
+- Date: 2026-10-13 (Cập nhật hoàn tất: 2026-10-14)
+- Status: Accepted (D1 là authority production; M7-11 phục hồi rollout, M7-10 nghiệm thu thiết bị/vận hành còn pending)
+- Decision: Worker repository dùng Cloudflare D1 làm nguồn dữ liệu chính thức có thẩm quyền (Authoritative Single Source of Truth) cho toàn bộ Words, Cards, Reviews, Events, Settings, Users, và Daily Dispatches. Giữ nguyên API contract và domain schema; ts-fsrs chạy có thẩm quyền tại Worker; Card OCC bảo vệ tính toàn vẹn trạng thái thẻ; mutations commit nguyên tử (atomic batch transaction) cùng outbox event. Google Sheet chuyển thành một chiều (read-only/export backup) nhận dữ liệu qua batch mirror có ký HMAC từ Cron/outbox, tách biệt hoàn toàn khỏi đường tương tác trực tiếp của Mini App và Telegram Bot.
+- Rationale: Google Apps Script Web App có độ trễ cao (p50 ~2.000–4.000 ms, cold start >5.000 ms) và thiếu hỗ trợ giao dịch ACID đa bảng, gây nghẽn trải nghiệm người dùng khi hội thoại và chấm thẻ. Chuyển sang Cloudflare D1 (khu vực APAC) giúp giảm độ trễ ghi xuống ~500–600 ms, độ trễ đọc xuống ~150–200 ms, hỗ trợ transaction rollback nguyên tử và loại bỏ sự phụ thuộc thời gian thực vào Google Sheets.
+- Execution: Triển khai 3 SQL migrations (`0001_d1_primary.sql`, `0002_telegram_message_lease.sql`, `0003_sync_processor_lease.sql`). D1 batch kết hợp SQL guard `mutation_guards` cho rollback nguyên tử; `sync_outbox` và `telegram_deliveries` được ghi nhận trong cùng transaction với dữ liệu nghiệp vụ; Cron định kỳ xử lý mirror sang Sheet.
+- Tradeoff: Google Sheet có độ trễ cập nhật (vài chục giây đến vài phút tùy chu kỳ Cron), việc chỉnh sửa thủ công trên Sheet không đồng bộ ngược về D1; cần duy trì outbox lease/retry/dead-letter. Tuy nhiên, sự cố kết nối hoặc downtime của Google không còn làm gián đoạn việc học và lưu từ của người dùng.
+
+### Bổ sung M7-03 — 13/10/2026
+
+- Người dùng đã yêu cầu triển khai plan; ADR-010 được chấp nhận cho implementation, chưa coi production cutover đã thực hiện.
+- D1 lưu domain record JSON v3 đầy đủ để preserve dữ liệu/audit; cột owner/IDs/version/due phục vụ indexes, CHECK giữ JSON và cột đồng nhất. Worker validate bằng schema runtime. SQL guards trong batch abort khi maintenance/OCC sai; Reviews append-only có trigger.
+- Factory chung cho HTTP/Bot/Cron; auth/token/health không phụ thuộc database readiness. DATA_BACKEND vẫn gas đến khi staging/migration pass, D1 lỗi không tự ghi kho cũ. Runtime harness dùng workerd D1 local, staging thật là gate riêng.
+
+### Bổ sung M7-04 — legacy Events
+
+- D1 Events dùng HMAC builder tương thích GAS field order, metadata fingerprint_scheme phân biệt imported/verified/legacy-unverified. Cùng key hiện hữu của Worker, không đưa key vào export. Imported Event được replay trước đọc Word/Card; đổi payload hoặc thiếu snapshot trả conflict.
+- Transaction ghi Word/Card/Review/Event/outbox cùng batch; SQL guards kiểm active owner và Card version. Word version chỉ bảo vệ compatibility mirror khỏi overwrite; khi hai Card độc lập cùng sửa mirror, retry bounded với Card version riêng còn đúng.
+
+### Bổ sung M7-06 — mirror row metadata
+
+- Không dựa vào appendRow hoặc event ACK memory: GAS viết canonical snapshot/version/epoch cùng row dưới ScriptLock. Preflight toàn batch, writes theo table ranges; partial cross-tab failure replay được. Reviews/Events immutable, version cũ bỏ qua và same-version mismatch conflict.
+- Một mirror event/tick (nhiều entity rows), global lease 60 giây, Google HTTP timeout 15 giây, bounded attempts/dead-letter và explicit rebuild. Throughput/CPU/lag được đo staging trước khi tăng batch budget; không gắn synchronous mirror vào API persistence.
+
+### Bổ sung M7-07 — migration manifest bất biến
+
+- Full raw snapshot bảy tabs có tab/global checksums, freeze/drain dưới ScriptLock, giữ cột ngoài schema và quarantine thay vì tự sửa/lược lịch sử. Import INSERT-only, atomic bounded chunks/checkpoints + verify canonical ID/hash toàn bảng; không dùng business mutations để nhập lịch sử, không tự mở writers.
+- Reverse migration dùng target GAS riêng/frozen và JSON metadata để bảo toàn null/optional values; verify trước reopen, xóa transient metadata khi GAS authority mở ghi lại. Full SQL backup vẫn cần cho operational tables. CLI private artifacts/process env, không đưa dữ liệu/credentials lên Git hoặc terminal.
+- Remote REST batch transaction/real service parity phải được kiểm chứng ở staging M7-08; local task không thay quyền hoặc tạo DB/deploy.

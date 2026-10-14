@@ -2,11 +2,33 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest';
 import { LearningApiClient } from '../services/learning-api-client.js';
 import { App } from './App.js';
+import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('exposes capture timings without HTTP errors and strips arbitrary private metadata', () => {
+  const api = new LearningApiClient('https://worker.example', () => '');
+  const metadata = {
+    capture_id: '12345678-1234-4123-8123-123456789abc',
+    stage: 'inquiry_detected' as const,
+    reason: 'none' as const,
+    path: 'direct' as const,
+    elapsed_ms: 10,
+    question: 'private transcript',
+    token: 'private token',
+  };
+  for (let index = 0; index < 105; index++) api.diagnostics.recordCapture(metadata);
+  render(<ApiDiagnosticsPanel api={api} />);
+  expect(screen.getByText('Log chẩn đoán')).toBeTruthy();
+  const report = api.diagnostics.exportReport();
+  expect(report).toContain('inquiry_detected');
+  expect(report).not.toContain('private');
+  expect(api.diagnostics.getCaptureSnapshot()).toHaveLength(100);
+  expect(screen.queryByText(/Mã lỗi gần nhất/)).toBeNull();
 });
 
 it('shows the failed request ID, adds an unauthenticated health result and copies the safe report', async () => {

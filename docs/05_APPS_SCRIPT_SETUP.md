@@ -129,6 +129,14 @@ Rollback code/deployment không tự rollback dữ liệu; v2 append columns tư
 - `Invalid signature`: Worker/GAS secret khác nhau; payload stringify lại sau ký; base64url padding/sắp xếp; clock skew; cần đối chiếu test vectors.
 - `Too many calls`/thời gian thực thi: batch update/cache, quota Apps Script. Sheets không dành cho write-heavy app.
 
+## D1 mirror candidate — M7-06 local
+
+Sau migration/backup/staging gates, GAS nhận `mirror.applyBatch` bằng secret HMAC hiện hữu, không cần thêm OAuth scope. Script Properties cần DATA_AUTHORITY=d1, MIRROR_ENABLED=true, MIRROR_EPOCH khớp D1 source_epoch/Worker SHEET_MIRROR_EPOCH. Worker SHEET_MIRROR_ENABLED mặc định false; Cron mỗi phút chỉ bật khi cutover. Sheet từ lúc đó chỉ xem/xuất, business writers cũ bị chặn. Trước push vẫn phải pull backup riêng/diff (redact secrets), tạo version và redeploy đúng Web App; không dùng runQuickSetup hoặc force push.
+
+Mirror lỗi không đổi DATA_BACKEND về GAS. Kiểm queue health/dead-letter, sửa nguyên nhân rồi explicit requeue. Rebuild cần freeze D1, Sheet target/epoch đã chuẩn bị và full snapshot backup; chạy operator tool ngoài Cron, verify sau khi drain rồi mới mở writers. Google outage không làm mất D1 mutations. Pipeline đang local, chưa áp dụng Script Properties thật.
+
+M7-07 bổ sung signed freeze/export/restore và checks bên trong ScriptLock cho writers/setup/schema migrations. Chưa push/redeploy; thao tác/credentials/rollback xem docs/29_D1_MIGRATION_RUNBOOK.md. Điểm tiếp nối sau tạm dừng: docs/30_D1_PAUSE_HANDOFF.md.
+
 ## Official references
 
 https://developers.google.com/apps-script/guides/clasp

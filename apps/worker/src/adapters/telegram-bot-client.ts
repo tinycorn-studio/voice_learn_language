@@ -56,6 +56,7 @@ export class TelegramBotClient {
   public async answerCallbackQuery(params: {
     callbackQueryId: string;
     text: string;
+    timeoutMs?: number;
   }): Promise<boolean> {
     const res = await this.fetchFn.call(globalThis, this.endpoint('answerCallbackQuery'), {
       method: 'POST',
@@ -65,10 +66,34 @@ export class TelegramBotClient {
         text: params.text,
         show_alert: false,
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(params.timeoutMs ?? 10000),
     });
     const parsed = z.object({ ok: z.boolean() }).safeParse(await res.json().catch(() => null));
     return res.ok && parsed.success && parsed.data.ok;
+  }
+
+  /** Editing a known message is retryable without sending a second result message. */
+  public async editReviewResult(chatId: number, messageId: number, text: string): Promise<boolean> {
+    const res = await this.fetchFn.call(globalThis, this.endpoint('editMessageText'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        reply_markup: { inline_keyboard: [] },
+      }),
+      signal: AbortSignal.timeout(2000),
+    });
+    const result = z
+      .object({ ok: z.boolean(), description: z.string().optional() })
+      .safeParse(await res.json().catch(() => null));
+    return (
+      result.success &&
+      ((res.ok && result.data.ok) ||
+        (res.status === 400 &&
+          result.data.description?.includes('message is not modified') === true))
+    );
   }
 
   /**

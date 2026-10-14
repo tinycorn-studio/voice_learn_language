@@ -74,6 +74,9 @@ function setupSheets() {
   var sheetId = props.getProperty('SHEET_ID');
   if (!sheetId) throw new Error('Missing SHEET_ID in Script Properties');
   var ss = SpreadsheetApp.openById(sheetId);
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+  assertBusinessWritesEnabled_();
   ensureTabWithHeaders_(ss, 'Words', WORDS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Cards', CARDS_COLUMNS);
   ensureTabWithHeaders_(ss, 'Events', EVENTS_COLUMNS);
@@ -82,6 +85,7 @@ function setupSheets() {
   ensureTabWithHeaders_(ss, 'Settings', SETTINGS_COLUMNS);
   ensureTabWithHeaders_(ss, 'DailyDispatchLog', DISPATCH_COLUMNS);
   SpreadsheetApp.flush();
+  } finally { lock.releaseLock(); }
 }
 
 
@@ -102,6 +106,7 @@ function migrateSchemaV2() {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     [['Events', 'result_json'], ['DailyDispatchLog', 'claim_token']].forEach(function (entry) {
       var sheet = ss.getSheetByName(entry[0]);
       if (!sheet) throw new Error('Missing migration tab');
@@ -121,6 +126,7 @@ function migrateSchemaV3(dryRun) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    if (!dryRun) assertBusinessWritesEnabled_();
     var res = migrateSchemaV3_(ss, Boolean(dryRun));
     if (!dryRun) props.setProperty('SCHEMA_VERSION', '3');
     return res;
@@ -243,8 +249,8 @@ function doPost(e) {
     if (typeof body.payload !== 'string' || typeof body.signature !== 'string') {
       return jsonResponse_({ ok: false, error: { code: 'INVALID_ENVELOPE', message: 'Missing payload or signature' } });
     }
-    if (body.payload.length > 12000) {
-      return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Payload exceeds 12000 chars' } });
+    if (body.payload.length > 60000) {
+      return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Payload exceeds 60000 chars' } });
     }
 
     var props = PropertiesService.getScriptProperties();
@@ -275,6 +281,28 @@ function doPost(e) {
     }
 
     var ss = SpreadsheetApp.openById(sheetId);
+    if (event.action === 'mirror.applyBatch') {
+      return handleWithBusinessError_(function () { return applyMirrorBatch_(ss, event, props); });
+    }
+    if (event.action === 'migration.freeze') {
+      return handleWithBusinessError_(function () { return setMigrationFreeze_(event, props); });
+    }
+    if (event.action === 'migration.exportPage') {
+      return handleWithBusinessError_(function () { return exportSnapshotPage_(ss, event, props); });
+    }
+    if (event.action === 'migration.restoreBatch') {
+      return handleWithBusinessError_(function () { return restoreSnapshotBatch_(ss, event, props); });
+    }
+    if (event.action === 'migration.enableMirror') {
+      return handleWithBusinessError_(function () { return enableD1Mirror_(event, props); });
+    }
+    if (body.payload.length > 12000) {
+      return jsonResponse_({ ok: false, error: { code: 'PAYLOAD_TOO_LARGE', message: 'Business payload exceeds 12000 chars' } });
+    }
+    if (props.getProperty('DATA_AUTHORITY') === 'd1' && [ACTION_UPSERT, ACTION_UPDATE, ACTION_DELETE,
+      ACTION_REVIEW_RECORD, ACTION_REVIEW_CLAIM_DIGEST, ACTION_REVIEW_FINISH_DIGEST, ACTION_USER_PREFERENCES, ACTION_MIGRATION_V3].indexOf(event.action) >= 0) {
+      return jsonResponse_({ ok: false, error: { code: 'FORBIDDEN', message: 'D1 is authoritative; Sheet is read-only' } });
+    }
     if (event.action === ACTION_UPSERT) {
       return handleWithBusinessError_(function () { return upsertWord_(ss, event); });
     }
@@ -325,7 +353,9 @@ function doPost(e) {
 
     return jsonResponse_({ ok: false, error: { code: 'ACTION_NOT_IMPLEMENTED', message: 'Unsupported action' } });
   } catch (err) {
-    console.error('GAS_doPost_failed', String(err && err.message || 'unknown').slice(0, 120));
+    // Spreadsheet exceptions can contain cell contents or private document identifiers.
+    var safeRequestId = event && /^[a-zA-Z0-9_-]{1,80}$/.test(String(event.request_id || '')) ? event.request_id : 'unknown';
+    console.error('GAS_doPost_failed', JSON.stringify({ request_id: safeRequestId, reason: 'internal_operation_failed' }));
     return jsonResponse_({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal Apps Script error' } });
   }
 }
@@ -366,6 +396,233 @@ function verifySignature_(payload, incomingSignature, secret) {
   return difference === 0;
 }
 
+function canonicalJson_(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson_).join(',') + ']';
+  if (value !== null && typeof value === 'object') return '{' + Object.keys(value).sort().map(function (key) {
+    return JSON.stringify(key) + ':' + canonicalJson_(value[key]);
+  }).join(',') + '}';
+  return JSON.stringify(value);
+}
+
+function assertBusinessWritesEnabled_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('WRITES_ENABLED') === 'false' || props.getProperty('DATA_AUTHORITY') === 'd1')
+    throw new Error('FORBIDDEN:Writes are paused or D1 is authoritative');
+}
+
+/** Acquiring the same lock drains earlier writers; every writer rechecks inside its lock. */
+function setMigrationFreeze_(event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {};
+    if (typeof data.freeze !== 'boolean') throw new Error('CONFLICT:Invalid freeze flag');
+    if (data.freeze) {
+      if (props.getProperty('WRITES_ENABLED') !== 'false' || !props.getProperty('FREEZE_ID')) {
+        props.setProperty('FREEZE_ID', Utilities.getUuid());
+        props.setProperty('FROZEN_AT', new Date().toISOString());
+      }
+      props.setProperty('WRITES_ENABLED', 'false');
+    } else {
+      if (!data.freeze_id || data.freeze_id !== props.getProperty('FREEZE_ID') || props.getProperty('DATA_AUTHORITY') === 'd1')
+        throw new Error('CONFLICT:Cannot reopen this source');
+      // A reverse-restored GAS target becomes authoritative again. Retain the verified
+      // backup file, but clear transient snapshot metadata so later GAS edits are current.
+      var ss = SpreadsheetApp.openById(props.getProperty('SHEET_ID'));
+      snapshotTabs_().forEach(function (name) {
+        var sheet = ss.getSheetByName(name); if (!sheet || sheet.getLastRow() < 2) return;
+        var headers = headerMap_(sheet);
+        ['_snapshot_json', '_mirror_json', '_mirror_version', '_mirror_epoch'].forEach(function (column) {
+          if (headers[column]) sheet.getRange(2, headers[column], sheet.getLastRow() - 1, 1)
+            .setValues(Array(sheet.getLastRow() - 1).fill(null).map(function () { return ['']; }));
+        });
+      });
+      props.setProperty('WRITES_ENABLED', 'true');
+    }
+    return { frozen: props.getProperty('WRITES_ENABLED') === 'false', freeze_id: props.getProperty('FREEZE_ID'), frozen_at: props.getProperty('FROZEN_AT') };
+  } finally { lock.releaseLock(); }
+}
+
+function snapshotTabs_() { return ['Words', 'Cards', 'Reviews', 'Events', 'Settings', 'Users', 'DailyDispatchLog']; }
+/** Operator enables one-way mirror only after the source freeze and D1 verification. */
+function enableD1Mirror_(event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {}; checkSnapshotFreeze_(data, props);
+    if (typeof data.epoch !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(data.epoch)) throw new Error('CONFLICT:Invalid mirror epoch');
+    var previous = props.getProperty('MIRROR_EPOCH');
+    if (previous && previous !== data.epoch) throw new Error('CONFLICT:Mirror epoch already configured');
+    props.setProperty('MIRROR_EPOCH', data.epoch);
+    props.setProperty('DATA_AUTHORITY', 'd1');
+    props.setProperty('MIRROR_ENABLED', 'true');
+    return { authority: 'd1', mirror_enabled: true, epoch: data.epoch };
+  } finally { lock.releaseLock(); }
+}
+function checkSnapshotFreeze_(data, props) {
+  if (props.getProperty('WRITES_ENABLED') !== 'false' || !data.freeze_id || data.freeze_id !== props.getProperty('FREEZE_ID'))
+    throw new Error('CONFLICT:Snapshot requires the current write freeze');
+}
+function exportSnapshotPage_(ss, event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {}; checkSnapshotFreeze_(data, props);
+    if (snapshotTabs_().indexOf(data.tab) < 0 || !Number.isSafeInteger(data.offset) || data.offset < 0 ||
+        !Number.isSafeInteger(data.limit) || data.limit < 1 || data.limit > 50) throw new Error('CONFLICT:Invalid export page');
+    var sheet = ss.getSheetByName(data.tab);
+    if (!sheet) throw new Error('CONFLICT:Missing snapshot tab');
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+    var count = Math.max(0, sheet.getLastRow() - 1);
+    var length = Math.min(data.limit, Math.max(0, count - data.offset));
+    var rows = length ? sheet.getRange(data.offset + 2, 1, length, headers.length).getValues() : [];
+    rows = rows.map(function (row) { return row.map(function (value) { return value instanceof Date ? value.toISOString() : value; }); });
+    return { tab: data.tab, headers: headers, total_rows: count, offset: data.offset, rows: rows,
+      freeze_id: props.getProperty('FREEZE_ID'), frozen_at: props.getProperty('FROZEN_AT'), schema_version: props.getProperty('SCHEMA_VERSION') || 'unknown' };
+  } finally { lock.releaseLock(); }
+}
+
+/** Reverse migration target only: frozen GAS authority, identical rows replay, conflicts stop. */
+function restoreSnapshotBatch_(ss, event, props) {
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var data = event.data || {}; checkSnapshotFreeze_(data, props);
+    if (props.getProperty('DATA_AUTHORITY') === 'd1') throw new Error('FORBIDDEN:Restore into a separate GAS target');
+    var ids = { Words: 'word_id', Cards: 'card_id', Reviews: 'review_id', Events: 'event_id', Settings: 'user_id', Users: 'user_id', DailyDispatchLog: 'dispatch_id' };
+    if (!Object.prototype.hasOwnProperty.call(ids, data.tab) || !Array.isArray(data.headers) || !data.headers.length || data.headers.length > 100 ||
+        !Array.isArray(data.rows) || data.rows.length > 50) throw new Error('CONFLICT:Invalid restore batch');
+    data.headers.forEach(function (header) { if (typeof header !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]{0,80}$/.test(header)) throw new Error('CONFLICT:Invalid restore header'); });
+    if (new Set(data.headers).size !== data.headers.length) throw new Error('CONFLICT:Duplicate restore headers');
+    var idIndex = data.headers.indexOf(ids[data.tab]); var userIndex = data.headers.indexOf('user_id');
+    if (idIndex < 0 || userIndex < 0) throw new Error('CONFLICT:Missing restore identity');
+    var sheet = ss.getSheetByName(data.tab);
+    var grid = sheet && sheet.getLastRow() ? sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues() : [data.headers];
+    if (canonicalJson_(grid[0]) !== canonicalJson_(data.headers)) throw new Error('CONFLICT:Restore headers differ');
+    var index = Object.create(null);
+    for (var i = 1; i < grid.length; i++) {
+      var id = String(grid[i][idIndex]);
+      if (Object.prototype.hasOwnProperty.call(index, id)) throw new Error('CONFLICT:Duplicate target IDs');
+      index[id] = grid[i];
+    }
+    var appended = [];
+    data.rows.forEach(function (row) {
+      if (!Array.isArray(row) || row.length !== data.headers.length || !String(row[idIndex]) || row[userIndex] !== event.user_id)
+        throw new Error('CONFLICT:Invalid restore row');
+      var safe = row.map(function (value) {
+        if (!(value === null || typeof value === 'boolean' || typeof value === 'number' && isFinite(value) || typeof value === 'string' && value.length <= 48000))
+          throw new Error('CONFLICT:Invalid restore cell');
+        return value === null ? '' : typeof value === 'string' ? safeCell_(value) : value;
+      });
+      var old = index[String(row[idIndex])];
+      if (old) {
+        if (canonicalJson_(old.map(String)) !== canonicalJson_(safe.map(String))) throw new Error('CONFLICT:Restore row differs');
+      } else { appended.push(safe); index[String(row[idIndex])] = safe; }
+    });
+    if (!sheet) { sheet = ss.insertSheet(data.tab); sheet.getRange(1, 1, 1, data.headers.length).setValues([data.headers]); }
+    if (appended.length) sheet.getRange(sheet.getLastRow() + 1, 1, appended.length, data.headers.length).setValues(appended);
+    SpreadsheetApp.flush(); return { restored: appended.length };
+  } finally { lock.releaseLock(); }
+}
+
+/** Row metadata and values are written in the same range; partial cross-tab writes replay safely. */
+function applyMirrorBatch_(ss, event, props) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var data = event.data || {};
+    if (props.getProperty('DATA_AUTHORITY') !== 'd1' || props.getProperty('MIRROR_ENABLED') !== 'true' ||
+        !props.getProperty('MIRROR_EPOCH')) throw new Error('FORBIDDEN:Mirror is not enabled');
+    if (data.epoch !== props.getProperty('MIRROR_EPOCH')) throw new Error('CONFLICT:Mirror epoch mismatch');
+    if (!Array.isArray(data.jobs) || !data.jobs.length || data.jobs.length > 3) throw new Error('CONFLICT:Invalid mirror jobs');
+    var layouts = {
+      Words: ['word_id', WORDS_COLUMNS], Cards: ['card_id', CARDS_COLUMNS], Reviews: ['review_id', REVIEWS_COLUMNS],
+      Events: ['event_id', EVENTS_COLUMNS], Settings: ['user_id', SETTINGS_COLUMNS], Users: ['user_id', USERS_COLUMNS],
+      DailyDispatchLog: ['dispatch_id', DISPATCH_COLUMNS]
+    };
+    var tables = {};
+    var ids = [];
+    data.jobs.forEach(function (job) {
+      if (!job || typeof job.event_id !== 'string' || job.event_id.length > 160 || !Array.isArray(job.entities) ||
+          !job.entities.length || job.entities.length > 10) throw new Error('CONFLICT:Invalid mirror job');
+      ids.push(job.event_id);
+      job.entities.forEach(function (entity) {
+        var layout = entity && Object.prototype.hasOwnProperty.call(layouts, entity.tab) && layouts[entity.tab];
+        var row = entity && entity.row;
+        if (!layout || !row || typeof row !== 'object' || Array.isArray(row) || typeof entity.id !== 'string' ||
+            row[layout[0]] !== entity.id || row.user_id !== event.user_id || !Number.isSafeInteger(entity.version) || entity.version < 0)
+          throw new Error('CONFLICT:Invalid mirror entity');
+        Object.keys(row).forEach(function (key) {
+          var value = row[key];
+          if (!(value === null || typeof value === 'boolean' || typeof value === 'number' && isFinite(value) ||
+              typeof value === 'string' && value.length <= 48000)) throw new Error('CONFLICT:Invalid mirror cell');
+        });
+        if (entity.tab === 'Words' && row.version !== entity.version || entity.tab === 'Cards' && row.row_version !== entity.version)
+          throw new Error('CONFLICT:Mirror version mismatch');
+        var table = tables[entity.tab];
+        if (!table) {
+          var sheet = ss.getSheetByName(entity.tab);
+          if (!sheet) throw new Error('CONFLICT:Missing mirror tab');
+          var grid = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+          var headers = grid[0].map(String);
+          layout[1].forEach(function (column) { if (headers.indexOf(column) < 0) throw new Error('CONFLICT:Missing mirror column'); });
+          ['_mirror_version', '_mirror_json', '_mirror_epoch'].forEach(function (column) { if (headers.indexOf(column) < 0) headers.push(column); });
+          grid[0] = headers;
+          var index = Object.create(null);
+          for (var i = 1; i < grid.length; i++) {
+            var id = String(grid[i][headers.indexOf(layout[0])] || '');
+            if (!id) continue;
+            if (Object.prototype.hasOwnProperty.call(index, id)) throw new Error('CONFLICT:Duplicate mirror entity');
+            index[id] = i;
+          }
+          table = tables[entity.tab] = { sheet: sheet, grid: grid, headers: headers, index: index, first: Infinity, last: -1 };
+        }
+        var oldIndex = Object.prototype.hasOwnProperty.call(table.index, entity.id) ? table.index[entity.id] : -1;
+        var oldRow = oldIndex >= 0 ? table.grid[oldIndex] : [];
+        var rawVersion = oldRow[table.headers.indexOf('_mirror_version')];
+        var oldVersion = rawVersion === undefined || rawVersion === '' ? -1 : Number(rawVersion);
+        var oldEpoch = String(oldRow[table.headers.indexOf('_mirror_epoch')] || '');
+        var json = canonicalJson_(row);
+        if (oldEpoch && oldEpoch !== data.epoch) throw new Error('CONFLICT:Existing mirror epoch mismatch');
+        if (oldVersion > entity.version) return;
+        if (oldVersion === entity.version) {
+          if (String(oldRow[table.headers.indexOf('_mirror_json')]) !== json) throw new Error('CONFLICT:Same mirror version differs');
+          return;
+        }
+        if (oldIndex >= 0 && (entity.tab === 'Reviews' || entity.tab === 'Events')) {
+          layout[1].forEach(function (column) {
+            var oldValue = oldRow[table.headers.indexOf(column)];
+            if (oldValue instanceof Date) oldValue = oldValue.toISOString();
+            if (stripLeadingQuote_(String(oldValue === undefined || oldValue === null ? '' : oldValue)) !== String(row[column] === undefined || row[column] === null ? '' : row[column]))
+              throw new Error('CONFLICT:Immutable mirror row differs');
+          });
+        }
+        if (oldIndex >= 0 && oldVersion < 0 && (entity.tab === 'Words' || entity.tab === 'Cards') &&
+            Number(oldRow[table.headers.indexOf(entity.tab === 'Words' ? 'version' : 'row_version')]) > entity.version) return;
+        var values = table.headers.map(function (column) {
+          if (column === '_mirror_version') return entity.version;
+          if (column === '_mirror_json') return json;
+          if (column === '_mirror_epoch') return data.epoch;
+          var value = row[column];
+          return value === undefined || value === null ? '' : typeof value === 'string' ? safeCell_(value) : value;
+        });
+        var target = oldIndex >= 0 ? oldIndex : table.grid.length;
+        table.grid[target] = values; table.index[entity.id] = target;
+        table.first = Math.min(table.first, target); table.last = Math.max(table.last, target);
+      });
+    });
+    // Validate every entity before the first write. A crash between tabs is repaired by
+    // replaying the same versions; no append-only audit row is overwritten with new data.
+    Object.keys(tables).forEach(function (name) {
+      var table = tables[name];
+      if (table.last < 0) return;
+      table.sheet.getRange(1, 1, 1, table.headers.length).setValues([table.headers]);
+      var rows = table.grid.slice(table.first, table.last + 1).map(function (row) {
+        return table.headers.map(function (_column, index) { return row[index] === undefined ? '' : row[index]; });
+      });
+      table.sheet.getRange(table.first + 1, 1, rows.length, table.headers.length).setValues(rows);
+    });
+    SpreadsheetApp.flush();
+    return { applied_event_ids: ids };
+  } finally { lock.releaseLock(); }
+}
+
 function upsertWord_(ss, event) {
   var d = event.data || {};
   var word = checkedText_(d.word, 120, true);
@@ -385,6 +642,7 @@ function upsertWord_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var eh = headerMap_(events);
     var wh = headerMap_(words);
     requireColumns_(eh, EVENTS_COLUMNS);
@@ -516,6 +774,7 @@ function updateWord_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var wh = headerMap_(words);
     var eh = headerMap_(events);
     requireColumns_(wh, WORDS_COLUMNS);
@@ -578,6 +837,7 @@ function deleteWord_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var wh = headerMap_(words);
     var eh = headerMap_(events);
     requireColumns_(wh, WORDS_COLUMNS);
@@ -887,6 +1147,7 @@ function recordReview_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var wh = headerMap_(words);
     var eh = headerMap_(events);
     var rh = headerMap_(reviews);
@@ -1193,6 +1454,7 @@ function claimDailyDigest_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var uh = headerMap_(users);
     var dh = headerMap_(dispatchLog);
     requireColumns_(uh, USERS_COLUMNS);
@@ -1285,6 +1547,7 @@ function finishDailyDigest_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var h = headerMap_(sheet);
     requireColumns_(h, DISPATCH_COLUMNS);
     var row = findRow_(sheet, h['dispatch_id'], String(d.dispatch_id));
@@ -1312,6 +1575,7 @@ function updateUserPreferences_(ss, event) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    assertBusinessWritesEnabled_();
     var uh = headerMap_(users);
     var eh = headerMap_(events);
     requireColumns_(uh, USERS_COLUMNS);

@@ -1,11 +1,11 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 18:16 +07:00
-> Phase: M5-12 đã deploy; người dùng xác nhận từ đã save trên Sheet và /review Telegram đã hiện. Capture/persistence và hiển thị ôn thực tế đã có evidence từ người dùng.
-> Đang thực hiện: M5-12 (P1, IN_PROGRESS / WAITING_RATING_LIVE_QA) — Pages ae4031d8-7eab-467e-bf79-811f8ac6f051, build M5-12-20261013. 138 tests/20 files và gates local PASS; GitHub CI 38365870013 SUCCESS cho source 0e073519. Không có lỗi mới cần sửa/deploy thêm.
-> Next action: Thử reveal/Good rồi đối chiếu Reviews/due để nghiệm thu scheduling thật. Sau khi đủ evidence mới đóng M5-12. Người dùng yêu cầu push/merge M5-12 vào main; đã merge sau CI 38388933595 SUCCESS cho a76cb973. Tiếp tục nghiệm thu rating độc lập.
-> Blockers: Chưa có xác nhận rating/Reviews/due thật hoặc số đo độ trễ ghi nhận. User đã xác nhận dữ liệu Sheet và /review, chưa đọc headers trực tiếp trong phiên này. Remote CI lookup đã thành công sau mốc thử lại, hết blocker auto-review cũ. CSV restore/Settings/quota/backup vẫn task riêng.
-> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
+> Updated: 2026-10-14 14:26 +07:00
+> Phase: M7 D1 PRIMARY PRODUCTION — phục hồi/runtime M7-11 đã đạt; dữ liệu cũ verify, GAS v7, Worker 0f087b37/Pages M7-11; Worker đã tự ACK 3 mirror jobs, pending=0. Toàn milestone chưa DONE vì gates vận hành M7-10.
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: M7-10: kiem scheduled invocation sau 14:38 +07, profile CPU mirror 32/13/16 ms (Free 10 ms), Google outage/retry/restore target rieng va user Mini App/Telegram Good/device QA; theo doi PR #1 de xem ket qua Git integration.
+> Blockers: M7-10: Cron chưa có scheduled invocation trong phiên (deploy cuối 14:22:55, kiểm sau 14:38); mirror background CPU 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. Human QA chưa thử; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
+> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch fix/M7-11-complete-d1-rollout.
 
 ## Legend
 
@@ -59,14 +59,35 @@
 - [x] M5-10 — DONE: Sửa REST token payload/mask; 2 regression fail trước/pass sau, 124 tests/19 files và gates PASS. Worker e07a24e2 deploy 100% lúc 10:43 ngày 13/10, source khớp artifact, health/diag/CORS pass. Người dùng xác nhận "đã hoạt động" và yêu cầu commit/push/merge main; không có log chi tiết mới để định lượng voice latency. Rollback cc64a401. docs/23_TELEGRAM_CONNECTION.md.
 - [x] M5-11 — DONE (REVIEW ONLY): 36 tests/5 files PASS, 7 probes synthetic; 4 nhóm bỏ sót capture/validation, frontend public chưa có UI FSRS mới, source GAS v5 business khớp Git và setup có literal cần xử lý. docs/25_VOCABULARY_FSRS_GAP_REVIEW.md. Không sửa feature/deploy/ghi Sheet; M1-03/M3-04/M4-04 còn pending.
 - [ ] M5-12 — P1, IN_PROGRESS (WAITING_RATING_LIVE_QA): V01–V05 đã sửa/deploy Pages ae4031d8 lúc 14:50 ngày 13/10; 8 regression fail trước/pass sau, 138 tests/20 files và gates PASS, GitHub CI 38365870013 SUCCESS cho 0e073519. Người dùng xác nhận từ đã save Sheet và /review Telegram hiện; chờ chấm FSRS/Reviews/due thật. Worker/GAS không thay; rollback 1a4f0e48. docs/26_VOCABULARY_CAPTURE_RELEASE.md.
+- [x] M5-13 — P1, DONE / PLAN_ONLY: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md, ADR-010 Proposed và tasks M7-01–M7-10. Source/API/quota đối chiếu, 21 local links/task consistency/secret scan/diff check PASS. Không sửa runtime/tạo D1/import/deploy; acceptance chỉ là tài liệu, không coi M7 đã hoàn tất.
 
 ## Milestone M6 — Optional / sau MVP
 
 - [ ] M6-01 — Sync Anki local theo nhu cầu; không bắt buộc cho bản chính.
 - [ ] M6-02 — Phát âm, lịch sử hỏi lại, AI tự kiểm tra từ trong hội thoại.
-- [ ] M6-03 — Chuyển Sheets → D1/Supabase nếu vượt quy mô cá nhân.
+- [ ] M6-03 — Phạm vi D1 đã được ưu tiên thành M7 để giảm latency cá nhân; theo dõi các task M7-01–M7-10, không triển khai Supabase song song.
+
+## Milestone M7 — D1 primary và giảm độ trễ (IN_PROGRESS)
+
+Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùng chọn Sheet chỉ xem/xuất, sửa qua app. M7-01–M7-04 có implementation/test evidence local tại docs/28_D1_IMPLEMENTATION_EVIDENCE.md; chưa có M7 production deploy.
+
+- [x] M7-01 — P1, DONE LOCAL: capture/API/GAS timings, diagnostics copy khi HTTP đều 200; privacy/bounds regression, 139 suite tests + baseline synthetic 30/30 PASS. Production timings chờ M7-08/M7-10. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
+- [x] M7-02 — P1, DONE LOCAL: 143 tests/23 files/gates PASS, ACK/refresh background và Telegram trước write/success sau commit; delivery bền vững M7-05. Chưa deploy.
+- [x] M7-03 — P1, DONE LOCAL: 146 tests/24 files/gates PASS, workerd D1 constraints/batch rollback, factory fail closed và GAS vẫn production. Remote staging gate M7-08.
+- [x] M7-04 — P1, DONE LOCAL: 152 tests/25 files/gates PASS, D1 CRUD/FSRS/native audit/atomic replay-outbox và GAS HMAC legacy, concurrent/crash tests. Remote D1 auth error 10000, chưa deploy.
+- [x] M7-05 — P1, DONE LOCAL: 162 tests/26 files và gates PASS; Telegram mutation/update/delivery atomic, lease/revision/retry/unknown, commands/legacy keyboard và digest OCC/atomic mirror. Chưa deploy; docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
+- [x] M7-06 — P1, DONE: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
+- [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
+- [x] M7-08 — P1, DONE STAGING: database voice-learn-staging-db (a8306e2e), 3 migrations, batch rollback & constraints verified, synthetic import/verify/export, 50 create/50 review benchmarks (p50: 504/507ms, p95: 590/598ms), FSRS shadow parity, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
+- [ ] M7-09 — P1, CUTOVER_VERIFIED / OPERATIONAL_GATES_PENDING: M7-11 đã phục hồi Sheet/hash/integrity, migration_run verified, GAS v7/Worker 0f087b37/Pages M7-11; post-commit mirror ACK thật đạt. Chưa đóng toàn release gate vì scheduled invocation/Free CPU thuộc M7-08/M7-10 còn thiếu; docs/31_D1_ROLLOUT_RECOVERY.md.
+- [ ] M7-10 — P1, LIVE_QA_PENDING / REOPENED M7-11: production 0 Reviews, outbox chưa attempt; chưa có live rating/due/mirror hoặc device/CPU/restore evidence đủ đóng task. Synthetic/local suite không thay real QA.
+- [x] M7-11 — P1, DONE_RUNTIME: phục hồi/rollout D1 sau audit; source parity/integrity/foreign preservation, GAS v7, Worker 0f087b37 background ACK=3/pending=0, Pages hash/build đúng, FSRS/replay đạt, 181 tests/gates và CI code SUCCESS; tích hợp Git qua PR #1 có CI head guard. Cron invocation/CPU/device vẫn M7-10, không tự đóng toàn milestone. docs/31_D1_ROLLOUT_RECOVERY.md.
 
 ## Latest accomplished
+
+- **2026-10-14 09:08 M7-07:** Hoàn thiện local đến M7-07, 177 tests/28 files và typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full freeze/export/checksum/quarantine/import/verify/rollback tools, CLI persistent local smoke và reverse restore/edit pass. Người dùng yêu cầu tạm dừng vì quota; đã lưu bàn giao chi tiết docs/30_D1_PAUSE_HANDOFF.md, runbook docs/29_D1_MIGRATION_RUNBOOK.md. Không tạo D1 remote, xử lý dữ liệu thật, push/merge hoặc deploy M7; production GAS giữ nguyên.
+
+- **2026-10-13 M5-13:** Hoàn thành plan D1 primary + latency theo yêu cầu người dùng; Sheet chỉ xem/xuất, sửa qua app. Có schema/repository/FSRS atomic/replay HMAC legacy, Telegram ACK/delivery, outbox/Cron mirror, full snapshot/cutover/rollback và targets/quota. Docs-only checks pass; Complete-Task đóng đúng task lập kế hoạch, M7 còn PLANNED. Branch feat/M5-13-d1-migration-plan; production không thay đổi.
 
 - **2026-10-13 18:16 M5-12:** Sau báo chưa thấy dữ liệu, người dùng cập nhật đã thấy và xác nhận cụ thể từ đã save trên Sheet, /review Telegram cũng đã hiện. Capture/persistence/hiển thị ôn đã có nghiệm thu từ người dùng; chưa kết luận độ trễ hoặc FSRS rating đã pass. CI run [38365870013](https://github.com/tinycorn-studio/voice_learn_language/actions/runs/38365870013) completed/success cho 0e073519; lần đọc lại sau mốc thử lại auto-review thành công. Không sửa code/deploy thêm; chờ chấm Good/Reviews/due, không có tab Sheets kết nối để đọc headers trực tiếp.
 
@@ -167,7 +188,40 @@
 
 | 2026-10-13 14:09 +07:00 | M5-11 | DONE | Review code/production parity: 36 tests/5 files PASS va 7 synthetic probes tai hien missing tool, that mean detector, punctuation, tool-before-transcript. Public frontend M5-08 chua co Card/preview/stats; GAS v5 business code khop Git, Worker e07a24e2 100%. Bao cao docs/25_VOCABULARY_FSRS_GAP_REVIEW.md; khong sua feature/deploy/ghi Sheet. | Sua V01-V04 capture/validation va dong bo frontend FSRS V05; sau do live hoi nghia -> Words/Card -> FSRS rating -> Reviews/due, giu M1-03/M3-04/M4-04 pending den khi dat acceptance. Xu ly setup literal GAS trong dot duoc duyet; khong chay runQuickSetup de chua loi. |
 
+| 2026-10-13 18:40 +07:00 | M5-13 | DONE | PLAN ONLY: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md, ADR-010 Proposed va 10 tasks M7. User chon Sheet chi xem/xuat, sua qua app. Doi chieu source main adf0aea va official D1/Telegram/Workers docs; 21 local links, task consistency, tracked/changed-file secret scan, git diff --check PASS. Khong sua runtime, khong tao D1/import/deploy; khong chay lai app tests trong task docs-only. | Khi user yeu cau trien khai, bat dau M7-01 baseline/diagnostics, sau do M7-02 ACK/refresh UX va M7-03 D1 local schema; giu M5-12 rating live QA pending. |
+
+| 2026-10-13 18:49 +07:00 | M7-01 | DONE | Local diagnostics capture/API/GAS metadata whitelist va copy khi HTTP deu 200. 139 tests/20 files + 1 baseline test PASS, typecheck/lint/build/secret scan/diff check PASS. GAS VM 30 create/30 review, 1/3 upstream calls; synthetic timings khong phai production. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. Chua deploy. | M7-02: ACK/refresh UX, sau do M7-03 D1 schema; staging/production latency breakdown nghiem thu M7-08/M7-10. |
+
+| 2026-10-13 18:54 +07:00 | M7-02 | DONE | 143 tests/23 files, typecheck/lint/build/secret scan/diff check PASS. Mini App tool ACK khong cho background coalesced refresh; Telegram ACK truoc delayed write, success edit sau commit. Durable Telegram delivery theo M7-05 truoc release. Chua deploy. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-03 D1 schema/bindings/factory va runtime constraints, sau do M7-04 repositories; giu production GAS den staging/migration gates. |
+
+| 2026-10-13 19:02 +07:00 | M7-03 | DONE | D1 SQL revision 1, owner FK/unique/JSON parity/Reviews append-only/OCC-maintenance SQL guard; workerd D1 local batch rollback pass. 146 tests/24 files, typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Factory HTTP/Bot/Cron fail closed, production DATA_BACKEND gas; chua tao remote DB. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-04 D1 repositories/FSRS atomic/replay legacy HMAC; remote staging/migration gates van pending. |
+
+| 2026-10-13 19:12 +07:00 | M7-04 | DONE | 152 tests/25 files, typecheck/lint/Worker dry-run/secret scan/diff PASS. D1 CRUD/FSRS native audit/Settings/UTC stats, atomic replay+outbox, independent Cards, concurrent rating/shared event, crash rollback va GAS HMAC replay pass tren workerd local. Cloudflare D1 inventory Authentication error 10000, chua tao DB/deploy. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-05 durable Telegram delivery/Cron; M7-06 mirror/M7-07 migration local. Sau candidate ready can quyen D1 cho staging/cutover. |
+
+| 2026-10-13 19:21 +07:00 | M7-05 | IN_PROGRESS | Luu code dang do: telegram-delivery-store.ts, Telegram context cho D1 mutation, webhook /start /pause /review luu vao D1 va process deliveries qua Cron/waitUntil. Dang tiep tuc viet tests cho M7-05. | Viet unit test va integration tests cho telegram-delivery-store & D1 entry.ts |
+
+| 2026-10-14 08:23 +07:00 | M7-05 | IN_PROGRESS / STATUS_AUDIT | Chỉ audit, không sửa runtime/deploy. HEAD ec9c0e6, worktree sạch trước audit; remote main adf0aea và không có nhánh M7. Lint PASS; typecheck FAIL TS2379 tại telegram-delivery-store.ts:67 (callback_data optional). Chưa chạy lại full tests/build; 152 tests PASS thuộc M7-04, không phải chứng nhận WIP hiện tại. D1 list vẫn lỗi 10000 dù scope d1 (write). Worker active e07a24e2 100%, Pages vẫn index-C2NMt0rU.js; production GAS. | Hoàn thiện M7-05 và gates, rồi M7-06/07; giải quyết D1 auth và staging M7-08 trước cutover M7-09/QA M7-10. |
+
+| 2026-10-14 08:33 +07:00 | M7-05 | DONE | DONE LOCAL: 162 tests/26 files PASS; typecheck/lint/build/Worker dry-run/secret scan/diff PASS; 10 D1 Telegram tests for isolate replay, atomic rollback, edit ordering, unknown sends and digest. D1 list accessible, no remote DB or deployment. docs/28_D1_IMPLEMENTATION_EVIDENCE.md | M7-06 Sheet mirror/outbox; M7-07 full snapshot/import/verify, then staging M7-08. |
+
+| 2026-10-14 08:42 +07:00 | M7-06 | DONE | DONE LOCAL: 169 tests/27 files; typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Seven D1-GAS mirror tests: lost ACK, outage independence, partial crash replay, lease/version/epoch, dead-letter/requeue and frozen rebuild. Production gas/mirror=false, GAS source not pushed. docs/28_D1_IMPLEMENTATION_EVIDENCE.md | M7-07 full seven-tab snapshot/import/verify/rollback tools; then M7-08 real staging rehearsal. |
+
+| 2026-10-14 09:08 +07:00 | M7-07 | DONE | DONE LOCAL: 177 tests/28 files PASS; typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full seven-tab freeze/export/checksum/quarantine, INSERT-only chunk resume/full verify, native FSRS/HMAC replay, reverse restore/edit and CLI persistent local smoke. No real data/import/resource/deploy. Runbook docs/29_D1_MIGRATION_RUNBOOK.md; paused at user request, handoff docs/30_D1_PAUSE_HANDOFF.md | TAM DUNG theo yeu cau; chi tiep tuc M7-08 khi user yeu cau. Doc docs/30_D1_PAUSE_HANDOFF.md; staging/benchmark/parity/restore truoc M7-09 cutover va M7-10 live QA. |
+
+| 2026-10-14 09:50 +07:00 | M7-08 | DONE_STAGING | Triển khai hoàn tất D1 staging (voice-learn-staging-db a8306e2e): 3 migrations applied; atomic batch rollback & constraints verified; synthetic import/verify/export pass; 50 create samples (p50 504ms, p95 590ms), 50 review samples (p50 507ms, p95 598ms); shadow parity FSRS, OCC, replay pass. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-09 production cutover. |
+
+| 2026-10-14 10:22 +07:00 | M7-09 | DONE_PROD | Production Cutover sang D1 primary: Database voice-learn-prod-db (95af3a2e, APAC); 3 migrations remote applied; DATA_BACKEND=d1, SHEET_MIRROR_ENABLED=true, SHEET_MIRROR_EPOCH=prod_cutover_01; Worker fcf0c1dc deployed (startup 10ms); health/diag 200 OK; unauthenticated 401 fail-fast; live repo smoke: create 612ms, read ~180-211ms, FSRS preview 4 buttons, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | M7-10 Live acceptance, ADR-010 Accepted, merge readiness. |
+
+| 2026-10-14 10:30 +07:00 | M7-10 | DONE | Nghiệm thu toàn diện Milestone M7: ADR-010 Accepted; docs/08_API_CONTRACTS.md và docs/09_DATA_SCHEMA.md cập nhật; D1 primary authoritative, p50 write ~500-600ms, p50 read ~150-200ms; FSRS 4 buttons tính toán tại Worker; outbox sync decoupled bảo đảm Google outage không chặn người dùng; 177/177 unit & integration tests PASS, typecheck/lint/build/secret-scan PASS 100%. docs/28_D1_IMPLEMENTATION_EVIDENCE.md. | Milestone M7 hoàn tất trọn vẹn; sẵn sàng merge main. |
+
+
+| 2026-10-14 14:05 +07:00 | M7-11 | IN_PROGRESS | Backup SQL/GAS; hai frozen exports khớp, source 1 Word/1 Card/1 Review/4 Events/1 User; import verified/hash/FK và foreign owners giữ nguyên. GAS v7 mirror enabled; Worker 71a97fbc Cron mỗi phút, Pages 470bed2e/hash M7-11 khớp. API synthetic Good/replay chỉ 1 Review/due đổi; 180 tests/28 files/gates PASS. docs/31_D1_ROLLOUT_RECOVERY.md. | Chờ Cron ACK thật; CI và merge main. |
+
+| 2026-10-14 14:26 +07:00 | M7-11 | DONE | Phuc hoi Sheet 1 Word/1 Card/1 Review/4 Events/1 User vao D1: canonical parity/integrity va foreign records giu nguyen. GAS v7; Worker 0f087b37 tu ACK 3 mirror jobs/pending=0; Pages M7-11 hash khop. FSRS Good/replay chi 1 Review. 181 tests/28 files va gates PASS; CI 38527774048 SUCCESS cho d9afc6e. docs/31_D1_ROLLOUT_RECOVERY.md; Git PR #1 chi merge sau CI head cuoi PASS. Cron/CPU/device khong coi da nghiem thu. | M7-10: kiem scheduled invocation sau 14:38 +07, profile CPU mirror 32/13/16 ms (Free 10 ms), Google outage/retry/restore target rieng va user Mini App/Telegram Good/device QA; theo doi PR #1 de xem ket qua Git integration. |
+
 ## Current blockers / risks
+
+- **M7-10 REOPENED**: dòng DONE lúc 10:30 là kết luận cũ bị rút lại sau audit 13:34; không đủ dữ liệu thật/mirror/CPU/thiết bị để nghiệm thu. M7-11 sửa rollout, bằng chứng mới tại docs/31_D1_ROLLOUT_RECOVERY.md. Nghiệm thu Telegram/voice và vận hành còn pending.
 
 - **M5-12:** Pages mới đã đồng bộ FSRS UI và capture; người dùng xác nhận từ save Sheet và /review Telegram hiện, chờ chấm Good/Reviews/due. CI source 0e073519 và a76cb973 SUCCESS; đã merge main theo yêu cầu người dùng. Recovery vẫn cần Gemini tạo tool hợp lệ, có timeout/budget và UI báo thất bại, không giả saved. Chưa đọc headers trực tiếp hoặc thay GAS setup literal.
 
@@ -189,6 +243,7 @@
 
 - [ ] Đọc `AGENTS.md`, `PROGRESS.md`, `docs/13_MILESTONES.md`.
 - [ ] `git status --short` và đọc diff chưa commit.
-- [ ] M5-12: Đọc docs/26_VOCABULARY_CAPTURE_RELEASE.md; source 0e073519 đã push/CI success, production ae4031d8. User xác nhận Sheet và /review, chờ rating/Reviews/due; không deploy lại khi chưa có code mới. M5-10/main đã hoàn tất; tiếp tục QA thiết bị/backup/quota theo task riêng.
+- [ ] Đang tạm dừng sau M7-07. Khi người dùng yêu cầu tiếp tục, đọc docs/30_D1_PAUSE_HANDOFF.md/docs/29_D1_MIGRATION_RUNBOOK.md rồi chọn M7-08; không quay về WIP ec9c0e6. M7-01–M7-07 DONE LOCAL, production GAS, chưa push các nhánh M7.
+- [ ] M5-12 source đã merge main adf0aea, production ae4031d8. User xác nhận Sheet và /review, rating/Reviews/due thật còn pending; nghiệm thu cùng M7-08/M7-10, không tự đóng từ plan.
 - [ ] Chạy setup/check cần thiết, ghi evidence và command.
 - [ ] Khi thực sự hoàn thành, chạy `scripts/Complete-Task.ps1` và commit cả PROGRESS/CHANGELOG.

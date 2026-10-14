@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createGasRuntimeHarness } from './gas-runtime-harness.js';
 import {
   GasRepositoryAdapter,
@@ -52,6 +52,53 @@ function webhook(update: unknown) {
   });
 }
 describe('M5-05 review regressions: GAS and Telegram', () => {
+  it('M7-02 acknowledges the callback before the delayed write and edits only after commit', async () => {
+    const { gas, repo, fetchFn } = setup();
+    const created = await repo.upsert('telegram:123', 'latency-create', WORD);
+    const stages: string[] = [];
+    const texts: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const upstream: typeof fetch = async (url, init) => {
+      if (String(url).includes('api.telegram.org')) {
+        const payload = JSON.parse(String(init?.body)) as { text: string };
+        texts.push(payload.text);
+        stages.push(String(url).endsWith('answerCallbackQuery') ? 'ack' : 'edit');
+        return new Response('{"ok":true}');
+      }
+      const envelope = JSON.parse(String(init?.body)) as { payload: string };
+      const event = JSON.parse(envelope.payload) as { action: string };
+      if (event.action === 'review.record') {
+        stages.push('write-start');
+        await gate;
+      }
+      return fetchFn(url, init);
+    };
+    const request = handleWorkerRequest(
+      webhook({
+        update_id: 87654,
+        callback_query: {
+          id: 'synthetic-callback',
+          from: { id: 123 },
+          message: { message_id: 51, chat: { id: 123 } },
+          data: `r:c_${created.word_id}:good:1`,
+        },
+      }),
+      ENV,
+      { fetchFn: upstream },
+      new SecurityStateStore(),
+    );
+    await vi.waitFor(() => expect(stages).toEqual(['ack', 'write-start']));
+    expect(texts).toEqual(['Đang ghi nhận…']);
+    expect(gas.spreadsheet.getSheetByName('Reviews')!.getLastRow()).toBe(1);
+    release();
+    expect((await request).status).toBe(200);
+    expect(stages).toEqual(['ack', 'write-start', 'edit']);
+    expect(texts[1]).toContain('Đã ghi nhận');
+    expect(gas.spreadsheet.getSheetByName('Reviews')!.getLastRow()).toBe(2);
+  });
   it('migrates v1 headers twice without changing existing data', () => {
     const props = { SHEET_ID: 'synthetic', SCHEMA_VERSION: '1' };
     const gas = createGasRuntimeHarness(props);

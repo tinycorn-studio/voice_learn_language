@@ -62,12 +62,33 @@
 | M5-10 | Gemini token HTTP 400 → 502   | Đối chiếu REST AuthToken/Discovery và probe không credentials; sửa payload/ràng buộc model/audio với regression fail trước/pass sau; typecheck/lint/test/build/dry-run/secret scan pass. Chuẩn bị diff/artifact trước deploy; mint/voice project thật là nghiệm thu riêng, không suy ra từ key giả/mock |
 | M5-11 | Review capture từ → FSRS | Báo cáo source + production parity, tái hiện luồng bị bỏ sót bằng synthetic probes, kiểm tests liên quan, phân biệt code có/chưa deploy/chưa QA. Review read-only production; không tự coi tính năng hoặc milestone đã hoàn thiện |
 | M5-12 | Sửa capture và frontend FSRS | Regression cho named question/punctuation/tool-ASR ordering/missing tool, chống duplicate, audio không chờ write và Stop/budget; full gates pass, deploy frontend đúng API/build tag/Card/preview/stats và verify hash; live Sheet/Card/review nghiệm thu riêng |
+| M5-13 | Kế hoạch D1 và latency | PLAN ONLY: đối chiếu source/API/quota, lựa chọn Sheet một chiều, chia tasks M7 có acceptance/data preservation/migration/rollback/targets; kiểm links/task consistency, không suy implementation hoặc deploy từ tài liệu |
 
 ## M6 — Optional (không chặn release)
 
 - M6-01 Anki optional exporter/local sync — nếu cần SRS native Anki.
 - M6-02 Phát âm, memory-based conversation review, spaced insertion.
-- M6-03 D1 migration khi Sheets chậm hoặc multi-user.
+- M6-03 D1 migration được ưu tiên thành M7 do latency thực tế; không triển khai Supabase cùng lúc.
+
+## M7 — D1 primary và hiệu năng (IN_PROGRESS, chưa cutover)
+
+Plan: [27_D1_PERFORMANCE_MIGRATION_PLAN.md](27_D1_PERFORMANCE_MIGRATION_PLAN.md). Sheet chỉ xem/xuất, sửa qua app. Mỗi dòng là task implementation riêng, chưa được thực thi trong M5-13.
+
+| Task | Đầu ra | Definition of Done |
+| --- | --- | --- |
+| M7-01 | Baseline/diagnostics | p50/p95 từng chặng, capture direct/recovery, copy khi HTTP đều 200, metadata privacy tests |
+| M7-02 | ACK/refresh UX | Saved chỉ sau commit; refresh nền lỗi không phủ định save, audio không block; Telegram ACK sớm, kết quả thật sau commit |
+| M7-03 | D1 schema/factory | D1 local/staging thật, constraints/transaction guards, môi trường tách biệt và cấu hình fail closed |
+| M7-04 | D1 repositories/FSRS | CRUD/preview/stats/replay/alias parity, authoritative ts-fsrs/native logs, OCC/crash rollback, atomic outbox |
+| M7-05 | Telegram/Cron D1 | Commands, update dedup/delivery recovery, old keyboard, digest sent/failed/unknown không spam |
+| M7-06 | Sheet mirror/outbox | One-way HMAC batch, lease/retry/dead-letter/version/duplicate ACK; GAS hỏng không chặn app/ôn tập |
+| M7-07 | Migration/verify tools | Full 7-tab export, ID/due/memory/audit/HMAC replay preservation, resumable import, quarantine và rollback runbook |
+| M7-08 | Staging rehearsal | Runtime thật, verify 100%/restore rehearsal, security/fault/concurrency/FSRS, latency và Free CPU/quota gates |
+| M7-09 | Production cutover | Được phép sau artifact review; freeze/drain/final snapshot, verify, mọi writer D1, live smoke và rollback code giữ D1 |
+| M7-10 | Operational QA | Rating/due audit thật, mirror outage/recovery, growth/quota/backup restore; ghi đúng các device/criteria chưa kiểm chứng |
+| M7-11 | Sửa rollout sau audit | Backup/Sheet-D1 parity, giữ dữ liệu hiện có, Cron mỗi phút/mirror ACK, frontend production hash, backend FSRS/replay, gates/CI/Git; không thay nghiệm thu thiết bị M7-10 |
+
+Dependencies: M7-01 → M7-03 → M7-04 → M7-05/M7-06/M7-07 → M7-08 → M7-09 → M7-10. M7-02 thực hiện sớm sau baseline; không chờ chuyển kho để cải thiện UX.
 
 ## Dependency path
 

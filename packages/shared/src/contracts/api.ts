@@ -343,6 +343,7 @@ export const GAS_ACTIONS = [
   'review.finishDigest',
   'user.preferences',
   'migration.schemaV3',
+  'mirror.applyBatch',
 ] as const;
 
 export type GasAction = (typeof GAS_ACTIONS)[number];
@@ -359,7 +360,7 @@ export const gasEventPayloadSchema = z.object({
 export type GasEventPayload = z.infer<typeof gasEventPayloadSchema>;
 
 export const gasSignedEnvelopeSchema = z.object({
-  payload: z.string().min(2).max(12000),
+  payload: z.string().min(2).max(60000),
   signature: z.string().min(16).max(256),
 });
 
@@ -387,7 +388,12 @@ export const telegramUpdateSchema = z.object({
     .object({
       id: z.string().max(256),
       from: z.object({ id: z.number().int() }),
-      message: z.object({ chat: z.object({ id: z.number().int() }) }).optional(),
+      message: z
+        .object({
+          message_id: z.number().int().positive().optional(),
+          chat: z.object({ id: z.number().int() }),
+        })
+        .optional(),
       data: z.string().max(64).optional(),
     })
     .optional(),

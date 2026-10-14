@@ -141,6 +141,8 @@ Response data: `{due_today,completed_today,new_cards,learning_cards,review_cards
 
 Verify secret header, request size and update_id before any side-effect. HTTP 200 only after update recorded or successfully dispatched; design retry budget/idempotency.
 
+M7-02 local: callback message nhận thêm `message_id` optional. Sau auth/validation bot ACK “Đang ghi nhận…” trước persistence; chỉ edit kết quả/next_due sau commit và gỡ keyboard. ACK không phải success review; mutation giữ event/version/retry hiện hành. Durable result delivery triển khai M7-05 trước release D1.
+
 ## GAS HMAC internal envelope
 
 ```json
@@ -160,8 +162,24 @@ Response GAS `{ok:boolean,data?:{},error?:{code,message}}`; Worker validate sche
 
 `review.claimDigest.data`: `{local_date,limit,now_iso}` → `{dispatch_id,already_dispatched,notifications_enabled,telegram_chat_id,due_cards,claim_token?}`. `review.finishDigest.data`: `{dispatch_id,claim_token,status:"sent|failed|unknown",message_id?}` → `{updated:true}`. Chỉ Worker được ký hai action này. Xem schema v2/v3 và runbook migration.
 
+## Telegram D1 delivery — M7-05 / M7-09 Production (DATA_BACKEND=d1)
+
+Webhook đã xác thực mới được gắn trusted `TelegramMutationContext`; HTTP review body không nhận context này. ACK callback trước mutation, kết quả thành công chỉ tạo sau domain commit. D1 lưu update ID và delivery atomic với review/preferences; `/review` lưu command trước trả HTTP 200. Delivery được drain qua waitUntil và Cron, tối đa ba jobs/lượt, lease 30 giây và tối đa ba attempts. Edit cùng message serialize và bỏ revision cũ; send mất ACK không tự retry, dead-letter `unknown_outcome` cần đối chiếu thủ công. Digest claimed hết hai phút thành unknown; finish replay cùng token/status/message ID idempotent, terminal status không bị ghi đè.
+
+## Sheet mirror — M7-06 / M7-09 Production
+
+Internal signed action `mirror.applyBatch`, data `{epoch,jobs:[{event_id,entities:[{tab,id,version,row}]}]}`. Bảy tab names allowlist; Word/Card schema, ID/user/version và scalar cells được validate. Maximum signed payload 60.000 chars cho mirror; business actions vẫn 12.000. GAS trả `{ok:true,data:{applied_event_ids:[...]}}` chỉ sau flush; Worker xác minh ACK đúng job. Epoch phải khớp config Worker, source_epoch D1 và Script Properties; Sheet read-only với legacy writers khi authority=d1. Retry ký timestamp mới, snapshot/version không đổi. Unknown network ACK được retry vì mirror idempotent; Telegram send unknown vẫn không retry.
+
+## Migration operator actions — M7-07 / M7-08 / M7-09
+
+M7-11 bổ sung internal signed `migration.enableMirror` data `{freeze_id,epoch}` → `{authority:"d1",mirror_enabled:true,epoch}`. Cần đúng freeze hiện tại; epoch cũ khác bị từ chối. Giữ WRITES_ENABLED=false cho legacy business actions; mirror snapshots vẫn được nhận dưới ScriptLock. Worker không expose action này cho client công khai; chỉ operator HMAC sau D1 parity/backup.
+
+CLI dùng signer HMAC riêng gọi GAS trực tiếp, không thêm public Worker routes hoặc nhận admin action từ frontend. `migration.freeze` data `{freeze:boolean,freeze_id?:string}` → `{frozen,freeze_id,frozen_at}`; `migration.exportPage` data `{freeze_id,tab,offset,limit:1..50}` → `{tab,headers,total_rows,offset,rows,freeze_id,frozen_at,schema_version}`; `migration.restoreBatch` data `{freeze_id,tab,headers,rows:0..50}` → `{restored:number}`. Owner/timestamp/signature kiểm trước dispatch; restore chỉ GAS target riêng/frozen, authority=d1 từ chối. Payload operator tối đa 60.000 chars; writes business vẫn 12.000. Freeze/drain/recheck bảo vệ mọi business writer, setup và schema migration; unfreeze cần đúng ID/authority và clear transient snapshot metadata. Runbook docs/29_D1_MIGRATION_RUNBOOK.md.
+
 Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.
 
 ## Contract testing
+
+M7-01 (local, chưa deploy): bản chẩn đoán frontend `mini-app-api-diagnostics-v1` giữ `attempts` và thêm `capture` metadata bounded 100 (stage/reason/path/elapsed_ms/capture_id/timestamp). Không thêm route thu transcript; dữ liệu chỉ giữ memory và copy theo thao tác người dùng. Worker/GAS log timing chỉ route template/action/status/correlation, không body hoặc raw errors.
 
 Maintain JSON fixtures under `tests/contracts/` (tạo M2); valid/invalid/tamper/duplicate. Never use raw user voice content/secret trong fixtures.

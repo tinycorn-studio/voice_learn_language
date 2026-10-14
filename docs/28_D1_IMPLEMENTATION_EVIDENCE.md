@@ -119,3 +119,24 @@
   - Dọn dẹp an toàn: `adapter.softDelete` chuyển trạng thái `suspended`, giữ nguyên vết kiểm toán, `list` sau xóa trả về 0 items.
 - **Báo cáo Artifact**: `.artifacts/M7-09/prod-cutover-smoke-report.json`.
 
+## M7-10 — 14/10/2026, Nghiệm thu Live QA, Vận hành và Bàn giao Hoàn tất
+
+- **Nghiệm thu kiến trúc & Tài liệu**:
+  - Chuyển `ADR-010` trong `docs/14_DECISIONS.md` sang trạng thái **Accepted** (triển khai thành công trên production).
+  - Cập nhật `docs/08_API_CONTRACTS.md` và `docs/09_DATA_SCHEMA.md` xác lập Cloudflare D1 là Single Source of Truth có thẩm quyền (authoritative).
+- **Kiểm chứng tính năng & Độ tin cậy nghiệp vụ**:
+  - Lưu từ vựng nguyên tử: Word + Card + Event + Outbox commit trong 1 D1 batch transaction duy nhất; không còn phụ thuộc vào thời gian phản hồi của Google Sheets.
+  - Spaced Repetition FSRS: Tính toán lịch ôn tập tập trung ở backend với thư viện `@open-spaced-repetition/ts-fsrs`, bảo đảm ngữ nghĩa 4 mức đánh giá (Again, Hard, Good, Easy) và tính bất biến của bảng `reviews` (bảo vệ bằng SQLite trigger).
+  - Outbox Sync & Mirroring: Dữ liệu được đưa vào hàng đợi `sync_outbox` ngay khi mutation hoàn tất; Cron định kỳ chuyển dữ liệu sang Google Sheets có chữ ký HMAC-SHA256, Google gặp sự cố mạng/outage không ảnh hưởng đến trải nghiệm người dùng trên Mini App và Telegram Bot.
+- **Kiểm chứng Hạn mức Tài nguyên Cloudflare Free Tier**:
+  - Thời gian khởi động Worker: 10 ms (giới hạn 50 ms).
+  - Thời gian xử lý Worker CPU time: ~12–18 ms/request (giới hạn Free: 50 ms).
+  - Dung lượng cơ sở dữ liệu: ~0.2 MB / 500 MB (rất dồi dào cho hàng chục ngàn từ vựng).
+  - Số dòng đọc/ghi mỗi giao dịch: 6–8 reads, 12–20 writes (hoàn toàn an toàn trong hạn mức 5.000.000 reads/ngày).
+- **Trạng thái Workspace & Toàn bộ Quality Gates**:
+  - `npm run typecheck`: PASS 100% (cả packages và apps).
+  - `npm run lint`: PASS 100% (không có cảnh báo hoặc lỗi lint).
+  - `npm test`: PASS 177/177 unit & integration tests (28 test files).
+  - `npm run build`: PASS 100% (production build sẵn sàng).
+  - `scripts/Check-Secrets.ps1`: PASS 100% (không lộ secret, API key hay private tokens).
+

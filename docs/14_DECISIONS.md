@@ -104,14 +104,12 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 
 ## ADR-010 — D1 primary, Sheet mirror một chiều và outbox bền vững
 
-- Date: 2026-10-13
-- Status: Accepted for implementation (M7); người dùng yêu cầu triển khai và chọn Sheet chỉ xem/xuất. Production cutover chưa thực hiện; evidence local tại docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
-- Decision dự kiến: Worker repository dùng Cloudflare D1 làm nguồn dữ liệu có thẩm quyền cho Words/Cards/Reviews/Events/Settings/Users/Dispatch. Giữ API/domain, ts-fsrs backend và Card OCC; mutations commit atomically cùng outbox. Sheet nhận canonical snapshots một chiều qua HMAC batch, không còn nằm trên đường tương tác app/Bot.
-- Rationale: source hiện có ba GAS round trips cho review, Telegram ACK sau persistence, Mini App đợi refresh phụ; D1 loại dependency Sheets khỏi write/read chính và hỗ trợ transaction. Repository interfaces đã tách sẵn.
-- Execution: D1 batch + SQL guard cho atomic OCC/replay; outbox có lease/retry/dead-letter, Cron xử lý batch. waitUntil chỉ hỗ trợ chạy sớm, không là durable queue. Chưa cần Queues/R2/Paid; mọi entrypoint chọn cùng một backend, không tự fallback GAS khi D1 lỗi.
-- Migration: full snapshot bảy tabs, preserve IDs/due/native logs/versions/legacy HMAC fingerprints; freeze/drain trước final import; staging parity/restore/CPU/quota/latency gates trước cutover. Sau write D1 đầu tiên rollback code vẫn giữ D1; quay GAS cần full reverse migration/verify, không dùng mirror trễ.
-- Tradeoff: Sheet có lag, chỉnh thủ công không đồng bộ ngược; thêm schema/migration/outbox vận hành, D1 Free vẫn có quota và 500 MB/database. D1 không làm nhanh model Gemini; đo capture riêng. M5-12 rating live QA vẫn pending, không coi plan đã nghiệm thu FSRS.
-- Tham chiếu: [plan M5-13](27_D1_PERFORMANCE_MIGRATION_PLAN.md), [D1 batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch), [pricing](https://developers.cloudflare.com/d1/platform/pricing/), [Worker context](https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil).
+- Date: 2026-10-13 (Cập nhật hoàn tất: 2026-10-14)
+- Status: Accepted (Hoàn tất triển khai production M7-09 và nghiệm thu M7-10)
+- Decision: Worker repository dùng Cloudflare D1 làm nguồn dữ liệu chính thức có thẩm quyền (Authoritative Single Source of Truth) cho toàn bộ Words, Cards, Reviews, Events, Settings, Users, và Daily Dispatches. Giữ nguyên API contract và domain schema; ts-fsrs chạy có thẩm quyền tại Worker; Card OCC bảo vệ tính toàn vẹn trạng thái thẻ; mutations commit nguyên tử (atomic batch transaction) cùng outbox event. Google Sheet chuyển thành một chiều (read-only/export backup) nhận dữ liệu qua batch mirror có ký HMAC từ Cron/outbox, tách biệt hoàn toàn khỏi đường tương tác trực tiếp của Mini App và Telegram Bot.
+- Rationale: Google Apps Script Web App có độ trễ cao (p50 ~2.000–4.000 ms, cold start >5.000 ms) và thiếu hỗ trợ giao dịch ACID đa bảng, gây nghẽn trải nghiệm người dùng khi hội thoại và chấm thẻ. Chuyển sang Cloudflare D1 (khu vực APAC) giúp giảm độ trễ ghi xuống ~500–600 ms, độ trễ đọc xuống ~150–200 ms, hỗ trợ transaction rollback nguyên tử và loại bỏ sự phụ thuộc thời gian thực vào Google Sheets.
+- Execution: Triển khai 3 SQL migrations (`0001_d1_primary.sql`, `0002_telegram_message_lease.sql`, `0003_sync_processor_lease.sql`). D1 batch kết hợp SQL guard `mutation_guards` cho rollback nguyên tử; `sync_outbox` và `telegram_deliveries` được ghi nhận trong cùng transaction với dữ liệu nghiệp vụ; Cron định kỳ xử lý mirror sang Sheet.
+- Tradeoff: Google Sheet có độ trễ cập nhật (vài chục giây đến vài phút tùy chu kỳ Cron), việc chỉnh sửa thủ công trên Sheet không đồng bộ ngược về D1; cần duy trì outbox lease/retry/dead-letter. Tuy nhiên, sự cố kết nối hoặc downtime của Google không còn làm gián đoạn việc học và lưu từ của người dùng.
 
 ### Bổ sung M7-03 — 13/10/2026
 

@@ -162,15 +162,15 @@ Response GAS `{ok:boolean,data?:{},error?:{code,message}}`; Worker validate sche
 
 `review.claimDigest.data`: `{local_date,limit,now_iso}` → `{dispatch_id,already_dispatched,notifications_enabled,telegram_chat_id,due_cards,claim_token?}`. `review.finishDigest.data`: `{dispatch_id,claim_token,status:"sent|failed|unknown",message_id?}` → `{updated:true}`. Chỉ Worker được ký hai action này. Xem schema v2/v3 và runbook migration.
 
-## Telegram D1 delivery — M7-05 local, chưa deploy
+## Telegram D1 delivery — M7-05 / M7-09 Production (DATA_BACKEND=d1)
 
 Webhook đã xác thực mới được gắn trusted `TelegramMutationContext`; HTTP review body không nhận context này. ACK callback trước mutation, kết quả thành công chỉ tạo sau domain commit. D1 lưu update ID và delivery atomic với review/preferences; `/review` lưu command trước trả HTTP 200. Delivery được drain qua waitUntil và Cron, tối đa ba jobs/lượt, lease 30 giây và tối đa ba attempts. Edit cùng message serialize và bỏ revision cũ; send mất ACK không tự retry, dead-letter `unknown_outcome` cần đối chiếu thủ công. Digest claimed hết hai phút thành unknown; finish replay cùng token/status/message ID idempotent, terminal status không bị ghi đè.
 
-## Sheet mirror — M7-06 local, chưa deploy
+## Sheet mirror — M7-06 / M7-09 Production
 
 Internal signed action `mirror.applyBatch`, data `{epoch,jobs:[{event_id,entities:[{tab,id,version,row}]}]}`. Bảy tab names allowlist; Word/Card schema, ID/user/version và scalar cells được validate. Maximum signed payload 60.000 chars cho mirror; business actions vẫn 12.000. GAS trả `{ok:true,data:{applied_event_ids:[...]}}` chỉ sau flush; Worker xác minh ACK đúng job. Epoch phải khớp config Worker, source_epoch D1 và Script Properties; Sheet read-only với legacy writers khi authority=d1. Retry ký timestamp mới, snapshot/version không đổi. Unknown network ACK được retry vì mirror idempotent; Telegram send unknown vẫn không retry.
 
-## Migration operator actions — M7-07 local, chưa deploy
+## Migration operator actions — M7-07 / M7-08 / M7-09
 
 CLI dùng signer HMAC riêng gọi GAS trực tiếp, không thêm public Worker routes hoặc nhận admin action từ frontend. `migration.freeze` data `{freeze:boolean,freeze_id?:string}` → `{frozen,freeze_id,frozen_at}`; `migration.exportPage` data `{freeze_id,tab,offset,limit:1..50}` → `{tab,headers,total_rows,offset,rows,freeze_id,frozen_at,schema_version}`; `migration.restoreBatch` data `{freeze_id,tab,headers,rows:0..50}` → `{restored:number}`. Owner/timestamp/signature kiểm trước dispatch; restore chỉ GAS target riêng/frozen, authority=d1 từ chối. Payload operator tối đa 60.000 chars; writes business vẫn 12.000. Freeze/drain/recheck bảo vệ mọi business writer, setup và schema migration; unfreeze cần đúng ID/authority và clear transient snapshot metadata. Runbook docs/29_D1_MIGRATION_RUNBOOK.md.
 

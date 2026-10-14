@@ -10,6 +10,8 @@ Theo dõi thay đổi theo giai đoạn; không ghi secrets, raw transcript ho�
 
 ### Verified
 
+- 2026-10-14 10:14 +07:00 M7-08: Hoàn thành diễn tập Cloudflare D1 staging (database `voice-learn-staging-db` ID `a8306e2e-f3ee-4e43-a6c1-07739dfffc26`). 3 migrations áp dụng thành công; chứng minh atomic batch rollback (0 rows lọt qua khi vi phạm mutation_guards) và database constraints; synthetic import/verify/export toàn vẹn 100% (0 quarantine, hash matching); performance benchmark 50 create samples (p50 504ms, p95 590ms) và 50 review samples (p50 507ms, p95 598ms); shadow parity FSRS preview/submit và outbox decoupling thành công. Ready for M7-09 production cutover.
+
 - 2026-10-13 18:16 +07:00 M5-12: Người dùng xác nhận từ đã save trên Sheet và /review Telegram đã hiện sau lượt thử hỏi nghĩa. GitHub CI 38365870013 SUCCESS cho source 0e073519 đã push. Không sửa code hoặc deploy lại; còn chờ rating/Reviews/due thật để hoàn tất nghiệm thu FSRS.
 
 - 2026-10-13 M5-11: Review phát hiện tự lưu từ còn phụ thuộc model gọi tool, detector bỏ sót cách hỏi "that mean", source excerpt khác dấu câu và tool tới trước transcript. 36 tests/5 files PASS, 7 probes synthetic. Public frontend M5-08 chưa có giao diện/API FSRS Card/preview/stats mới; GAS v5 business code khớp Git. Chỉ hoàn tất review, chưa sửa feature hoặc deploy; báo cáo docs/25_VOCABULARY_FSRS_GAP_REVIEW.md.

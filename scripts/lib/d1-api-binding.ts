@@ -65,7 +65,10 @@ export function createD1ApiBinding(params: {
         signal: AbortSignal.timeout(30000),
       },
     );
-    if (!response.ok) throw new Error('Cloudflare D1 API failed');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Cloudflare D1 API failed (${response.status}): ${errorText}`);
+    }
     const body: unknown = await response.json();
     const result = responseSchema.parse(body).result;
     if (result.length !== batch.length) throw new Error('D1 batch result count mismatch');

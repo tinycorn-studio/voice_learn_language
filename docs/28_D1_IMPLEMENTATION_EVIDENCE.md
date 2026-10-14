@@ -56,3 +56,37 @@
 - Reverse D1 export → GAS target riêng/frozen, canonical _snapshot_json giữ null/optional fields; restore replay không duplicate. Unfreeze GAS xóa transient metadata, backup file giữ nguyên; edit sau restore vẫn export/validate được. Full SQL backup operational tables vẫn cần trước production rollback.
 - **177 tests/28 files PASS**, gồm tám migration tests; typecheck/lint/build/Worker dry-run PASS. CLI help/dry-run/persistent local import/verify PASS, integrity=true/mismatches=[]; fixture 1 Word/2 Cards/1 Review/3 Events/1 Settings/1 User/1 Dispatch. Artifacts .artifacts/M7-07; secret/diff gates ghi PROGRESS.
 - Chưa tạo D1 remote, nạp dữ liệu thật hoặc push/redeploy GAS/Worker/Pages. Production GAS giữ nguyên. Runbook docs/29_D1_MIGRATION_RUNBOOK.md; toàn bộ việc M7-08–M7-10/Git/QA còn lại ở **docs/30_D1_PAUSE_HANDOFF.md**. Không tự tiếp tục M7-08 trong lúc tạm dừng.
+
+## M7-08 — 14/10/2026, Cloudflare D1 Remote Staging Rehearsal & Benchmark
+
+- Khởi tạo database D1 staging riêng trên Cloudflare Free Tier: `voice-learn-staging-db` (ID `a8306e2e-f3ee-4e43-a6c1-07739dfffc26`, APAC).
+- Áp dụng đầy đủ ba SQL migrations qua Wrangler remote: `0001_d1_primary.sql`, `0002_telegram_message_lease.sql`, `0003_sync_processor_lease.sql`. Cấu hình binding `DB` trong `apps/worker/wrangler.toml`, giữ `DATA_BACKEND=gas` cho production.
+- **Chứng minh tính nguyên tử và ràng buộc trên remote D1 thật** (`.artifacts/M7-08/prove-d1-atomic-remote.mjs`):
+  - Batch transaction rollback nguyên tử: Câu lệnh vi phạm `CHECK(valid=1)` trên `mutation_guards` khiến toàn bộ batch bị hủy, số dòng ghi vào DB sau rollback là 0.
+  - Foreign key: Bị từ chối khi chèn Card có `word_id` không tồn tại.
+  - Append-only reviews: Trigger `reviews_immutable_update` và `reviews_immutable_delete` chặn cả UPDATE lẫn DELETE với lỗi `Reviews are append-only`.
+  - Unique constraint: Chặn chèn trùng `words.word_key`.
+- **Nâng cấp Cloudflare REST Batch Adapter** (`scripts/lib/d1-api-binding.ts`):
+  - Chuẩn hóa khoảng trắng bên ngoài chuỗi nháy đơn (`renderSql`), loại bỏ ký tự newline thừa, ngăn chặn Cloudflare WAF chặn HTTP 403 do multiline query.
+  - Bổ sung chi tiết mã lỗi HTTP status và error text khi API Cloudflare từ chối.
+- **Diễn tập synthetic end-to-end trên D1 remote**:
+  - `dry-run` thẩm định snapshot synthetic: 0 dòng quarantine.
+  - Target freeze: Đặt `system_state.writes_enabled='false'` trước khi import.
+  - `d1-import --remote --apply`: Import thành công 7 tabs dữ liệu synthetic.
+  - `d1-verify --remote`: Xác minh 100% tính toàn vẹn hash, ID và khóa ngoại (`{"integrity":true,"mismatches":[],"ok":true}`).
+  - `d1-export --remote`: Xuất ngược dữ liệu từ D1 remote ra file `.artifacts/M7-08/staging-synthetic-export.json`, bảo toàn canonical `_snapshot_json` và cơ chế bảo vệ chủ sở hữu (`owner_id: telegram:123`).
+  - `dry-run` validate lại file snapshot xuất từ D1: 100% hợp lệ, 0 quarantine.
+- **Benchmark hiệu năng thực tế trên Cloudflare D1 Remote (50 samples create + 50 samples review)**:
+  - Create Word (Word + 2 Cards + Event + Outbox): min 478 ms, avg 522 ms, **p50 504 ms**, **p90 578 ms**, **p95 590 ms**, max 779 ms (Mục tiêu plan: ≤ 800 ms -> **ĐẠT**).
+  - Review Submission (Card update + FSRS rating + Review + Outbox): min 479 ms, avg 517 ms, **p50 507 ms**, **p90 559 ms**, **p95 598 ms**, max 617 ms (Mục tiêu plan: ≤ 800 ms -> **ĐẠT**).
+  - Read Latency: `listVocabulary` (20 items) 156 ms, `listDueReviews` 267 ms, `getReviewStats` 171 ms, `previewReview` 154 ms.
+  - Thời gian xử lý thuần trên D1: ~150–200 ms/transaction (7–12 rows read, 13–20 rows written).
+- **Shadow parity check**:
+  - Indexed Query Plans (EXPLAIN QUERY PLAN): Tận dụng triệt để index `words_owner_created`, `cards_due`, `reviews_owner_time`, `outbox_ready`.
+  - FSRS 4 buttons preview (Again, Hard, Good, Easy) tính toán chuẩn xác với thư viện `@open-spaced-repetition/ts-fsrs`.
+  - Idempotent replay: Replay cùng `event_id` trả đúng kết quả `duplicate_event=true` mà không tạo bản ghi mới.
+  - OCC conflict guard: Update với stale version bị từ chối với lỗi `409 CONFLICT`.
+  - Fault injection / Outbox decoupling: 352 events xếp hàng an toàn trong `sync_outbox` khi chưa có kết nối mirror, các transaction create/review hoàn tất độc lập với Google/Telegram.
+- **Artifacts**: Lưu trữ bảo mật tại `.artifacts/M7-08/`: `remote-benchmark-report.json`, `staging-synthetic-export.json`, `staging-export-validation.json`, `staging-synthetic-import.json`, `staging-synthetic-verify.json`, `synthetic-dry-run.json`.
+- **Workspace gates**: `typecheck`, `lint`, `test` (177/177 tests), `build`, `Check-Secrets.ps1` đều PASS 100%. Không commit lên Git theo yêu cầu người dùng.
+

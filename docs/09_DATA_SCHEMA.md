@@ -67,3 +67,5 @@ Chi tiết backup, nghiệm thu và rollback giữ lịch sử: [FSRS_MIGRATION.
 ## D1 SQL revision 1 — M7-03 local, chưa cutover
 
 `apps/worker/migrations/0001_d1_primary.sql` giữ domain v3 trong `record_json`, thêm cột owner/ID/version/due indexed với CHECK parity, FK owner và Reviews append-only. Events có fingerprint_scheme/result snapshot; outbox/delivery/migration/system_state là bảng vận hành. SQL guard trong DB.batch rollback nếu OCC/maintenance sai; không kiểm UPDATE 0 dòng sau khi đã commit. Production vẫn GAS; adapter/migration triển khai các task M7 tiếp theo, không coi SQL file tồn tại là dữ liệu đã chuyển.
+
+M7-05: migration `0002_telegram_message_lease.sql` thêm index chat/message/status/lease để serialize edits xuyên isolates. Users và DailyDispatchLog JSON thêm `version` (legacy mặc định 0); mọi preference/dispatch transition tăng version và enqueue mirror cùng transaction. Telegram deliveries `pending/leased/delivered/dead`, `last_error=unknown_outcome` cần xử lý thủ công; update dedup/result tồn tại sau restart. Claimed digest quá hai phút thành unknown, không gửi lại tự động. Chưa thay schema Sheet production.

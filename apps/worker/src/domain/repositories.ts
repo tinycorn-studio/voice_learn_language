@@ -116,6 +116,11 @@ export interface ReviewRepository {
     },
     telegram?: TelegramMutationContext,
   ): Promise<{ updated: boolean; notifications_enabled: boolean }>;
-  acceptTelegramCommand?(userId: string, requestId: string, updateId: number,
-    chatId: string, payload: unknown): Promise<void>;
+  acceptTelegramCommand?(
+    userId: string,
+    requestId: string,
+    updateId: number,
+    chatId: string,
+    payload: unknown,
+  ): Promise<void>;
 }

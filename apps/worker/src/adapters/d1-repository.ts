@@ -34,7 +34,11 @@ import type {
 } from '../domain/repositories.js';
 import { clearGuard, writeGuard, type DatabaseBinding, type Statement } from './d1-database.js';
 import { signGasPayload } from './gas-client.js';
-import { acceptTelegramCommand, formatReviewResult, telegramMutationStatements } from './telegram-delivery-store.js';
+import {
+  acceptTelegramCommand,
+  formatReviewResult,
+  telegramMutationStatements,
+} from './telegram-delivery-store.js';
 
 type Row = Record<string, unknown>;
 function storedJson(value: string): unknown {
@@ -67,8 +71,40 @@ const userSchema = z.object({
   reminder_local_hour: z.number().int(),
   created_at: z.string(),
   updated_at: z.string(),
-  version:z.number().int().nonnegative().default(0),
+  version: z.number().int().nonnegative().default(0),
 });
+const dispatchSchema = z.object({
+  dispatch_id: z.string(),
+  user_id: z.string(),
+  local_date: z.string(),
+  status: z.enum(['claimed', 'sent', 'failed', 'unknown', 'skipped']),
+  claimed_at: z.string(),
+  sent_at: z.string(),
+  message_id: z.union([z.string(), z.number()]),
+  last_error: z.string(),
+  attempt_count: z.number().int().nonnegative(),
+  claim_token: z.string(),
+  version: z.number().int().nonnegative().default(0),
+});
+function dispatchMirrorStatement(
+  db: DatabaseBinding,
+  row: z.infer<typeof dispatchSchema>,
+  now: string,
+): Statement {
+  return db
+    .prepare(
+      'INSERT INTO sync_outbox(event_id,payload_json,committed_at,next_attempt_at) VALUES (?,?,?,?)',
+    )
+    .bind(
+      `dispatch_${row.dispatch_id}_${row.version}`,
+      JSON.stringify({
+        event_id: `dispatch_${row.dispatch_id}_${row.version}`,
+        entities: [{ tab: 'DailyDispatchLog', id: row.dispatch_id, version: row.version, row }],
+      }),
+      now,
+      now,
+    );
+}
 const legacyState = (card: FsrsCard): VocabularyItem['review_state'] =>
   card.state === 'New' ? 'new' : card.state === 'Review' ? 'review' : 'learning';
 const activeWord = "w.deleted_at='' AND json_extract(w.record_json,'$.review_state')!='suspended'";
@@ -218,8 +254,16 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           JSON.stringify(event),
         ),
       ...params.statements,
-      ...(params.telegram ? telegramMutationStatements(this.db,params.eventId,params.telegram.context,
-        params.telegram.payload,params.result,now) : []),
+      ...(params.telegram
+        ? telegramMutationStatements(
+            this.db,
+            params.eventId,
+            params.telegram.context,
+            params.telegram.payload,
+            params.result,
+            now,
+          )
+        : []),
       this.db
         .prepare(
           'INSERT INTO sync_outbox(event_id,payload_json,committed_at,next_attempt_at) VALUES (?,?,?,?)',
@@ -703,8 +747,17 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           entityId: reviewId,
           result,
           schema: reviewSubmitResponseSchema,
-          ...(telegram ? {telegram:{context:telegram,payload:{kind:telegram.messageId?'edit':'send',
-            text:formatReviewResult(input.rating,result.next_due_at)}}} : {}),
+          ...(telegram
+            ? {
+                telegram: {
+                  context: telegram,
+                  payload: {
+                    kind: telegram.messageId ? 'edit' : 'send',
+                    text: formatReviewResult(input.rating, result.next_due_at),
+                  },
+                },
+              }
+            : {}),
           condition: `EXISTS(SELECT 1 FROM cards c JOIN words w ON w.word_id=c.word_id AND w.user_id=c.user_id
           WHERE c.user_id=? AND c.card_id=? AND c.row_version=? AND c.is_suspended=0 AND w.version=? AND ${activeWord})`,
           bindings: [userId, card.card_id, card.row_version, word.version],
@@ -801,9 +854,9 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
           reminder_local_hour: 8,
           created_at: now,
           updated_at: now,
-          version:0,
+          version: 0,
         };
-    const user = parse({ ...old, ...prefs, updated_at: now,version:old.version+1 }, userSchema);
+    const user = parse({ ...old, ...prefs, updated_at: now, version: old.version + 1 }, userSchema);
     return this.commit({
       eventId,
       userId,
@@ -813,7 +866,14 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       entityId: userId,
       result: { updated: true, notifications_enabled: user.notifications_enabled },
       schema,
-      ...(telegram ? {telegram:{context:telegram,payload:{kind:'send',text:telegram.confirmationText??'Đã cập nhật cài đặt.'}}} : {}),
+      ...(telegram
+        ? {
+            telegram: {
+              context: telegram,
+              payload: { kind: 'send', text: telegram.confirmationText ?? 'Đã cập nhật cài đặt.' },
+            },
+          }
+        : {}),
       condition: row
         ? 'EXISTS(SELECT 1 FROM users WHERE user_id=? AND record_json=?)'
         : 'NOT EXISTS(SELECT 1 FROM users WHERE user_id=?)',
@@ -829,8 +889,14 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     });
   }
 
-  public async acceptTelegramCommand(userId:string,_requestId:string,updateId:number,chatId:string,payload:unknown):Promise<void> {
-    await acceptTelegramCommand(this.db,userId,updateId,chatId,payload,this.clock());
+  public async acceptTelegramCommand(
+    userId: string,
+    _requestId: string,
+    updateId: number,
+    chatId: string,
+    payload: unknown,
+  ): Promise<void> {
+    await acceptTelegramCommand(this.db, userId, updateId, chatId, payload, this.clock());
   }
   public async claimDailyDigest(
     userId: string,
@@ -857,12 +923,43 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       .prepare('SELECT record_json FROM daily_dispatches WHERE user_id=? AND local_date=?')
       .bind(userId, localDate)
       .first();
-    const old = existing ? decode(existing, z.record(z.unknown())) : null;
-    const attempts = Number(old?.['attempt_count'] ?? 0);
-    const age = Date.parse(nowIso) - Date.parse(String(old?.['claimed_at'] ?? nowIso));
+    const old = existing ? decode(existing, dispatchSchema) : null;
+    const attempts = old?.attempt_count ?? 0;
+    const age = Date.parse(nowIso) - Date.parse(old?.claimed_at ?? nowIso);
+    // A crashed send may already have reached Telegram. Record uncertainty instead of
+    // reclaiming it and potentially sending the same daily reminder twice.
+    if (old?.status === 'claimed' && age >= 120_000) {
+      const unknown = {
+        ...old,
+        status: 'unknown' as const,
+        last_error: 'Claim expired; send outcome unknown',
+        version: old.version + 1,
+      };
+      const guard = crypto.randomUUID();
+      try {
+        await this.db.batch([
+          writeGuard(
+            this.db,
+            guard,
+            'EXISTS(SELECT 1 FROM daily_dispatches WHERE dispatch_id=? AND record_json=?)',
+            [dispatchId, parse(existing, jsonRow).record_json],
+          ),
+          this.db
+            .prepare(
+              "UPDATE daily_dispatches SET status='unknown',record_json=? WHERE dispatch_id=?",
+            )
+            .bind(JSON.stringify(unknown), dispatchId),
+          dispatchMirrorStatement(this.db, unknown, nowIso),
+          clearGuard(this.db, guard),
+        ]);
+      } catch (error) {
+        if (!(error instanceof Error && /constraint|unique/i.test(error.message))) throw error;
+      }
+      return { ...base, already_dispatched: true };
+    }
     if (
       old &&
-      (old['status'] !== 'failed' || attempts >= 3 || age < 30000 * 2 ** Math.max(0, attempts - 1))
+      (old.status !== 'failed' || attempts >= 3 || age < 30000 * 2 ** Math.max(0, attempts - 1))
     )
       return { ...base, already_dispatched: true };
     const due = await this.listDue(
@@ -873,7 +970,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     );
     if (!due.items.length) return base;
     const claimToken = crypto.randomUUID();
-    const row = {
+    const row = dispatchSchema.parse({
       dispatch_id: dispatchId,
       user_id: userId,
       local_date: localDate,
@@ -884,17 +981,27 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       last_error: '',
       attempt_count: attempts + 1,
       claim_token: claimToken,
-    };
+      version: (old?.version ?? 0) + 1,
+    });
     const guard = crypto.randomUUID();
     try {
       await this.db.batch([
         writeGuard(
           this.db,
           guard,
-          old
-            ? "EXISTS(SELECT 1 FROM daily_dispatches WHERE user_id=? AND local_date=? AND claim_token=? AND status='failed')"
-            : 'NOT EXISTS(SELECT 1 FROM daily_dispatches WHERE user_id=? AND local_date=?)',
-          old ? [userId, localDate, old['claim_token']] : [userId, localDate],
+          `( ${
+            old
+              ? "EXISTS(SELECT 1 FROM daily_dispatches WHERE user_id=? AND local_date=? AND claim_token=? AND status='failed')"
+              : 'NOT EXISTS(SELECT 1 FROM daily_dispatches WHERE user_id=? AND local_date=?)'
+          } ) AND (${
+            userRow
+              ? 'EXISTS(SELECT 1 FROM users WHERE user_id=? AND record_json=?)'
+              : 'NOT EXISTS(SELECT 1 FROM users WHERE user_id=?)'
+          })`,
+          [
+            ...(old ? [userId, localDate, old.claim_token] : [userId, localDate]),
+            ...(userRow ? [userId, parse(userRow, jsonRow).record_json] : [userId]),
+          ],
         ),
         this.db
           .prepare(
@@ -910,6 +1017,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
             attempts + 1,
             JSON.stringify(row),
           ),
+        dispatchMirrorStatement(this.db, row, nowIso),
         clearGuard(this.db, guard),
       ]);
     } catch (error) {
@@ -935,23 +1043,48 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     },
   ): Promise<{ updated: boolean }> {
     const now = this.clock();
-    const result = await this.db
-      .prepare(
-        `UPDATE daily_dispatches SET status=?,record_json=json_set(record_json,
-      '$.status',?,'$.sent_at',?,'$.message_id',?,'$.last_error',?) WHERE user_id=? AND dispatch_id=? AND claim_token=?`,
-      )
-      .bind(
-        input.status,
-        input.status,
-        input.status === 'sent' ? now : '',
-        input.message_id ?? '',
-        input.status === 'sent' ? '' : `Telegram send ${input.status}`,
-        userId,
-        input.dispatch_id,
-        input.claim_token,
-      )
-      .run();
-    if (!result.meta.changes) throw conflict();
+    const stored = await this.db
+      .prepare('SELECT record_json FROM daily_dispatches WHERE user_id=? AND dispatch_id=?')
+      .bind(userId, input.dispatch_id)
+      .first();
+    if (!stored) throw conflict();
+    const old = decode(stored, dispatchSchema);
+    if (old.claim_token !== input.claim_token) throw conflict();
+    if (old.status === input.status && old.message_id === (input.message_id ?? ''))
+      return { updated: true };
+    if (old.status !== 'claimed') throw conflict();
+    const row = {
+      ...old,
+      status: input.status,
+      sent_at: input.status === 'sent' ? now : '',
+      message_id: input.message_id ?? '',
+      last_error: input.status === 'sent' ? '' : `Telegram send ${input.status}`,
+      version: old.version + 1,
+    };
+    const guard = crypto.randomUUID();
+    try {
+      await this.db.batch([
+        writeGuard(
+          this.db,
+          guard,
+          'EXISTS(SELECT 1 FROM daily_dispatches WHERE dispatch_id=? AND record_json=?)',
+          [input.dispatch_id, parse(stored, jsonRow).record_json],
+        ),
+        this.db
+          .prepare('UPDATE daily_dispatches SET status=?,record_json=? WHERE dispatch_id=?')
+          .bind(row.status, JSON.stringify(row), row.dispatch_id),
+        dispatchMirrorStatement(this.db, row, now),
+        clearGuard(this.db, guard),
+      ]);
+    } catch (error) {
+      if (error instanceof Error && /constraint|unique/i.test(error.message)) throw conflict();
+      throw new AppError({
+        code: 'UNAVAILABLE',
+        message: 'Digest storage unavailable',
+        status: 503,
+        retryable: true,
+      });
+    }
     return { updated: true };
   }
 }

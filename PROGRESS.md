@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-13 19:21 +07:00
-> Phase: Người dùng đã yêu cầu triển khai kế hoạch D1/latency sau khi đọc plan; bắt đầu M7-01, production chưa đổi.
-> Đang thực hiện: M7-05 IN_PROGRESS — Telegram update/delivery bền vững và Cron D1; remote D1 chưa truy cập được (Cloudflare Authentication error 10000), tiếp tục code local trước staging.
-> Next action: Hoàn thiện test cho Telegram delivery store & D1 Telegram webhook integration, sau đó M7-06 mirror/M7-07 migration local. Sau candidate ready can quyen D1 cho staging/cutover.
-> Blockers: Plan chưa phải runtime; chưa có baseline/write latency breakdown, snapshot/schema Sheet thật để migrate hoặc D1 staging rehearsal. M5-12 chờ rating/Reviews/due thật. Không tạo tài nguyên/deploy/cutover trong task lập kế hoạch; CSV restore/Settings/quota/backup mở rộng vẫn task riêng.
+> Updated: 2026-10-14 08:33 +07:00
+> Phase: M7-01–M7-04 DONE LOCAL; M7-05 đang dở, M7-06–M7-10 chưa hoàn tất. Các nhánh M7 chưa push/merge; production vẫn GAS.
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: M7-06 Sheet mirror/outbox; M7-07 full snapshot/import/verify, then staging M7-08.
+> Blockers: Cloudflare D1 list vẫn Authentication error 10000 dù OAuth liệt kê d1 (write), chưa xác định nguyên nhân. Chưa có full snapshot/schema Sheet thật, migration/restore rehearsal hoặc benchmark production. M5-12 chờ rating/Reviews/due thật; CSV restore/Settings/quota/backup mở rộng còn pending. Chưa tạo D1 remote/import/cutover.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`.
 
 ## Legend
@@ -67,15 +67,15 @@
 - [ ] M6-02 — Phát âm, lịch sử hỏi lại, AI tự kiểm tra từ trong hội thoại.
 - [ ] M6-03 — Phạm vi D1 đã được ưu tiên thành M7 để giảm latency cá nhân; theo dõi các task M7-01–M7-10, không triển khai Supabase song song.
 
-## Milestone M7 — D1 primary và giảm độ trễ (PLANNED)
+## Milestone M7 — D1 primary và giảm độ trễ (IN_PROGRESS)
 
-Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùng chọn Sheet chỉ xem/xuất, sửa qua app. Tất cả tasks dưới đây chưa có implementation/deploy evidence.
+Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùng chọn Sheet chỉ xem/xuất, sửa qua app. M7-01–M7-04 có implementation/test evidence local tại docs/28_D1_IMPLEMENTATION_EVIDENCE.md; chưa có M7 production deploy.
 
 - [x] M7-01 — P1, DONE LOCAL: capture/API/GAS timings, diagnostics copy khi HTTP đều 200; privacy/bounds regression, 139 suite tests + baseline synthetic 30/30 PASS. Production timings chờ M7-08/M7-10. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [x] M7-02 — P1, DONE LOCAL: 143 tests/23 files/gates PASS, ACK/refresh background và Telegram trước write/success sau commit; delivery bền vững M7-05. Chưa deploy.
 - [x] M7-03 — P1, DONE LOCAL: 146 tests/24 files/gates PASS, workerd D1 constraints/batch rollback, factory fail closed và GAS vẫn production. Remote staging gate M7-08.
 - [x] M7-04 — P1, DONE LOCAL: 152 tests/25 files/gates PASS, D1 CRUD/FSRS/native audit/atomic replay-outbox và GAS HMAC legacy, concurrent/crash tests. Remote D1 auth error 10000, chưa deploy.
-- [ ] M7-05 — P1, IN_PROGRESS: Telegram commands/dedup/delivery và Cron dùng D1, keyboard legacy/version, digest claim/sent/failed/unknown.
+- [x] M7-05 — P1, DONE LOCAL: 162 tests/26 files và gates PASS; Telegram mutation/update/delivery atomic, lease/revision/retry/unknown, commands/legacy keyboard và digest OCC/atomic mirror. Chưa deploy; docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [ ] M7-06 — P1, PLANNED: D1 durable outbox/Cron lease + GAS HMAC batch mirror một chiều, retry/dead-letter/version guards, lag/rebuild và Google outage independence.
 - [ ] M7-07 — P1, PLANNED: full Sheet exporter/importer/dry-run/verify, legacy fingerprint HMAC parity, freeze/drain, backup manifests và rollback tools.
 - [ ] M7-08 — P1, PLANNED: staging D1 runtime thật, migration/restore rehearsal, data parity, FSRS/concurrency/security/fault injection và benchmark Free CPU/quota.
@@ -197,7 +197,13 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 | 2026-10-13 19:21 +07:00 | M7-05 | IN_PROGRESS | Luu code dang do: telegram-delivery-store.ts, Telegram context cho D1 mutation, webhook /start /pause /review luu vao D1 va process deliveries qua Cron/waitUntil. Dang tiep tuc viet tests cho M7-05. | Viet unit test va integration tests cho telegram-delivery-store & D1 entry.ts |
 
+| 2026-10-14 08:23 +07:00 | M7-05 | IN_PROGRESS / STATUS_AUDIT | Chỉ audit, không sửa runtime/deploy. HEAD ec9c0e6, worktree sạch trước audit; remote main adf0aea và không có nhánh M7. Lint PASS; typecheck FAIL TS2379 tại telegram-delivery-store.ts:67 (callback_data optional). Chưa chạy lại full tests/build; 152 tests PASS thuộc M7-04, không phải chứng nhận WIP hiện tại. D1 list vẫn lỗi 10000 dù scope d1 (write). Worker active e07a24e2 100%, Pages vẫn index-C2NMt0rU.js; production GAS. | Hoàn thiện M7-05 và gates, rồi M7-06/07; giải quyết D1 auth và staging M7-08 trước cutover M7-09/QA M7-10. |
+
+| 2026-10-14 08:33 +07:00 | M7-05 | DONE | DONE LOCAL: 162 tests/26 files PASS; typecheck/lint/build/Worker dry-run/secret scan/diff PASS; 10 D1 Telegram tests for isolate replay, atomic rollback, edit ordering, unknown sends and digest. D1 list accessible, no remote DB or deployment. docs/28_D1_IMPLEMENTATION_EVIDENCE.md | M7-06 Sheet mirror/outbox; M7-07 full snapshot/import/verify, then staging M7-08. |
+
 ## Current blockers / risks
+
+- **M7 audit 14/10:** Code M7-05 chưa typecheck pass và chưa có delivery integration evidence. M7-06 mirror processor/GAS batch, M7-07 migration tools, M7-08 staging/benchmark, M7-09 cutover, M7-10 live QA chưa hoàn tất. Remote D1 lỗi xác thực 10000; scope đã có d1 (write), không kết luận đơn thuần thiếu scope. M7 code chỉ local; production Worker e07a24e2/Pages M5-12 còn GAS.
 
 - **M5-12:** Pages mới đã đồng bộ FSRS UI và capture; người dùng xác nhận từ save Sheet và /review Telegram hiện, chờ chấm Good/Reviews/due. CI source 0e073519 và a76cb973 SUCCESS; đã merge main theo yêu cầu người dùng. Recovery vẫn cần Gemini tạo tool hợp lệ, có timeout/budget và UI báo thất bại, không giả saved. Chưa đọc headers trực tiếp hoặc thay GAS setup literal.
 
@@ -219,7 +225,7 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 - [ ] Đọc `AGENTS.md`, `PROGRESS.md`, `docs/13_MILESTONES.md`.
 - [ ] `git status --short` và đọc diff chưa commit.
-- [ ] Đọc plan docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md; chỉ bắt đầu M7-01/M7-02 khi người dùng yêu cầu triển khai, M5-13 chỉ lập kế hoạch. D1/GAS production chưa thay trong plan.
+- [ ] Đọc plan docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md và evidence docs/28_D1_IMPLEMENTATION_EVIDENCE.md; tiếp tục M7-05 từ ec9c0e6, sửa typecheck và bổ sung tests. M7-01–M7-04 đã xong local; production vẫn GAS, chưa push các nhánh M7.
 - [ ] M5-12 source đã merge main adf0aea, production ae4031d8. User xác nhận Sheet và /review, rating/Reviews/due thật còn pending; nghiệm thu cùng M7-08/M7-10, không tự đóng từ plan.
 - [ ] Chạy setup/check cần thiết, ghi evidence và command.
 - [ ] Khi thực sự hoàn thành, chạy `scripts/Complete-Task.ps1` và commit cả PROGRESS/CHANGELOG.

@@ -29,3 +29,12 @@
 - **152 tests/25 files PASS**, lint/Worker dry-run PASS; D1 integration kiểm crash giữa audit insert rollback, hai events cùng version chỉ một thắng, cùng event đồng thời trả một result, Hard không lapse/Again Relearning, Card độc lập và legacy GAS HMAC Event replay qua cutover. Production chưa đổi.
 - D1 read-only inventory Cloudflare bị **Authentication error 10000**. Không tạo database remote hoặc đổi OAuth trong bước này; tiếp tục local M7-05–M7-07, staging/cutover M7-08/M7-09 cần quyền D1 sau khi candidate đủ review.
 - Digest/delivery durable hoàn thiện ở M7-05; Sheet processor/Migration ở M7-06/M7-07. `.artifacts/M7-04/`.
+
+## M7-05 — 14/10/2026, local
+
+- Telegram review/preferences lưu Events, domain mutation, update dedup, result delivery và mirror outbox trong cùng D1 batch. `/review` lưu durable command trước HTTP 200; retry qua SecurityStateStore mới không nhân review/delivery. Keyboard Word ID cũ vẫn resolve được.
+- Delivery bounded ba jobs/lượt, lease 30 giây; SQL CAS ngăn hai isolates edit cùng message đồng thời, revision cũ superseded. Edit retry idempotent; send mất ACK hoặc send lease hết hạn thành dead/unknown_outcome, không tự gửi lại. Poison payload dead-letter riêng, definite failures tối đa ba lần có backoff.
+- Digest claim/finish có OCC + maintenance guard + atomic outbox, version tăng từng transition. Claimed quá hai phút chuyển unknown; sent/unknown không retry, failed backoff tối đa ba. Pause guard kiểm preferences snapshot ngay trong transaction; finish replay không tạo thêm outbox, stale token/status conflict.
+- 10 integration tests trên workerd D1 local PASS; full suite **162 tests/26 files PASS**, typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Fixture retry được sửa để truyền SecurityStateStore mới bằng tham số thứ tư; đã chạy lại đủ 10 test sau sửa fixture. Artifacts `.artifacts/M7-05/`.
+- Cloudflare `d1 list --json` đã thành công và trả `[]` ngày 14/10; lỗi 10000 trước đó hiện không tái hiện, chưa kết luận nguyên nhân. Chưa tạo DB remote hoặc deploy M7; config production vẫn GAS/Cron cũ. Cron mỗi phút chỉ bật ở staging/cutover sau mirror/migration gates.
+- Telegram không hỗ trợ fencing token cho edit: lease lớn hơn HTTP timeout giúp serialize lượt đang chạy; trường hợp request ngoại vi đến rất muộn sau timeout vẫn cần kiểm chứng trong staging. Không coi local suite là SLA mạng hoặc nghiệm thu thiết bị thật.

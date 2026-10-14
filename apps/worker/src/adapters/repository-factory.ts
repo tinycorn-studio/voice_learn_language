@@ -5,8 +5,12 @@ import { D1RepositoryAdapter } from './d1-repository.js';
 import type { VocabularyRepository, ReviewRepository } from '../domain/repositories.js';
 
 /** All HTTP, Telegram and Cron entry points must select the same authority. */
-export async function createRepositories(env: WorkerEnv, fetchFn: typeof fetch):Promise<{
-  vocabulary:VocabularyRepository;review:ReviewRepository;
+export async function createRepositories(
+  env: WorkerEnv,
+  fetchFn: typeof fetch,
+): Promise<{
+  vocabulary: VocabularyRepository;
+  review: ReviewRepository;
 }> {
   if (env.DATA_BACKEND === 'd1') {
     if (!env.DB)

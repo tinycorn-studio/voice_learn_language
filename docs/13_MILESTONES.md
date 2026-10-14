@@ -70,7 +70,7 @@
 - M6-02 Phát âm, memory-based conversation review, spaced insertion.
 - M6-03 D1 migration được ưu tiên thành M7 do latency thực tế; không triển khai Supabase cùng lúc.
 
-## M7 — D1 primary và hiệu năng (PLANNED)
+## M7 — D1 primary và hiệu năng (IN_PROGRESS, chưa cutover)
 
 Plan: [27_D1_PERFORMANCE_MIGRATION_PLAN.md](27_D1_PERFORMANCE_MIGRATION_PLAN.md). Sheet chỉ xem/xuất, sửa qua app. Mỗi dòng là task implementation riêng, chưa được thực thi trong M5-13.
 

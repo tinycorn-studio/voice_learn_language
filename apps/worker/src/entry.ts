@@ -12,7 +12,10 @@ import {
 import { createRepositories } from './adapters/repository-factory.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
-import { formatReviewResult, processTelegramDeliveries } from './adapters/telegram-delivery-store.js';
+import {
+  formatReviewResult,
+  processTelegramDeliveries,
+} from './adapters/telegram-delivery-store.js';
 import {
   issueSessionToken,
   verifySessionToken,
@@ -401,12 +404,19 @@ async function handleWorkerRequestInternal(
               ...(match[3] ? { version: Number(match[3]) } : {}),
             },
             new Date(nowMs).toISOString(),
-            ...(env.DATA_BACKEND==='d1'?[{updateId:update.update_id,chatId:String(cb.message?.chat.id??cb.from.id),
-              ...(cb.message?.message_id?{messageId:cb.message.message_id}:{})}]:[]),
+            ...(env.DATA_BACKEND === 'd1'
+              ? [
+                  {
+                    updateId: update.update_id,
+                    chatId: String(cb.message?.chat.id ?? cb.from.id),
+                    ...(cb.message?.message_id ? { messageId: cb.message.message_id } : {}),
+                  },
+                ]
+              : []),
           );
 
-          if (cb.id && env.DATA_BACKEND!=='d1') {
-            const text = formatReviewResult(rating,result.next_due_at);
+          if (cb.id && env.DATA_BACKEND !== 'd1') {
+            const text = formatReviewResult(rating, result.next_due_at);
             const delivered = await (
               cb.message?.message_id
                 ? botClient.editReviewResult(cb.message.chat.id, cb.message.message_id, text)
@@ -439,18 +449,22 @@ async function handleWorkerRequestInternal(
           const userId = `telegram:${ownerNumericId}`;
 
           if (text.startsWith('/pause')) {
-            const confirmation='⏸ Đã tạm dừng gửi nhắc ôn từ vựng hàng ngày. Gõ /start để bật lại.';
+            const confirmation =
+              '⏸ Đã tạm dừng gửi nhắc ôn từ vựng hàng ngày. Gõ /start để bật lại.';
             await reviewRepo.updateUserPreferences(
               userId,
               requestId,
               `tgcmd_pause_${update.update_id}`,
               { telegram_chat_id: chatId, notifications_enabled: false },
-              ...(env.DATA_BACKEND==='d1'?[{updateId:update.update_id,chatId,confirmationText:confirmation}]:[]),
+              ...(env.DATA_BACKEND === 'd1'
+                ? [{ updateId: update.update_id, chatId, confirmationText: confirmation }]
+                : []),
             );
-            if(env.DATA_BACKEND!=='d1') await botClient.sendMessage({
-              chatId,
-              text: confirmation,
-            });
+            if (env.DATA_BACKEND !== 'd1')
+              await botClient.sendMessage({
+                chatId,
+                text: confirmation,
+              });
             return jsonEnvelopeResponse(
               { ok: true, data: { handled: 'pause' }, request_id: requestId },
               200,
@@ -458,18 +472,22 @@ async function handleWorkerRequestInternal(
           }
 
           if (text.startsWith('/start')) {
-            const confirmation='👋 Chào mừng bạn! Đã bật thông báo ôn từ vựng lúc 08:00 sáng (UTC+7). Gõ /review để ôn ngay.';
+            const confirmation =
+              '👋 Chào mừng bạn! Đã bật thông báo ôn từ vựng lúc 08:00 sáng (UTC+7). Gõ /review để ôn ngay.';
             await reviewRepo.updateUserPreferences(
               userId,
               requestId,
               `tgcmd_start_${update.update_id}`,
               { telegram_chat_id: chatId, notifications_enabled: true },
-              ...(env.DATA_BACKEND==='d1'?[{updateId:update.update_id,chatId,confirmationText:confirmation}]:[]),
+              ...(env.DATA_BACKEND === 'd1'
+                ? [{ updateId: update.update_id, chatId, confirmationText: confirmation }]
+                : []),
             );
-            if(env.DATA_BACKEND!=='d1') await botClient.sendMessage({
-              chatId,
-              text: confirmation,
-            });
+            if (env.DATA_BACKEND !== 'd1')
+              await botClient.sendMessage({
+                chatId,
+                text: confirmation,
+              });
             return jsonEnvelopeResponse(
               { ok: true, data: { handled: 'start' }, request_id: requestId },
               200,
@@ -479,11 +497,23 @@ async function handleWorkerRequestInternal(
           if (text.startsWith('/review')) {
             const due = await reviewRepo.listDue(userId, requestId, 5);
             const first = due.items[0];
-            if(env.DATA_BACKEND==='d1' && reviewRepo.acceptTelegramCommand) {
-              await reviewRepo.acceptTelegramCommand(userId,requestId,update.update_id,chatId,{kind:'send',
-                text:first?TelegramBotClient.formatDigestMessage(formatLocalDateAsiaHoChiMinh(new Date(nowMs)),due.items)
-                  :'🎉 Hiện tại không có từ vựng nào đến hạn ôn tập!',
-                ...(first?{inline_keyboard:TelegramBotClient.buildQuizKeyboard(first.card_id??first.word_id,first.row_version??first.version)}:{}),
+            if (env.DATA_BACKEND === 'd1' && reviewRepo.acceptTelegramCommand) {
+              await reviewRepo.acceptTelegramCommand(userId, requestId, update.update_id, chatId, {
+                kind: 'send',
+                text: first
+                  ? TelegramBotClient.formatDigestMessage(
+                      formatLocalDateAsiaHoChiMinh(new Date(nowMs)),
+                      due.items,
+                    )
+                  : '🎉 Hiện tại không có từ vựng nào đến hạn ôn tập!',
+                ...(first
+                  ? {
+                      inline_keyboard: TelegramBotClient.buildQuizKeyboard(
+                        first.card_id ?? first.word_id,
+                        first.row_version ?? first.version,
+                      ),
+                    }
+                  : {}),
               });
             } else if (!first) {
               await botClient.sendMessage({
@@ -949,19 +979,41 @@ async function parseOptionalRequestJson(request: Request): Promise<unknown> {
 }
 
 export default {
-  async fetch(request: Request, env: WorkerEnv, ctx?:{waitUntil(work:Promise<unknown>):void}): Promise<Response> {
-    const response=await handleWorkerRequest(request, env);
-    if(ctx && env.DATA_BACKEND==='d1' && env.DB && request.method==='POST' && new URL(request.url).pathname==='/telegram/webhook' && response.ok) {
-      ctx.waitUntil(processTelegramDeliveries(env.DB,new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),new Date().toISOString(),3)
-        .catch(()=>logStructured('warn','telegram_delivery_deferred','background')));
+  async fetch(
+    request: Request,
+    env: WorkerEnv,
+    ctx?: { waitUntil(work: Promise<unknown>): void },
+  ): Promise<Response> {
+    const response = await handleWorkerRequest(request, env);
+    if (
+      ctx &&
+      env.DATA_BACKEND === 'd1' &&
+      env.DB &&
+      request.method === 'POST' &&
+      new URL(request.url).pathname === '/telegram/webhook' &&
+      response.ok
+    ) {
+      ctx.waitUntil(
+        processTelegramDeliveries(
+          env.DB,
+          new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),
+          new Date().toISOString(),
+          3,
+        ).catch(() => logStructured('warn', 'telegram_delivery_deferred', 'background')),
+      );
     }
     return response;
   },
   async scheduled(controller: { scheduledTime: number }, env: WorkerEnv): Promise<void> {
-    if(env.DATA_BACKEND==='d1' && env.DB) {
-      await processTelegramDeliveries(env.DB,new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),new Date(controller.scheduledTime).toISOString(),3);
-      const time=new Date(controller.scheduledTime);
-      if(time.getUTCHours()!==1 || time.getUTCMinutes()>5) return;
+    if (env.DATA_BACKEND === 'd1' && env.DB) {
+      await processTelegramDeliveries(
+        env.DB,
+        new TelegramBotClient(env.TELEGRAM_BOT_TOKEN),
+        new Date(controller.scheduledTime).toISOString(),
+        3,
+      );
+      const time = new Date(controller.scheduledTime);
+      if (time.getUTCHours() !== 1 || time.getUTCMinutes() > 5) return;
     }
     await handleScheduledCron(controller.scheduledTime, env);
   },

@@ -4,7 +4,7 @@
 > **Trạng thái:** web/Worker/Apps Script đã triển khai; voice/auth/vocabulary được người dùng xác nhận. Frontend M5-12 bổ sung capture và FSRS UI đã public; luồng hỏi nghĩa → Sheet/Card → review cùng các gate vận hành còn chờ live QA. Xem `PROGRESS.md` và `docs/26_VOCABULARY_CAPTURE_RELEASE.md`.
 > **Đường dẫn đích Windows:** `D:\Profile\VoiceChatLearnLanguage`
 
-Kế hoạch tiếp theo (chưa triển khai): [D1 primary và giảm độ trễ Mini App/Telegram](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md). Người dùng chọn Sheet chỉ xem/xuất; mọi chỉnh sửa qua app. Tasks M7 và ADR-010 đang ở giai đoạn kế hoạch.
+Đang triển khai local: [D1 primary và giảm độ trễ Mini App/Telegram](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md). Người dùng chọn Sheet chỉ xem/xuất; mọi chỉnh sửa qua app. Evidence và phần còn thiếu tại [tiến độ](PROGRESS.md) và [bằng chứng M7](docs/28_D1_IMPLEMENTATION_EVIDENCE.md); production vẫn GAS, chưa cutover D1.
 
 ## Mục tiêu
 

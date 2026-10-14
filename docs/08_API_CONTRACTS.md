@@ -162,6 +162,10 @@ Response GAS `{ok:boolean,data?:{},error?:{code,message}}`; Worker validate sche
 
 `review.claimDigest.data`: `{local_date,limit,now_iso}` → `{dispatch_id,already_dispatched,notifications_enabled,telegram_chat_id,due_cards,claim_token?}`. `review.finishDigest.data`: `{dispatch_id,claim_token,status:"sent|failed|unknown",message_id?}` → `{updated:true}`. Chỉ Worker được ký hai action này. Xem schema v2/v3 và runbook migration.
 
+## Telegram D1 delivery — M7-05 local, chưa deploy
+
+Webhook đã xác thực mới được gắn trusted `TelegramMutationContext`; HTTP review body không nhận context này. ACK callback trước mutation, kết quả thành công chỉ tạo sau domain commit. D1 lưu update ID và delivery atomic với review/preferences; `/review` lưu command trước trả HTTP 200. Delivery được drain qua waitUntil và Cron, tối đa ba jobs/lượt, lease 30 giây và tối đa ba attempts. Edit cùng message serialize và bỏ revision cũ; send mất ACK không tự retry, dead-letter `unknown_outcome` cần đối chiếu thủ công. Digest claimed hết hai phút thành unknown; finish replay cùng token/status/message ID idempotent, terminal status không bị ghi đè.
+
 Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 bytes, không cắt ngắn ID. Callback cũ thiếu version vẫn được hỗ trợ; retry cùng update_id có event_id ổn định trong GAS. In-memory dedup chỉ cache update đã xử lý thành công.
 
 ## Contract testing

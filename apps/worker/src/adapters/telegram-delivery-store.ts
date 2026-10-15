@@ -122,6 +122,7 @@ const jobSchema = z.object({
   payload_json: z.string(),
   status: z.enum(['pending', 'leased']),
   attempts: z.number().int().nonnegative(),
+  next_attempt_at: z.string(),
   lease_until: z.string(),
 });
 
@@ -137,14 +138,16 @@ export async function processTelegramDeliveries(
   const rows = await db
     .prepare(
       `SELECT * FROM telegram_deliveries WHERE (status='pending' AND next_attempt_at<=?)
-    OR (status='leased' AND lease_until<=?) ORDER BY revision LIMIT ?`,
+    OR (status='leased' AND lease_until<=?) ORDER BY revision DESC,delivery_id DESC LIMIT ?`,
     )
     .bind(now, now, Math.max(1, Math.min(3, limit)))
     .all();
   let delivered = 0;
   for (const raw of rows.results) {
+    const deliveryStarted = performance.now();
     const job = jobSchema.parse(raw);
     const timestamp = currentTime();
+    const readyWaitMs = Math.max(0, Date.parse(timestamp) - Date.parse(job.next_attempt_at));
     const token = crypto.randomUUID();
     const until = new Date(Date.parse(timestamp) + 30_000).toISOString();
     // Claim first, including mutual exclusion, before checking a newer revision. Otherwise
@@ -171,7 +174,10 @@ export async function processTelegramDeliveries(
         )
         .bind(job.delivery_id, token)
         .run();
-      logStructured('warn', 'telegram_delivery_invalid', `tg_${job.update_id}`);
+      logStructured('warn', 'telegram_delivery_invalid', `tg_${job.update_id}`, {
+        duration_ms: Math.round(performance.now() - deliveryStarted),
+        ready_wait_ms: readyWaitMs,
+      });
       continue;
     }
     let ok = false;
@@ -223,6 +229,8 @@ export async function processTelegramDeliveries(
       unknown,
       superseded,
       attempt: job.attempts + 1,
+      duration_ms: Math.round(performance.now() - deliveryStarted),
+      ready_wait_ms: readyWaitMs,
     });
   }
   return delivered;

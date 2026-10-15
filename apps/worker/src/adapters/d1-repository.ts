@@ -135,19 +135,20 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     // Exact GAS field order is intentional: imported Events must still replay across cutover.
     return signGasPayload(JSON.stringify({ action, user_id: userId, data }), this.fingerprintKey);
   }
-  private async replay<T>(
-    eventId: string,
+  private eventLookupStatement(eventId: string): Statement {
+    return this.db
+      .prepare(
+        'SELECT user_id,action,payload_hash,fingerprint_scheme,result_json FROM events WHERE event_id=?',
+      )
+      .bind(eventId);
+  }
+  private resolveReplay<T>(
+    raw: unknown,
     userId: string,
     action: string,
     hash: string,
     schema: z.ZodType<T, z.ZodTypeDef, unknown>,
-  ): Promise<T | null> {
-    const raw = await this.db
-      .prepare(
-        'SELECT user_id,action,payload_hash,fingerprint_scheme,result_json FROM events WHERE event_id=?',
-      )
-      .bind(eventId)
-      .first();
+  ): T | null {
     if (!raw) return null;
     const event = parse(raw, eventRow);
     if (
@@ -166,6 +167,21 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
         ...('idempotent_replay' in result ? { idempotent_replay: true } : {}),
       };
     return result;
+  }
+  private async replay<T>(
+    eventId: string,
+    userId: string,
+    action: string,
+    hash: string,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  ): Promise<T | null> {
+    return this.resolveReplay(
+      await this.eventLookupStatement(eventId).first(),
+      userId,
+      action,
+      hash,
+      schema,
+    );
   }
   public wordStatement(word: VocabularyItem): Statement {
     const value = parse(word, vocabularyItemSchema);
@@ -349,25 +365,38 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       source_excerpt: input.source_excerpt,
     };
     const hash = await this.fingerprint(action, userId, data);
-    const replay = await this.replay(
-      input.event_id,
-      userId,
-      action,
-      hash,
-      vocabularyCreateResponseSchema,
-    );
-    if (replay) return replay;
     const key = [
       userId,
       normalizeText(data.lemma),
       normalizeText(input.part_of_speech),
       normalizeText(input.sense_key),
     ].join('|');
+    // D1 batches these read-only preflight queries in one network round trip.
+    // Durable writes still use commit()'s atomic guard/event/entity/outbox batch.
+    const preflightStarted = performance.now();
+    const [eventRead, wordRead] = await this.db.batch([
+      this.eventLookupStatement(input.event_id),
+      this.db.prepare('SELECT record_json FROM words WHERE word_key=?').bind(key),
+    ]);
+    logStructured('info', 'repository_preflight_complete', requestId, {
+      backend: 'd1',
+      action,
+      duration_ms: Math.round(performance.now() - preflightStarted),
+      statement_count: 2,
+      rows_read: eventRead!.meta.rows_read + wordRead!.meta.rows_read,
+    });
+    const replay = this.resolveReplay(
+      eventRead!.results[0] ?? null,
+      userId,
+      action,
+      hash,
+      vocabularyCreateResponseSchema,
+    );
+    if (replay) return replay;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const row = await this.db
-        .prepare('SELECT record_json FROM words WHERE word_key=?')
-        .bind(key)
-        .first();
+      const row = attempt === 0
+        ? (wordRead!.results[0] ?? null)
+        : await this.db.prepare('SELECT record_json FROM words WHERE word_key=?').bind(key).first();
       const previous = row ? decode(row, vocabularyItemSchema) : null;
       const now = this.clock();
       const word: VocabularyItem = previous
@@ -551,19 +580,21 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       entities: [{ tab: 'Words', id: wordId, version: word.version, row: word }],
     });
   }
-  public async getCardContext(
-    userId: string,
-    target: string,
-  ): Promise<{ card: FsrsCard; word: VocabularyItem; config: FsrsConfig }> {
-    const row = await this.db
+  private cardContextStatement(userId: string, target: string): Statement {
+    return this.db
       .prepare(
         `SELECT c.record_json AS card_json,w.record_json AS word_json,s.record_json AS settings_json
       FROM cards c JOIN words w ON w.word_id=c.word_id AND w.user_id=c.user_id LEFT JOIN settings s ON s.user_id=c.user_id
       WHERE c.user_id=? AND c.is_suspended=0 AND ${activeWord} AND (c.card_id=? OR c.word_id=?)
       ORDER BY CASE WHEN c.card_id=? THEN 0 WHEN c.card_id='c_' || c.word_id THEN 1 ELSE 2 END,c.card_id LIMIT 1`,
       )
-      .bind(userId, target, target, target)
-      .first();
+      .bind(userId, target, target, target);
+  }
+  private decodeCardContext(row: unknown): {
+    card: FsrsCard;
+    word: VocabularyItem;
+    config: FsrsConfig;
+  } {
     if (!row) throw notFound();
     const stored = parse(
       row,
@@ -593,6 +624,12 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       word: parse(storedJson(stored.word_json) as unknown, vocabularyItemSchema),
       config: parse(overrides, fsrsConfigSchema),
     };
+  }
+  public async getCardContext(
+    userId: string,
+    target: string,
+  ): Promise<{ card: FsrsCard; word: VocabularyItem; config: FsrsConfig }> {
+    return this.decodeCardContext(await this.cardContextStatement(userId, target).first());
   }
   public async listDue(
     userId: string,
@@ -654,19 +691,33 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
       version: input.version ?? null,
     };
     const hash = await this.fingerprint(action, userId, { client_request: clientRequest });
-    const replay = await this.replay(
-      input.event_id,
+    // Replay and current Card context are read in one D1 round trip. Replay is
+    // still resolved first so a completed event remains replayable after deletion.
+    const target = input.card_id ?? input.word_id ?? '';
+    const preflightStarted = performance.now();
+    const [eventRead, cardRead] = await this.db.batch([
+      this.eventLookupStatement(input.event_id),
+      this.cardContextStatement(userId, target),
+    ]);
+    logStructured('info', 'repository_preflight_complete', requestId, {
+      backend: 'd1',
+      action,
+      duration_ms: Math.round(performance.now() - preflightStarted),
+      statement_count: 2,
+      rows_read: eventRead!.meta.rows_read + cardRead!.meta.rows_read,
+    });
+    const replay = this.resolveReplay(
+      eventRead!.results[0] ?? null,
       userId,
       action,
       hash,
       reviewSubmitResponseSchema,
     );
     if (replay) return replay;
+    const initialContext = this.decodeCardContext(cardRead!.results[0] ?? null);
     for (let attempt = 0; attempt < 3; attempt++) {
-      const { card, word, config } = await this.getCardContext(
-        userId,
-        input.card_id ?? input.word_id ?? '',
-      );
+      const { card, word, config } =
+        attempt === 0 ? initialContext : await this.getCardContext(userId, target);
       if (input.word_id && input.word_id !== word.word_id)
         throw new AppError({
           code: 'INVALID_ARGUMENT',

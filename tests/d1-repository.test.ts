@@ -30,6 +30,43 @@ async function setup() {
   return { ...runtime, repo };
 }
 describe('D1 authoritative repository', () => {
+  it('batches create and review preflight reads before their atomic mutation batches', async () => {
+    const { db } = await setup();
+    const batchSizes: number[] = [];
+    const repo = new D1RepositoryAdapter(
+      {
+        prepare: (sql) => db.prepare(sql),
+        batch: (statements) => {
+          batchSizes.push(statements.length);
+          return db.batch(statements);
+        },
+      },
+      KEY,
+      () => NOW,
+    );
+
+    const created = await repo.upsert(USER, 'create-batched', WORD);
+    expect(batchSizes).toHaveLength(2);
+    expect(batchSizes[0]).toBe(2);
+    expect(batchSizes[1]).toBeGreaterThan(2);
+
+    batchSizes.length = 0;
+    await repo.recordReview(
+      USER,
+      'review-batched',
+      {
+        event_id: 'd1-batched-review-001',
+        card_id: `c_${created.word_id}`,
+        rating: 'good',
+        expected_version: 1,
+      },
+      NOW,
+    );
+    expect(batchSizes).toHaveLength(2);
+    expect(batchSizes[0]).toBe(2);
+    expect(batchSizes[1]).toBeGreaterThan(2);
+  });
+
   it('uses Settings in the official scheduler, preserves Hard recall and rejects malformed config', async () => {
     const { db, repo } = await setup();
     const created = await repo.upsert(USER, 'create', WORD);

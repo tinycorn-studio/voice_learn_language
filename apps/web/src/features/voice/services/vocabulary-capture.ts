@@ -26,6 +26,7 @@ interface Inquiry {
   grace: Timer | null;
   deadline: Timer | null;
   requestWaitStartedAt: number | null;
+  persistenceStartedAt: number | null;
   startedAt: number;
 }
 interface PendingTool {
@@ -103,6 +104,7 @@ export class VocabularyCapture {
         grace: null,
         deadline: null,
         requestWaitStartedAt: null,
+        persistenceStartedAt: null,
         startedAt: performance.now(),
       };
       this.inquiries.push(inquiry);
@@ -190,6 +192,7 @@ export class VocabularyCapture {
     }
     const epoch = this.epoch;
     if (!inquiry.operation) {
+      inquiry.persistenceStartedAt = performance.now();
       this.trace('persistence_started', inquiry);
       this.clearTimers(inquiry);
       if (this.recovering === inquiry) this.recovering = null;
@@ -211,6 +214,9 @@ export class VocabularyCapture {
             result.saved ? 'persistence_saved' : 'persistence_failed',
             inquiry,
             result.saved ? 'none' : 'persistence_failed',
+            inquiry.persistenceStartedAt === null
+              ? undefined
+              : Math.max(0, Math.round(performance.now() - inquiry.persistenceStartedAt)),
           );
           this.callbacks.status({ word: inquiry.word, status: result.saved ? 'saved' : 'failed' });
         }
@@ -272,6 +278,7 @@ export class VocabularyCapture {
     stage: CaptureDiagnostic['stage'],
     inquiry: Inquiry | null,
     reason: CaptureDiagnostic['reason'] = 'none',
+    persistenceDurationMs?: number,
   ): void {
     this.callbacks.diagnostic?.({
       capture_id: inquiry?.eventId ?? null,
@@ -281,6 +288,9 @@ export class VocabularyCapture {
       elapsed_ms: inquiry
         ? Math.min(86_400_000, Math.max(0, Math.round(performance.now() - inquiry.startedAt)))
         : 0,
+      ...(persistenceDurationMs !== undefined
+        ? { persistence_duration_ms: Math.min(86_400_000, persistenceDurationMs) }
+        : {}),
     });
   }
 }

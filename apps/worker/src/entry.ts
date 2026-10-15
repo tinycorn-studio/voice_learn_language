@@ -418,6 +418,7 @@ async function handleWorkerRequestInternal(
             acknowledged,
             duration_ms: Math.round(performance.now() - ackStarted),
           });
+          const commitStarted = performance.now();
           const result = await reviewRepo.recordReview(
             `telegram:${ownerNumericId}`,
             requestId,
@@ -439,6 +440,10 @@ async function handleWorkerRequestInternal(
                 ]
               : []),
           );
+          logStructured('info', 'telegram_review_committed', requestId, {
+            duration_ms: Math.round(performance.now() - commitStarted),
+            callback_acknowledged: acknowledged,
+          });
 
           if (cb.id && env.DATA_BACKEND !== 'd1') {
             const text = formatReviewResult(rating, result.next_due_at);
@@ -1070,24 +1075,6 @@ export default {
       ctx &&
       env.DATA_BACKEND === 'd1' &&
       env.DB &&
-      response.ok &&
-      ['POST', 'PATCH', 'DELETE'].includes(request.method) &&
-      (path === '/telegram/webhook' ||
-        path === '/api/v1/vocabulary' ||
-        path.startsWith('/api/v1/vocabulary/') ||
-        ['/api/v1/reviews', '/api/v1/reviews/submit', '/api/reviews/submit'].includes(path))
-    ) {
-      // Kick one durable job after commit; lease/Cron recover overlap, outage and process loss.
-      ctx.waitUntil(
-        processSheetMirror(env.DB, env, new Date().toISOString()).catch(() =>
-          logStructured('warn', 'sheet_mirror_deferred', 'background'),
-        ),
-      );
-    }
-    if (
-      ctx &&
-      env.DATA_BACKEND === 'd1' &&
-      env.DB &&
       request.method === 'POST' &&
       new URL(request.url).pathname === '/telegram/webhook' &&
       response.ok
@@ -1099,6 +1086,25 @@ export default {
           new Date().toISOString(),
           3,
         ).catch(() => logStructured('warn', 'telegram_delivery_deferred', 'background')),
+      );
+    }
+    if (
+      ctx &&
+      env.DATA_BACKEND === 'd1' &&
+      env.DB &&
+      response.ok &&
+      ['POST', 'PATCH', 'DELETE'].includes(request.method) &&
+      (path === '/telegram/webhook' ||
+        path === '/api/v1/vocabulary' ||
+        path.startsWith('/api/v1/vocabulary/') ||
+        ['/api/v1/reviews', '/api/v1/reviews/submit', '/api/reviews/submit'].includes(path))
+    ) {
+      // Schedule interactive Telegram result delivery before the lower-priority Sheet mirror.
+      // Both jobs are durable; the minute Cron recovers them if this foreground kick is lost.
+      ctx.waitUntil(
+        processSheetMirror(env.DB, env, new Date().toISOString()).catch(() =>
+          logStructured('warn', 'sheet_mirror_deferred', 'background'),
+        ),
       );
     }
     return response;

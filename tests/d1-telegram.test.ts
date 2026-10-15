@@ -171,7 +171,7 @@ describe('M7-05 D1 Telegram durability', () => {
     const bodies = fetchFn.mock.calls.map(
       ([, init]) => JSON.parse(String(init?.body)) as { reply_markup?: unknown },
     );
-    expect(bodies[2]?.reply_markup).toBeDefined();
+    expect(bodies.some((body) => body.reply_markup !== undefined)).toBe(true);
     expect(
       await processTelegramDeliveries(db, new TelegramBotClient('synthetic', fetchFn), NOW),
     ).toBe(0);
@@ -283,6 +283,40 @@ describe('M7-05 D1 Telegram durability', () => {
     expect(
       await db.prepare('SELECT last_error FROM telegram_deliveries WHERE update_id=741').first(),
     ).toEqual({ last_error: 'invalid_payload' });
+  });
+
+  it('delivers the newest review result first when several edits are waiting', async () => {
+    const { db } = await setup();
+    for (const updateId of [760, 761, 762, 763, 764]) {
+      await db.batch(
+        telegramMutationStatements(
+          db,
+          `revision-${updateId}`,
+          { updateId, chatId: '123', messageId: 91 },
+          { kind: 'edit', text: updateId === 764 ? 'newest' : `old-${updateId}` },
+          {},
+          NOW,
+        ),
+      );
+    }
+    const fetchFn = vi.fn(success);
+    const bot = new TelegramBotClient('synthetic', fetchFn);
+
+    await processTelegramDeliveries(db, bot, NOW, 3);
+
+    expect(
+      fetchFn.mock.calls.map(([, init]) => (JSON.parse(String(init?.body)) as { text: string }).text),
+    ).toEqual(['newest']);
+    expect(
+      await db.prepare('SELECT status,last_error FROM telegram_deliveries WHERE update_id=764').first(),
+    ).toEqual({ status: 'delivered', last_error: '' });
+    await processTelegramDeliveries(db, bot, NOW, 3);
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(
+      (await db
+        .prepare("SELECT COUNT(*) AS count FROM telegram_deliveries WHERE last_error='superseded'")
+        .first()),
+    ).toEqual({ count: 4 });
   });
 
   it('retries only definite send failures, stops at three attempts and never regrades', async () => {

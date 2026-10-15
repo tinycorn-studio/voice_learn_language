@@ -96,7 +96,7 @@ describe('Voice session UI and microphone cancellation', () => {
     expect(pcm[0]).toBe(16383);
   });
 
-  it('follows incoming transcript until the learner scrolls up, then returns on demand', () => {
+  it('follows incoming transcript until the learner scrolls up, then returns on demand', async () => {
     let callbacks: Parameters<VoiceSessionFactory>[0] | undefined;
     render(
       <VoiceSessionPanel
@@ -116,6 +116,14 @@ describe('Voice session UI and microphone cancellation', () => {
     });
 
     act(() => callbacks?.onTranscript('assistant', 'First tutor response.', true));
+    await act(
+      async () =>
+        await new Promise<void>((resolve) => {
+          if (typeof window.requestAnimationFrame === 'function')
+            window.requestAnimationFrame(() => resolve());
+          else window.setTimeout(resolve, 0);
+        }),
+    );
     expect(box.scrollTop).toBe(300);
     expect(screen.queryByTestId('btn-transcript-latest')).toBeNull();
 

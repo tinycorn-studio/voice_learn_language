@@ -94,6 +94,7 @@ Plan: [27_D1_PERFORMANCE_MIGRATION_PLAN.md](27_D1_PERFORMANCE_MIGRATION_PLAN.md)
 | Task | Đầu ra | Definition of Done |
 | --- | --- | --- |
 | M8-01 | Theo dõi transcript và dịch theo yêu cầu | Transcript tự cuộn khi người dùng đang ở cuối; giữ nguyên vị trí khi người dùng đang đọc lịch sử và có nút về lượt mới. Mỗi lượt hoàn tất có nút dịch sang tiếng Việt, bản dịch hiển thị cạnh câu gốc, chỉ gọi Worker khi bấm, không chen vào Gemini Live. API yêu cầu auth, giới hạn input/rate/timeout, validate output và không log/lưu nội dung; regression UI/API cùng typecheck/lint/test/build pass. |
+| M8-02 | Giảm độ trễ tương tác | Lưu từ/chấm ôn gom preflight reads D1 mà giữ idempotency/OCC/atomic writes; delivery Telegram xử lý revision mới nhất trước và có timing ACK/commit/delivery không chứa nội dung; transcript interim cập nhật/cuộn theo animation frame. Regression batching/concurrency/order/privacy/UI pass và benchmark local p50/p95 được ghi so với baseline; không suy ra production latency hoặc quota từ local. |
 
 Dependencies: M7-01 → M7-03 → M7-04 → M7-05/M7-06/M7-07 → M7-08 → M7-09 → M7-10. M7-02 thực hiện sớm sau baseline; không chờ chuyển kho để cải thiện UX.
 

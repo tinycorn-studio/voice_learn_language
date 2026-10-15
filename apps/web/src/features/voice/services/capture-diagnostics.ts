@@ -31,5 +31,6 @@ export const captureDiagnosticSchema = z.object({
   ]),
   path: z.enum(['direct', 'recovery', 'unknown']),
   elapsed_ms: z.number().finite().min(0).max(86_400_000),
+  persistence_duration_ms: z.number().finite().min(0).max(86_400_000).optional(),
 });
 export type CaptureDiagnostic = z.infer<typeof captureDiagnosticSchema>;

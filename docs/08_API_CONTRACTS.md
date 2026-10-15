@@ -149,7 +149,7 @@ Response data: `{due_today,completed_today,new_cards,learning_cards,review_cards
 
 Verify secret header, request size and update_id before any side-effect. HTTP 200 only after update recorded or successfully dispatched; design retry budget/idempotency.
 
-M7-02 local: callback message nhận thêm `message_id` optional. Sau auth/validation bot ACK “Đang ghi nhận…” trước persistence; chỉ edit kết quả/next_due sau commit và gỡ keyboard. ACK không phải success review; mutation giữ event/version/retry hiện hành. Durable result delivery triển khai M7-05 trước release D1.
+M7-02 local: callback message nhận thêm `message_id` optional. Sau auth/validation bot ACK “Đang ghi nhận…” trước persistence; chỉ edit kết quả/next_due sau commit và gỡ keyboard. ACK không phải success review; mutation giữ event/version/retry hiện hành. Durable result delivery triển khai M7-05 trước release D1. M8-02 local: drain chọn delivery revision mới nhất trước để Telegram ưu tiên kết quả còn hiệu lực; revision cũ được đánh dấu superseded theo cơ chế hiện hành. Log callback ACK, commit và delivery chỉ thêm thời lượng/trạng thái, không chứa payload hoặc nội dung review.
 
 ## GAS HMAC internal envelope
 
@@ -188,6 +188,6 @@ Telegram callback mới: `r:<card_id>:<rating>:<row_version>`, tối đa 64 byte
 
 ## Contract testing
 
-M7-01 (local, chưa deploy): bản chẩn đoán frontend `mini-app-api-diagnostics-v1` giữ `attempts` và thêm `capture` metadata bounded 100 (stage/reason/path/elapsed_ms/capture_id/timestamp). Không thêm route thu transcript; dữ liệu chỉ giữ memory và copy theo thao tác người dùng. Worker/GAS log timing chỉ route template/action/status/correlation, không body hoặc raw errors.
+M7-01 (local, chưa deploy): bản chẩn đoán frontend `mini-app-api-diagnostics-v1` giữ `attempts` và thêm `capture` metadata bounded 100 (stage/reason/path/elapsed_ms/capture_id/timestamp). M8-02 thêm `persistence_duration_ms` tùy chọn để đo thời gian lưu, vẫn validate/bound như các trường khác. Không thêm route thu transcript; dữ liệu chỉ giữ memory và copy theo thao tác người dùng. Worker/GAS log timing chỉ route template/action/status/correlation, không body hoặc raw errors. D1 create/review preflight có thể log `duration_ms`, `statement_count` và số hàng đọc; không log từ vựng, transcript, token hay payload.
 
 Maintain JSON fixtures under `tests/contracts/` (tạo M2); valid/invalid/tamper/duplicate. Never use raw user voice content/secret trong fixtures.

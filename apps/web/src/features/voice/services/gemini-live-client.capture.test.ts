@@ -79,6 +79,10 @@ describe('M5-12 vocabulary capture recovery', () => {
     expect(callbacks.onCaptureDiagnostic.mock.calls.map(([entry]) => entry.stage)).toEqual(
       expect.arrayContaining(['inquiry_detected', 'persistence_started', 'persistence_saved']),
     );
+    expect(
+      callbacks.onCaptureDiagnostic.mock.calls.find(([entry]) => entry.stage === 'persistence_saved')?.[0]
+        .persistence_duration_ms,
+    ).toEqual(expect.any(Number));
     expect(JSON.stringify(callbacks.onCaptureDiagnostic.mock.calls)).not.toContain('overwhelmed');
   });
   it('recovers a missing tool once after the assistant turn, deduplicating late/new tool IDs', async () => {

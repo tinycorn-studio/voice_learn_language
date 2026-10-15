@@ -18,6 +18,7 @@ it('exposes capture timings without HTTP errors and strips arbitrary private met
     reason: 'none' as const,
     path: 'direct' as const,
     elapsed_ms: 10,
+    persistence_duration_ms: 7,
     question: 'private transcript',
     token: 'private token',
   };
@@ -26,6 +27,7 @@ it('exposes capture timings without HTTP errors and strips arbitrary private met
   expect(screen.getByText('Log chẩn đoán')).toBeTruthy();
   const report = api.diagnostics.exportReport();
   expect(report).toContain('inquiry_detected');
+  expect(report).toContain('persistence_duration_ms');
   expect(report).not.toContain('private');
   expect(api.diagnostics.getCaptureSnapshot()).toHaveLength(100);
   expect(screen.queryByText(/Mã lỗi gần nhất/)).toBeNull();

@@ -9,6 +9,7 @@ DATA_BACKEND = "d1"
 SHEET_MIRROR_ENABLED = "true"
 SHEET_MIRROR_EPOCH = "prod_cutover_01"
 GEMINI_MODEL = "models/gemini-3.8-live"
+GEMINI_TRANSLATION_MODEL = "gemini-3.5-flash-lite"
 ALLOWED_ORIGIN = "https://voice-chat-learn-language.pages.dev"
 
 # Background delivery/mirror every minute; handler limits daily digest to 08:00–08:05 +07.

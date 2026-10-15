@@ -245,6 +245,75 @@ body {
 .transcript-turn {
   font-size: 0.9rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.transcript-turn-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.transcript-turn-content p {
+  flex: 1;
+  margin: 0;
+}
+
+.transcript-translate-button,
+.transcript-latest-button {
+  flex: none;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.55rem;
+  padding: 0.25rem 0.55rem;
+  background: rgba(30, 41, 59, 0.85);
+  color: #bae6fd;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.transcript-translate-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.transcript-translation {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border-left: 2px solid rgba(56, 189, 248, 0.65);
+  border-radius: 0.2rem;
+  background: rgba(56, 189, 248, 0.08);
+  color: #dbeafe;
+  font-size: 0.85rem;
+}
+
+.transcript-translation-error {
+  margin: 0.35rem 0 0;
+  color: #fca5a5;
+  font-size: 0.8rem;
+}
+
+.transcript-interim {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.transcript-latest-button {
+  align-self: flex-end;
+  margin-top: -0.6rem;
+}
+
+@media (max-width: 420px) {
+  .transcript-turn-content {
+    flex-wrap: wrap;
+  }
+
+  .transcript-translate-button {
+    margin-left: auto;
+  }
 }
 
 .turn-user .turn-speaker {

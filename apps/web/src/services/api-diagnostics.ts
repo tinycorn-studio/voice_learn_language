@@ -79,6 +79,7 @@ export function diagnosticRoute(path: string): string {
     '/api/v1/reviews/due',
     '/api/v1/reviews/stats',
     '/api/v1/live-token',
+    '/api/v1/translate',
   ].includes(route ?? '')
     ? route!
     : 'unknown';

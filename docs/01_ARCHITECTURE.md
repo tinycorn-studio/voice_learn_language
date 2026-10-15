@@ -10,6 +10,8 @@ flowchart TD
   C -->|ephemeral token only| GAuth[Gemini auth_tokens API]
   W <-->|Audio WebSocket bằng ephemeral token| GL[Gemini Live API]
   GL -->|Function Call save_vocabulary| W
+  W -->|on-demand selected-turn translation| C
+  C -->|generateContent| GT[Gemini text API]
   W -->|POST authenticated vocabulary| C
   C -->|HMAC signed payload| GAS[Apps Script doPost]
   GAS --> SH[(Google Sheets)]
@@ -21,8 +23,8 @@ flowchart TD
 
 ## Trách nhiệm module
 
-- **Web frontend:** microphone AudioWorklet + 16kHz PCM nếu SDK yêu cầu; playback audio; phiên âm; trạng thái phiên; hứng function call; request backend; không lưu secret. Audio trực tiếp từ client đến Gemini bằng ephemeral token, Worker không relay audio.
-- **Worker:** auth initData, allowlist 1 account, ratelimit, cấp token, validate schema, sign GAS payload, Telegram webhook, scheduled reminders, prevent duplicate events, sanitize responses. Config bằng Wrangler + secrets.
+- **Web frontend:** microphone AudioWorklet + 16kHz PCM nếu SDK yêu cầu; playback audio; phiên âm; trạng thái phiên; hứng function call; request backend; không lưu secret. Audio trực tiếp từ client đến Gemini bằng ephemeral token, Worker không relay audio. Transcript tự theo dõi lượt mới trừ khi người dùng đang cuộn lên đọc lịch sử; dịch riêng lượt được bấm.
+- **Worker:** auth initData, allowlist 1 account, ratelimit, cấp token, validate schema, sign GAS payload, Telegram webhook, scheduled reminders, on-demand translation qua Gemini `generateContent`, prevent duplicate events, sanitize responses. Config bằng Wrangler + secrets; không lưu/log transcript gửi dịch.
 - **Apps Script:** parse signed envelope, kiểm HMAC + time window, ScriptLock, upsert/read words/reviews, bảo vệ formula injection, giữ spreadsheet là source of truth.
 - **Sheets:** `Words`, `Events`, `Reviews`, `Users`, `DailyDispatchLog` (chi tiết ở data schema). Không lưu raw audio hoặc full conversation.
 - **Telegram:** bot cung cấp command/menu/quiz; mini app có voice UI + màn hình ôn, user identity `initData` xác minh server side.

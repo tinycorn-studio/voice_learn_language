@@ -5,6 +5,7 @@ export interface WorkerEnv {
   ENVIRONMENT?: string;
   GEMINI_API_KEY: string;
   GEMINI_MODEL?: string;
+  GEMINI_TRANSLATION_MODEL?: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   OWNER_TELEGRAM_ID: string;

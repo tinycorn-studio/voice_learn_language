@@ -89,6 +89,12 @@ Plan: [27_D1_PERFORMANCE_MIGRATION_PLAN.md](27_D1_PERFORMANCE_MIGRATION_PLAN.md)
 | M7-11 | Sửa rollout sau audit | Backup/Sheet-D1 parity, giữ dữ liệu hiện có, Cron mỗi phút/mirror ACK, frontend production hash, backend FSRS/replay, gates/CI/Git; không thay nghiệm thu thiết bị M7-10 |
 | M7-12 | Sửa API origin trong production bundle | Build từ Git không cần env private; bundle thật auth tới Worker; chặn build origin sai; CI/Pages/hash/route verify |
 
+## M8 — Trải nghiệm hội thoại
+
+| Task | Đầu ra | Definition of Done |
+| --- | --- | --- |
+| M8-01 | Theo dõi transcript và dịch theo yêu cầu | Transcript tự cuộn khi người dùng đang ở cuối; giữ nguyên vị trí khi người dùng đang đọc lịch sử và có nút về lượt mới. Mỗi lượt hoàn tất có nút dịch sang tiếng Việt, bản dịch hiển thị cạnh câu gốc, chỉ gọi Worker khi bấm, không chen vào Gemini Live. API yêu cầu auth, giới hạn input/rate/timeout, validate output và không log/lưu nội dung; regression UI/API cùng typecheck/lint/test/build pass. |
+
 Dependencies: M7-01 → M7-03 → M7-04 → M7-05/M7-06/M7-07 → M7-08 → M7-09 → M7-10. M7-02 thực hiện sớm sau baseline; không chờ chuyển kho để cải thiện UX.
 
 ## Dependency path

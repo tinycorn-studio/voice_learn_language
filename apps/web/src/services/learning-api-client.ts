@@ -7,6 +7,7 @@ import {
   reviewStatsResponseSchema,
   reviewSubmitResponseSchema,
   telegramAuthResponseSchema,
+  translationResponseSchema,
   vocabularyCreateResponseSchema,
   vocabularyItemSchema,
   vocabularyListResponseSchema,
@@ -395,5 +396,10 @@ export class LearningApiClient {
     return this.authorized('/api/v1/live-token', 'POST', liveTokenResponseSchema, {
       session_purpose: 'voice_chat',
     });
+  }
+  public async translateText(text: string): Promise<string> {
+    return (
+      await this.authorized('/api/v1/translate', 'POST', translationResponseSchema, { text })
+    ).translation;
   }
 }

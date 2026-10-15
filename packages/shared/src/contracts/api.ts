@@ -122,6 +122,23 @@ export const liveTokenResponseSchema = z.object({
 
 export type LiveTokenResponse = z.infer<typeof liveTokenResponseSchema>;
 
+/** POST /api/v1/translate: translate one explicitly selected transcript turn. */
+export const translationRequestSchema = z
+  .object({
+    text: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export type TranslationRequest = z.infer<typeof translationRequestSchema>;
+
+export const translationResponseSchema = z
+  .object({
+    translation: z.string().trim().min(1).max(1500),
+  })
+  .strict();
+
+export type TranslationResponse = z.infer<typeof translationResponseSchema>;
+
 /**
  * Event ID schema (UUIDv4 / UUIDv7 or safe alphanumeric token 12..128 chars matching GAS).
  */

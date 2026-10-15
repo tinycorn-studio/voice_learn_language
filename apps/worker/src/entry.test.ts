@@ -7,6 +7,7 @@ const TEST_ENV: WorkerEnv = {
   ENVIRONMENT: 'production',
   GEMINI_API_KEY: 'test_only_gemini_key_do_not_expose_in_response',
   GEMINI_MODEL: 'models/gemini-3.8-live',
+  GEMINI_TRANSLATION_MODEL: 'gemini-3.5-flash-lite',
   TELEGRAM_BOT_TOKEN: 'test_only_telegram_bot_token_for_unit_tests',
   TELEGRAM_WEBHOOK_SECRET: 'tg_webhook_secret_token_test_99',
   OWNER_TELEGRAM_ID: '777888999',
@@ -382,5 +383,136 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
     expect(pausedRun.dispatched).toBe(false);
     expect(pausedRun.reason).toBe('notifications_disabled');
     expect(fakeFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('M8-01 authenticated on-demand transcript translation route', () => {
+  const nowMs = Date.parse('2026-10-15T04:00:00.000Z');
+  const nowSeconds = Math.floor(nowMs / 1000);
+
+  async function translationSession(): Promise<string> {
+    const session = await issueSessionToken({
+      userId: 'telegram:777888999',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: nowSeconds,
+    });
+    return session.token;
+  }
+
+  it('translates a validated selected line without exposing the model key or logging transcript', async () => {
+    const token = await translationSession();
+    const selectedText = 'I felt overwhelmed after the meeting.';
+    const fakeFetch = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
+      );
+      expect(new Headers(init?.headers).get('x-goog-api-key')).toBe(TEST_ENV.GEMINI_API_KEY);
+      const payload = JSON.parse(String(init?.body)) as {
+        contents: Array<{ parts: Array<{ text: string }> }>;
+      };
+      expect(payload.contents[0]?.parts[0]?.text).toBe(selectedText);
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'Tôi cảm thấy quá tải sau cuộc họp.' }] } }],
+        }),
+        { status: 200 },
+      );
+    });
+    const response = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          origin: 'https://voice-chat-learn-language.pages.dev',
+        },
+        body: JSON.stringify({ text: selectedText }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('access-control-allow-origin')).toBe(TEST_ENV.ALLOWED_ORIGIN);
+    const bodyText = await response.text();
+    expect(bodyText).toContain('Tôi cảm thấy quá tải sau cuộc họp.');
+    expect(bodyText).not.toContain(TEST_ENV.GEMINI_API_KEY);
+    expect(bodyText).not.toContain(selectedText);
+    expect(fakeFetch).toHaveBeenCalledOnce();
+  });
+
+  it('rejects missing auth and invalid or oversized text before calling Gemini', async () => {
+    const fakeFetch = vi.fn<typeof fetch>();
+    const noAuth = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/translate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'A sentence.' }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(noAuth.status).toBe(401);
+
+    const token = await translationSession();
+    const invalid = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ text: 'x'.repeat(501) }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(invalid.status).toBe(400);
+    expect(fakeFetch).not.toHaveBeenCalled();
+  });
+
+  it('limits translation requests per authenticated user and isolate', async () => {
+    const token = await translationSession();
+    const fakeFetch = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Bản dịch.' }] } }] }),
+        { status: 200 },
+      ),
+    );
+    const store = new SecurityStateStore();
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const response = await handleWorkerRequest(
+        new Request('https://worker.example/api/v1/translate', {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ text: `Sentence ${attempt}.` }),
+        }),
+        TEST_ENV,
+        { fetchFn: fakeFetch, nowMs: () => nowMs },
+        store,
+      );
+      expect(response.status).toBe(200);
+    }
+    const limited = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ text: 'A thirteenth sentence.' }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      store,
+    );
+    expect(limited.status).toBe(429);
+    expect(fakeFetch).toHaveBeenCalledTimes(12);
   });
 });

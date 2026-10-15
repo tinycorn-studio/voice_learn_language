@@ -26,6 +26,14 @@ No body or `{ "session_purpose":"voice_chat" }`. Response data: `{ "token":"ephe
 
 M5-10: Public contract không đổi. Worker gửi REST `AuthToken` gồm `uses:1`, TTL 20 phút, new-session TTL 1 phút, `bidiGenerateContentSetup` và `fieldMask: "model,generationConfig.responseModalities"`; khóa model/audio, giữ các field khác từ setup client. Không gửi SDK wrapper `liveConnectConstraints` trực tiếp. Google HTTP 400 map public 502 `UPSTREAM_ERROR`, retryable false; đây chưa phải bằng chứng quota (429 có mapping riêng) hoặc key sai. Xem docs/04_GEMINI_SETUP.md và evidence M5-10.
 
+## POST /api/v1/translate (M8-01)
+
+Yêu cầu Bearer session Telegram đã xác minh. Request `{ "text": "I felt overwhelmed after the meeting." }`; `text` được trim và giới hạn 1–500 ký tự. Route chỉ dịch lượt người dùng chọn sang tiếng Việt tự nhiên, trả `{ "translation": "..." }` (1–1500 ký tự). API không nhận user ID/context, không ghi D1/Sheet và không đưa transcript vào log. Response có `Cache-Control: no-store`.
+
+Worker gọi Gemini `generateContent` bằng `GEMINI_API_KEY`; model mặc định là `gemini-3.5-flash-lite`, có thể cấu hình qua `GEMINI_TRANSLATION_MODEL`. App chỉ gọi route khi người dùng bấm “Dịch”, giữ kết quả trong bộ nhớ trang và chỉ thử lại khi người dùng bấm; không tự gửi lại request có thể phát sinh usage. Bộ giới hạn trong từng Worker isolate cho phép 12 lượt dịch/user/phút; quota Gemini của project có thể thấp hơn và cần kiểm tra trong AI Studio. HTTP 429 từ provider thành `RATE_LIMITED` có thể thử lại; timeout thành `TIMEOUT`; các lỗi provider/kết quả sai được sanitize.
+
+Tại thời điểm kiểm tra triển khai M8-01 (15/10/2026), trang giá của Google mô tả Gemini 3.5 Flash-Lite tối ưu cho dịch và hiển thị input/output miễn phí ở Free tier; hạn mức thực tế tùy project nên kiểm tra trong AI Studio. Chính sách sử dụng dữ liệu Free tier của Google áp dụng cho câu được gửi dịch. Thông báo quyền riêng tư trong Mini App nói rõ khi bấm “Dịch”, câu đó sẽ được gửi đến Gemini. Tài liệu tham khảo: [Generate Content REST API](https://ai.google.dev/gemini-api/docs/generate-content), [giá Gemini API](https://ai.google.dev/gemini-api/docs/pricing), [giới hạn tốc độ](https://ai.google.dev/gemini-api/docs/rate-limits).
+
 ## POST /api/v1/vocabulary
 
 ```json

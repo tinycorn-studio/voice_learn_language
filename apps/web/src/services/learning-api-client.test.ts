@@ -398,3 +398,60 @@ describe('M5-07 API diagnostics', () => {
     expect(client.diagnostics.getSnapshot()[1]?.server_request_id).toBe(serverRequestId);
   });
 });
+
+describe('M8-01 on-demand translation API client', () => {
+  it('authenticates and sends only the selected transcript text to the Worker', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: { translation: 'Tôi cảm thấy quá tải.' },
+            request_id: 'translation-request',
+          }),
+          { status: 200 },
+        ),
+      );
+    const api = new LearningApiClient('https://worker.example', () => 'synthetic-init', fetchFn);
+
+    await expect(api.translateText('I felt overwhelmed.')).resolves.toBe('Tôi cảm thấy quá tải.');
+    expect(String(fetchFn.mock.calls[1]?.[0])).toBe('https://worker.example/api/v1/translate');
+    expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toEqual({
+      text: 'I felt overwhelmed.',
+    });
+    expect(new Headers(fetchFn.mock.calls[1]?.[1]?.headers).get('authorization')).toBe(
+      'Bearer synthetic-session',
+    );
+    expect(api.diagnostics.getSnapshot().at(-1)).toMatchObject({
+      route: '/api/v1/translate',
+      code: 'OK',
+      phase: 'complete',
+    });
+    expect(api.diagnostics.exportReport()).not.toContain('I felt overwhelmed.');
+  });
+
+  it('returns a sanitized API error without retrying a billable translation request', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: { code: 'RATE_LIMITED', message: 'Gemini đang giới hạn lượt dịch.', retryable: true },
+            request_id: 'translation-rate-limited',
+          }),
+          { status: 429 },
+        ),
+      );
+    const api = new LearningApiClient('https://worker.example', () => 'synthetic-init', fetchFn);
+    await expect(api.translateText('A sentence.')).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      retryable: true,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+});

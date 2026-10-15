@@ -88,6 +88,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   );
 
   const preview = useCallback((id: string) => api.previewReview(id), [api]);
+  const translateText = useCallback((text: string) => api.translateText(text), [api]);
 
   useEffect(() => {
     if (!authenticated || activeTab !== 'review') return;
@@ -210,9 +211,9 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         </div>
       </header>
       <div className="privacy-notice" role="note">
-        Bấm Start để gửi giọng nói đến Gemini. Ứng dụng chỉ lưu từ và trích đoạn câu hỏi ngắn; không
-        lưu toàn bộ audio. Dữ liệu gửi đến Gemini tuân theo chính sách của Google theo tier đang
-        dùng.
+        Bấm Start để gửi giọng nói đến Gemini. Bấm “Dịch” để gửi riêng câu đã chọn cho Gemini dịch.
+        Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch; dữ liệu gửi đến Gemini tuân theo
+        chính sách của Google theo tier đang dùng.
       </div>
       {loading && <p role="status">Đang đăng nhập và tải từ vựng...</p>}
       {error && (
@@ -294,7 +295,11 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         </section>
       )}
       {activeTab === 'voice' && (
-        <VoiceSessionPanel sessionFactory={sessionFactory} enabled={authenticated && !loading} />
+        <VoiceSessionPanel
+          sessionFactory={sessionFactory}
+          translateText={translateText}
+          enabled={authenticated && !loading}
+        />
       )}
       {activeTab === 'review' && (
         <FlashcardReviewPanel

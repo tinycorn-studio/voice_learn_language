@@ -17,6 +17,10 @@
 
 **US-05 Personal data:** người dùng có thể liệt kê/sửa/xóa/export từ; không log nội dung hội thoại/audio; có thể tắt nhắc ôn, đặt số câu/ngày.
 
+**US-06 Follow conversation:** transcript tự cuộn theo lượt mới khi người dùng vẫn ở cuối khung; nếu họ đang đọc lượt cũ thì giữ nguyên vị trí và cho phép về câu mới nhất.
+
+**US-07 Understand a turn:** người dùng bấm nút dịch trên từng lượt transcript để xem tiếng Việt ngay cạnh câu gốc. Chỉ câu được chọn gửi đến Worker/Gemini; không chen lời vào phiên Live, không lưu/log câu hay bản dịch.
+
 ## Không làm trong MVP
 - Không nhận giọng nói trực tiếp từ app Gemini chính thức (không có API đọc chat đó theo thời gian thực).
 - Không tự động đồng bộ Google Keep; không cần Anki hoặc n8n.

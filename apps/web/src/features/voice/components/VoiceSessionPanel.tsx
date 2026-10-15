@@ -9,14 +9,35 @@ export type VoiceSessionFactory = (
 ) => VoiceSession;
 export interface VoiceSessionPanelProps {
   sessionFactory: VoiceSessionFactory;
+  translateText: (text: string) => Promise<string>;
   enabled?: boolean;
 }
 
-export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessionPanelProps) {
+interface TranscriptTurn extends ConversationContextTurn {
+  id: string;
+}
+
+interface TurnTranslation {
+  status: 'loading' | 'ready' | 'failed';
+  text?: string;
+  error?: string;
+  visible?: boolean;
+}
+
+export function VoiceSessionPanel({
+  sessionFactory,
+  translateText,
+  enabled = true,
+}: VoiceSessionPanelProps) {
   const session = useRef<VoiceSession | null>(null);
+  const transcriptBox = useRef<HTMLDivElement | null>(null);
+  const followTranscript = useRef(true);
+  const nextTurnId = useRef(0);
   const [state, setState] = useState<VoiceSessionState>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [turns, setTurns] = useState<ConversationContextTurn[]>([]);
+  const [turns, setTurns] = useState<TranscriptTurn[]>([]);
+  const [translations, setTranslations] = useState<Record<string, TurnTranslation>>({});
+  const [followingTranscript, setFollowingTranscript] = useState(true);
   const [interim, setInterim] = useState('');
   const [text, setText] = useState('');
   const [captureNotices, setCaptureNotices] = useState<Record<string, 'pending' | 'failed'>>({});
@@ -27,6 +48,11 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
     },
     [],
   );
+  useEffect(() => {
+    const box = transcriptBox.current;
+    if (followTranscript.current && box)
+      box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight);
+  }, [turns, interim]);
 
   const start = () => {
     setError(null);
@@ -36,7 +62,10 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
       onStateChange: setState,
       onTranscript: (speaker, transcript, final) => {
         if (final) {
-          setTurns((previous) => [...previous.slice(-49), { speaker, text: transcript }]);
+          setTurns((previous) => [
+            ...previous.slice(-49),
+            { id: `turn-${++nextTurnId.current}`, speaker, text: transcript },
+          ]);
           setInterim('');
         } else setInterim(`${speaker === 'user' ? 'You' : 'AI Tutor'}: ${transcript}`);
       },
@@ -55,6 +84,46 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
         setError('Chưa xác định đúng từ cần lưu. Hãy hỏi lại bằng tên từ cụ thể.'),
     });
     void session.current.start();
+  };
+  const handleTranscriptScroll = () => {
+    const box = transcriptBox.current;
+    if (!box) return;
+    const atLatest = box.scrollHeight - box.scrollTop - box.clientHeight <= 24;
+    followTranscript.current = atLatest;
+    setFollowingTranscript(atLatest);
+  };
+  const scrollToLatest = () => {
+    followTranscript.current = true;
+    const box = transcriptBox.current;
+    if (box) box.scrollTop = Math.max(0, box.scrollHeight - box.clientHeight);
+    setFollowingTranscript(true);
+  };
+  const requestTranslation = async (turn: TranscriptTurn) => {
+    const existing = translations[turn.id];
+    if (existing?.status === 'loading') return;
+    if (existing?.status === 'ready' && existing.text) {
+      setTranslations((previous) => ({
+        ...previous,
+        [turn.id]: { ...existing, visible: !existing.visible },
+      }));
+      return;
+    }
+    const updateTranslation = (value: TurnTranslation) =>
+      setTranslations((previous) => {
+        const next = { ...previous, [turn.id]: value };
+        const ids = Object.keys(next);
+        if (ids.length > 50) delete next[ids[0]!];
+        return next;
+      });
+    updateTranslation({ status: 'loading' });
+    try {
+      updateTranslation({ status: 'ready', text: await translateText(turn.text), visible: true });
+    } catch (failure) {
+      updateTranslation({
+        status: 'failed',
+        error: failure instanceof Error ? failure.message : 'Không dịch được câu này. Hãy thử lại.',
+      });
+    }
   };
   const active = ['listening', 'thinking', 'speaking', 'reconnecting'].includes(state);
   return (
@@ -102,14 +171,79 @@ export function VoiceSessionPanel({ sessionFactory, enabled = true }: VoiceSessi
           </button>
         )}
       </div>
-      <div className="transcript-box" data-testid="transcript-box" aria-live="polite">
-        {turns.map((turn, index) => (
-          <div key={index} className={`transcript-turn turn-${turn.speaker}`}>
-            <strong>{turn.speaker === 'user' ? 'You' : 'AI Tutor'}:</strong> {turn.text}
-          </div>
-        ))}
-        {interim && <p>{interim}</p>}
+      <div
+        ref={transcriptBox}
+        className="transcript-box"
+        data-testid="transcript-box"
+        role="log"
+        aria-label="Hội thoại"
+        aria-live="polite"
+        onScroll={handleTranscriptScroll}
+      >
+        {turns.map((turn) => {
+          const translation = translations[turn.id];
+          return (
+            <div key={turn.id} className={`transcript-turn turn-${turn.speaker}`}>
+              <div className="transcript-turn-content">
+                <p>
+                  <strong className="turn-speaker">
+                    {turn.speaker === 'user' ? 'Bạn' : 'Gia sư AI'}:
+                  </strong>{' '}
+                  {turn.text}
+                </p>
+                <button
+                  type="button"
+                  className="transcript-translate-button"
+                  data-testid={`btn-translate-${turn.id}`}
+                  aria-expanded={translation?.status === 'ready' && translation.visible === true}
+                  aria-controls={
+                    translation?.status === 'ready' && translation.visible
+                      ? `translation-${turn.id}`
+                      : undefined
+                  }
+                  disabled={!enabled || translation?.status === 'loading'}
+                  onClick={() => void requestTranslation(turn)}
+                >
+                  {translation?.status === 'loading'
+                    ? 'Đang dịch…'
+                    : translation?.status === 'failed'
+                      ? 'Thử lại'
+                      : translation?.status === 'ready'
+                        ? translation.visible
+                          ? 'Ẩn bản dịch'
+                          : 'Hiện bản dịch'
+                        : 'Dịch'}
+                </button>
+              </div>
+              {translation?.status === 'ready' && translation.visible && (
+                <p
+                  id={`translation-${turn.id}`}
+                  className="transcript-translation"
+                  data-testid={`translation-${turn.id}`}
+                >
+                  <strong>Bản dịch:</strong> {translation.text}
+                </p>
+              )}
+              {translation?.status === 'failed' && (
+                <p className="transcript-translation-error" role="status">
+                  {translation.error}
+                </p>
+              )}
+            </div>
+          );
+        })}
+        {interim && <p className="transcript-interim">{interim}</p>}
       </div>
+      {!followingTranscript && (
+        <button
+          type="button"
+          className="transcript-latest-button"
+          data-testid="btn-transcript-latest"
+          onClick={scrollToLatest}
+        >
+          ↓ Câu mới nhất
+        </button>
+      )}
       <form
         className="utterance-form"
         onSubmit={(event) => {

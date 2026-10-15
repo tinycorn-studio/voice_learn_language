@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-14 14:26 +07:00
+> Updated: 2026-10-15 08:58 +07:00
 > Phase: M7 D1 PRIMARY PRODUCTION — phục hồi/runtime M7-11 đã đạt; dữ liệu cũ verify, GAS v7, Worker 0f087b37/Pages M7-11; Worker đã tự ACK 3 mirror jobs, pending=0. Toàn milestone chưa DONE vì gates vận hành M7-10.
-> Đang thực hiện: M7-12 IN_PROGRESS — sửa build frontend thiếu Worker API origin gây auth về Pages/405/INVALID_JSON theo log Desktop 15/10.
-> Next action: Regression bundle thực tế → cấu hình public được version trong Git/envDir đúng/build guard → gates/CI → Pages production → verify bundle/API origin và route auth, ghi evidence.
-> Blockers: M7-10: Cron chưa có scheduled invocation trong phiên (deploy cuối 14:22:55, kiểm sau 14:38); mirror background CPU 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. Human QA chưa thử; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
+> Đang thực hiện: Chưa có (task gần nhất đã đóng)
+> Next action: M7-10: kiểm scheduled invocation/retry hiện tại, profile CPU mirror theo Free budget, voice/Telegram Good/device/outage/restore QA; docs/31_D1_ROLLOUT_RECOVERY.md. Git integration xem PR #2.
+> Blockers: M7-10: bằng chứng 14/10 chưa có scheduled invocation, cần kiểm hiện trạng; CPU mirror 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. User xác nhận auth M7-12 hoạt động ngày 15/10; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch fix/M7-12-production-api-origin.
 
 ## Legend
@@ -80,9 +80,9 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [x] M7-07 — P1, DONE LOCAL: full seven-tab freeze/export/checksum/quarantine, INSERT-only resumable chunks/verify, preserve IDs/FSRS/native audit/HMAC replay và reverse restore/CLI. 177 tests/28 files và gates PASS; chưa migrate/deploy thật. docs/29_D1_MIGRATION_RUNBOOK.md, tạm dừng theo docs/30_D1_PAUSE_HANDOFF.md.
 - [x] M7-08 — P1, DONE STAGING: database voice-learn-staging-db (a8306e2e), 3 migrations, batch rollback & constraints verified, synthetic import/verify/export, 50 create/50 review benchmarks (p50: 504/507ms, p95: 590/598ms), FSRS shadow parity, outbox decoupling. docs/28_D1_IMPLEMENTATION_EVIDENCE.md.
 - [ ] M7-09 — P1, CUTOVER_VERIFIED / OPERATIONAL_GATES_PENDING: M7-11 đã phục hồi Sheet/hash/integrity, migration_run verified, GAS v7/Worker 0f087b37/Pages M7-11; post-commit mirror ACK thật đạt. Chưa đóng toàn release gate vì scheduled invocation/Free CPU thuộc M7-08/M7-10 còn thiếu; docs/31_D1_ROLLOUT_RECOVERY.md.
-- [ ] M7-10 — P1, LIVE_QA_PENDING / REOPENED M7-11: production 0 Reviews, outbox chưa attempt; chưa có live rating/due/mirror hoặc device/CPU/restore evidence đủ đóng task. Synthetic/local suite không thay real QA.
+- [ ] M7-10 — P1, LIVE_QA_PENDING: M7-11 đã có backend FSRS/replay/mirror ACK/parity evidence; user xác nhận auth M7-12 ngày 15/10. Voice/Telegram rating thực tế, scheduled invocation/retry, CPU/quota/p95/device/outage/restore chưa đủ đóng task; không dùng operator smoke thay human QA.
 - [x] M7-11 — P1, DONE_RUNTIME: phục hồi/rollout D1 sau audit; source parity/integrity/foreign preservation, GAS v7, Worker 0f087b37 background ACK=3/pending=0, Pages hash/build đúng, FSRS/replay đạt, 181 tests/gates và CI code SUCCESS; tích hợp Git qua PR #1 có CI head guard. Cron invocation/CPU/device vẫn M7-10, không tự đóng toàn milestone. docs/31_D1_ROLLOUT_RECOVERY.md.
-- [ ] M7-12 — P0, IN_PROGRESS: auth M7-11 trỏ về Pages do Vite envDir/root không đọc apps/web/.env.production ignored. Acceptance: bundle thật gửi auth tới Worker khi không có env private; production build từ chối API origin rỗng/Pages/sai URL; cấu hình public có trong Git, tests/gates/CI, Pages tag/hash/API route verify; không coi auth giả là Telegram user QA.
+- [x] M7-12 — P0, DONE_HOTFIX/USER_ACCEPTED: public config/envDir/build guards; regression trước 5 FAIL/sau 5 PASS, CI 38668068679 186 tests/29 files và gates PASS. Pages e7c48c2a/M7-12-20261015/index-C7HXOF0O.js hash khớp, bundle public auth đúng Worker/JSON/CORS/server_request_id. User xác nhận “Đã đăng nhập được”. Local suite timeout ghi riêng, không tuyên bố local full PASS. docs/32_PRODUCTION_API_ORIGIN_FIX.md, PR #2.
 
 ## Latest accomplished
 
@@ -219,6 +219,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-14 14:05 +07:00 | M7-11 | IN_PROGRESS | Backup SQL/GAS; hai frozen exports khớp, source 1 Word/1 Card/1 Review/4 Events/1 User; import verified/hash/FK và foreign owners giữ nguyên. GAS v7 mirror enabled; Worker 71a97fbc Cron mỗi phút, Pages 470bed2e/hash M7-11 khớp. API synthetic Good/replay chỉ 1 Review/due đổi; 180 tests/28 files/gates PASS. docs/31_D1_ROLLOUT_RECOVERY.md. | Chờ Cron ACK thật; CI và merge main. |
 
 | 2026-10-14 14:26 +07:00 | M7-11 | DONE | Phuc hoi Sheet 1 Word/1 Card/1 Review/4 Events/1 User vao D1: canonical parity/integrity va foreign records giu nguyen. GAS v7; Worker 0f087b37 tu ACK 3 mirror jobs/pending=0; Pages M7-11 hash khop. FSRS Good/replay chi 1 Review. 181 tests/28 files va gates PASS; CI 38527774048 SUCCESS cho d9afc6e. docs/31_D1_ROLLOUT_RECOVERY.md; Git PR #1 chi merge sau CI head cuoi PASS. Cron/CPU/device khong coi da nghiem thu. | M7-10: kiem scheduled invocation sau 14:38 +07, profile CPU mirror 32/13/16 ms (Free 10 ms), Google outage/retry/restore target rieng va user Mini App/Telegram Good/device QA; theo doi PR #1 de xem ket qua Git integration. |
+
+| 2026-10-15 08:58 +07:00 | M7-12 | DONE | Sửa envDir/public API config và build guards; regression trước 5 FAIL/sau 5 PASS. CI 38668068679 clean checkout: 186 tests/29 files/typecheck/lint/build PASS, secret/diff PASS. Pages e7c48c2a, M7-12-20261015/index-C7HXOF0O.js hash khớp; thực thi bundle public auth đúng Worker/JSON401/CORS/server_request_id. User xác nhận Đã đăng nhập được. Local full suite timeout ghi riêng docs/32_PRODUCTION_API_ORIGIN_FIX.md. PR #2 tích hợp sau CI head cuối PASS. | M7-10: kiểm scheduled invocation/retry hiện tại, profile CPU mirror theo Free budget, voice/Telegram Good/device/outage/restore QA; docs/31_D1_ROLLOUT_RECOVERY.md. Git integration xem PR #2. |
 
 ## Current blockers / risks
 

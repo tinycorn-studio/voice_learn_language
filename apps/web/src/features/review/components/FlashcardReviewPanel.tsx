@@ -6,6 +6,7 @@ import {
   type ReviewStatsResponse,
   type VocabularyItem,
 } from '@voice-chat/shared';
+import { AppIcon } from '../../../components/app-icon.js';
 
 export interface FlashcardReviewPanelProps {
   items: (VocabularyItem | DueReviewCard)[];
@@ -137,15 +138,21 @@ export function FlashcardReviewPanel({
     <section className="voice-panel" aria-label="Spaced Repetition Flashcards">
       <div className="stats-grid" role="region" aria-label="Learning Progress Statistics">
         <div className="stat-card" data-testid="stat-total-words">
-          <span className="stat-label">Tổng số thẻ</span>
+          <span className="stat-label">
+            <AppIcon name="review" size={18} /> Tổng số thẻ
+          </span>
           <strong className="stat-value">{stats?.total_active_cards ?? activeItems.length}</strong>
         </div>
         <div className="stat-card" data-testid="stat-due-words">
-          <span className="stat-label">Cần ôn trong ngày</span>
+          <span className="stat-label">
+            <AppIcon name="clock" size={18} /> Cần ôn trong ngày
+          </span>
           <strong className="stat-value">{stats?.due_today ?? dueCards.length}</strong>
         </div>
         <div className="stat-card" data-testid="stat-reviewed-today">
-          <span className="stat-label">{stats ? 'Đã ôn hôm nay' : 'Đã ôn phiên này'}</span>
+          <span className="stat-label">
+            <AppIcon name="good" size={18} /> {stats ? 'Đã ôn hôm nay' : 'Đã ôn phiên này'}
+          </span>
           <strong className="stat-value">{stats?.completed_today ?? reviewedTodayCount}</strong>
         </div>
       </div>
@@ -154,8 +161,13 @@ export function FlashcardReviewPanel({
         <div className="voice-clarify-banner" role="status" data-testid="offline-review-banner">
           {error} Chưa xác nhận lưu kết quả. Nhấn lại mức đánh giá để thử cùng sự kiện.
           {pending && (
-            <button disabled={busy} onClick={() => void handleGrade(pending.rating)}>
-              Thử gửi lại kết quả
+            <button
+              type="button"
+              className="btn-warning"
+              disabled={busy}
+              onClick={() => void handleGrade(pending.rating)}
+            >
+              <AppIcon name="again" size={18} /> Thử gửi lại kết quả
             </button>
           )}
         </div>
@@ -163,7 +175,9 @@ export function FlashcardReviewPanel({
 
       {!currentCard ? (
         <div className="flashcard-empty" data-testid="flashcard-empty-state">
-          <h2>🎉 Bạn đã hoàn thành toàn bộ thẻ ôn tập đến hạn!</h2>
+          <h2>
+            <AppIcon name="good" size={25} /> Bạn đã hoàn thành toàn bộ thẻ ôn tập đến hạn!
+          </h2>
           <p>
             Hệ thống sẽ nhắc bạn vào 08:00 sáng (giờ Việt Nam) trên Telegram khi có từ đến hạn mới.
           </p>
@@ -183,13 +197,13 @@ export function FlashcardReviewPanel({
           {!isRevealed ? (
             <button
               type="button"
-              className="btn-primary"
+              className="btn-primary btn-reveal"
               aria-label="Reveal flashcard meaning and example"
               onClick={() => setRevealedWordId(targetId)}
               disabled={busy || !enabled}
               data-testid="btn-reveal-answer"
             >
-              Show Answer
+              <AppIcon name="eye" size={19} /> Show Answer
             </button>
           ) : (
             <div className="flashcard-back" data-testid="flashcard-back">
@@ -231,7 +245,7 @@ export function FlashcardReviewPanel({
                   <button
                     key={btn.rating}
                     type="button"
-                    className="btn-secondary"
+                    className={`btn-rating btn-rating-${btn.rating}`}
                     aria-label={`Rate ${btn.rating}`}
                     onClick={() => handleGrade(btn.rating)}
                     disabled={
@@ -245,6 +259,7 @@ export function FlashcardReviewPanel({
                     }
                     data-testid={`btn-rate-${btn.rating}`}
                   >
+                    <AppIcon name={btn.rating} size={18} />
                     {btn.badge
                       ? `${btn.rating.charAt(0).toUpperCase() + btn.rating.slice(1)} (${btn.badge})`
                       : btn.defaultLabel}

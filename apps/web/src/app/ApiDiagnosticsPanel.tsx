@@ -1,4 +1,5 @@
 import { useState, useSyncExternalStore } from 'react';
+import { AppIcon } from '../components/app-icon.js';
 import type { LearningApiClient } from '../services/learning-api-client.js';
 
 export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
@@ -59,10 +60,21 @@ export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
           đóng ứng dụng. Không chứa token hay nội dung học.
         </p>
         <div className="diagnostic-actions">
-          <button disabled={checking} onClick={() => void checkConnection()}>
-            Kiểm tra kết nối
+          <button
+            type="button"
+            className="btn-secondary btn-outline-info"
+            disabled={checking}
+            onClick={() => void checkConnection()}
+          >
+            <AppIcon name="voice" size={18} /> Kiểm tra kết nối
           </button>
-          <button onClick={() => void copyReport()}>Sao chép log</button>
+          <button
+            type="button"
+            className="btn-secondary btn-outline-neutral"
+            onClick={() => void copyReport()}
+          >
+            <AppIcon name="copy" size={18} /> Sao chép log
+          </button>
         </div>
         {connectionStatus && <p role="status">{connectionStatus}</p>}
         {copyStatus && <p role="status">{copyStatus}</p>}

@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { ConversationContextTurn, VoiceSessionState } from '@voice-chat/shared';
+import { AppIcon } from '../../../components/app-icon.js';
 import type { GeminiLiveClientCallbacks } from '../services/gemini-live-client.js';
 import type { VoiceSession } from '../services/voice-session.js';
 import { VoiceStatusBadge } from './VoiceStatusBadge.js';
@@ -57,6 +58,7 @@ const TranscriptTurnRow = memo(function TranscriptTurnRow({
           disabled={!enabled || translation?.status === 'loading'}
           onClick={() => onTranslate(turn)}
         >
+          <AppIcon name={translation?.status === 'failed' ? 'again' : 'translate'} size={18} />
           {translation?.status === 'loading'
             ? 'Đang dịch…'
             : translation?.status === 'failed'
@@ -228,6 +230,7 @@ export function VoiceSessionPanel({
       <div className="voice-controls">
         {active ? (
           <button
+            type="button"
             className="btn-danger"
             data-testid="btn-stop-mic"
             onClick={() => {
@@ -236,16 +239,17 @@ export function VoiceSessionPanel({
               setCaptureNotices({});
             }}
           >
-            Stop Microphone
+            <AppIcon name="stop" size={19} /> Stop Microphone
           </button>
         ) : (
           <button
+            type="button"
             className="btn-primary"
             data-testid="btn-start-mic"
             disabled={!enabled}
             onClick={start}
           >
-            Start Microphone
+            <AppIcon name="mic" size={20} /> Start Microphone
           </button>
         )}
       </div>
@@ -276,7 +280,7 @@ export function VoiceSessionPanel({
           data-testid="btn-transcript-latest"
           onClick={scrollToLatest}
         >
-          ↓ Câu mới nhất
+          <AppIcon name="latest" size={18} /> Câu mới nhất
         </button>
       )}
       <form
@@ -296,11 +300,12 @@ export function VoiceSessionPanel({
           placeholder="Gửi câu hỏi dạng chữ trong phiên voice..."
         />
         <button
-          className="btn-secondary"
+          type="submit"
+          className="btn-primary"
           data-testid="btn-send-utterance"
           disabled={!enabled || !active || state === 'reconnecting'}
         >
-          Send Turn
+          <AppIcon name="send" size={18} /> Send Turn
         </button>
       </form>
     </section>

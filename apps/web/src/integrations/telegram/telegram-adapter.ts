@@ -18,9 +18,15 @@ export interface TelegramWebAppWindow {
       ready?: () => void;
       expand?: () => void;
       platform?: string;
+      colorScheme?: string;
+      onEvent?: (eventType: 'themeChanged', eventHandler: () => void) => void;
+      offEvent?: (eventType: 'themeChanged', eventHandler: () => void) => void;
     };
   };
+  matchMedia?: (query: string) => MediaQueryList;
 }
+
+export type ColorScheme = 'light' | 'dark';
 
 export interface TelegramEnvironmentInfo {
   isTelegramMiniApp: boolean;
@@ -53,5 +59,35 @@ export function initTelegramEnvironment(
     rawInitData,
     displayFirstName,
     platform,
+  };
+}
+
+/**
+ * Follows Telegram's live theme when available and falls back to the browser's color preference.
+ */
+export function subscribeColorScheme(
+  onChange: (scheme: ColorScheme) => void,
+  win: TelegramWebAppWindow = globalThis as unknown as TelegramWebAppWindow,
+): () => void {
+  const webApp = win.Telegram?.WebApp;
+  const mediaQuery = win.matchMedia?.('(prefers-color-scheme: dark)');
+  const applyTheme = () => {
+    const telegramScheme = webApp?.colorScheme;
+    onChange(
+      telegramScheme === 'light' || telegramScheme === 'dark'
+        ? telegramScheme
+        : mediaQuery?.matches
+          ? 'dark'
+          : 'light',
+    );
+  };
+
+  applyTheme();
+  webApp?.onEvent?.('themeChanged', applyTheme);
+  mediaQuery?.addEventListener('change', applyTheme);
+
+  return () => {
+    webApp?.offEvent?.('themeChanged', applyTheme);
+    mediaQuery?.removeEventListener('change', applyTheme);
   };
 }

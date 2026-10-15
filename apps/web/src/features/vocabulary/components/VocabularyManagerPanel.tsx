@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { exportVocabularyToCsv, type VocabularyItem } from '@voice-chat/shared';
+import { AppIcon } from '../../../components/app-icon.js';
 
 export interface VocabularyManagerPanelProps {
   items: VocabularyItem[];
@@ -76,21 +77,24 @@ export function VocabularyManagerPanel({
     <section className="voice-panel" aria-label="Personal Vocabulary Manager">
       {error && <p role="alert">{error}</p>}
       <div className="vocab-toolbar">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Tìm theo từ, nghĩa tiếng Việt hoặc sense..."
-          aria-label="Search vocabulary"
-          data-testid="vocab-search-input"
-        />
+        <label className="vocab-search-field">
+          <AppIcon name="search" size={19} />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm theo từ, nghĩa tiếng Việt hoặc sense..."
+            aria-label="Search vocabulary"
+            data-testid="vocab-search-input"
+          />
+        </label>
         <button
           type="button"
-          className="btn-secondary"
+          className="btn-secondary btn-outline-info"
           onClick={handleExportCsv}
           data-testid="btn-export-csv"
         >
-          Export CSV Backup
+          <AppIcon name="export" size={18} /> Export CSV Backup
         </button>
       </div>
 
@@ -127,11 +131,11 @@ export function VocabularyManagerPanel({
                   disabled={!enabled || busy}
                   data-testid={`btn-edit-${item.word_id}`}
                 >
-                  Edit
+                  <AppIcon name="edit" size={17} /> Edit
                 </button>
                 <button
                   type="button"
-                  className="btn-chip"
+                  className="btn-chip btn-outline-danger"
                   disabled={!enabled || busy}
                   onClick={() => {
                     setBusy(true);
@@ -144,7 +148,7 @@ export function VocabularyManagerPanel({
                   }}
                   data-testid={`btn-delete-${item.word_id}`}
                 >
-                  Delete
+                  <AppIcon name="delete" size={17} /> Delete
                 </button>
               </div>
             </div>
@@ -174,7 +178,7 @@ export function VocabularyManagerPanel({
                   disabled={!enabled || busy}
                   data-testid="btn-save-edit"
                 >
-                  Save Correction
+                  <AppIcon name="save" size={18} /> Save Correction
                 </button>
               </div>
             ) : (

@@ -6,7 +6,11 @@ import type {
   ReviewSubmitRequest,
   VocabularyItem,
 } from '@voice-chat/shared';
-import { initTelegramEnvironment } from '../integrations/telegram/telegram-adapter.js';
+import {
+  initTelegramEnvironment,
+  subscribeColorScheme,
+} from '../integrations/telegram/telegram-adapter.js';
+import { AppIcon } from '../components/app-icon.js';
 import { ApiClientError, LearningApiClient } from '../services/learning-api-client.js';
 import {
   VoiceSessionPanel,
@@ -90,12 +94,18 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       api.diagnostics.recordStartup({
         stage,
         elapsed_ms: Math.max(0, now - startupStartedAt.current),
-        ...(stageStartedAt !== undefined
-          ? { duration_ms: Math.max(0, now - stageStartedAt) }
-          : {}),
+        ...(stageStartedAt !== undefined ? { duration_ms: Math.max(0, now - stageStartedAt) } : {}),
       });
     },
     [api],
+  );
+
+  useEffect(
+    () =>
+      subscribeColorScheme((scheme) => {
+        document.documentElement.dataset.theme = scheme;
+      }),
+    [],
   );
 
   const refresher = useMemo(
@@ -306,16 +316,27 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       )}
       {error && (
         <div role="alert" className="voice-error-banner">
-          {error} {authenticated && <button onClick={() => void refresh()}>Tải lại dữ liệu</button>}
+          {error}{' '}
+          {authenticated && (
+            <button
+              type="button"
+              className="btn-secondary btn-outline-info"
+              onClick={() => void refresh()}
+            >
+              <AppIcon name="again" size={18} /> Tải lại dữ liệu
+            </button>
+          )}
           {!authenticated && !authLoading && (
             <button
+              type="button"
+              className="btn-warning"
               onClick={() => {
                 setAuthLoading(true);
                 setError(null);
                 setLoginAttempt((attempt) => attempt + 1);
               }}
             >
-              Thử kết nối lại
+              <AppIcon name="again" size={18} /> Thử kết nối lại
             </button>
           )}
         </div>
@@ -325,35 +346,25 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}
 
-      <nav className="app-tabs" aria-label="Main sections">
-        {(
-          [
-            { tab: 'voice', label: 'Voice Tutor' },
-            { tab: 'review', label: 'Flashcards SRS' },
-            {
-              tab: 'vocabulary',
-              label: vocabularyLoaded ? `Vocabulary (${words.length})` : 'Vocabulary',
-            },
-          ] as const
-        ).map(({ tab, label }) => (
-          <button
-            key={tab}
-            className={`btn-chip ${activeTab === tab ? 'active' : ''}`}
-            data-testid={`tab-${tab}`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
       {entries.length > 0 && (
         <section aria-label="Vocabulary sync status" className="saved-badges-bar">
           {entries.map((entry) => (
             <div
               key={entry.request.event_id}
+              className="saved-word-badge"
               data-testid="saved-word-badge"
               data-status={entry.status}
             >
+              <AppIcon
+                name={
+                  entry.status === 'saved'
+                    ? 'good'
+                    : entry.status === 'failed'
+                      ? 'warning'
+                      : 'clock'
+                }
+                size={18}
+              />
               <strong>{entry.request.word}</strong>:{' '}
               {entry.status === 'saved'
                 ? 'Đã lưu'
@@ -367,6 +378,8 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
             <>
               <p>Các từ đang chờ chỉ được giữ trong phiên này. Hãy thử lại trước khi đóng trang.</p>
               <button
+                type="button"
+                className="btn-warning"
                 disabled={retrying}
                 onClick={() => {
                   setRetrying(true);
@@ -379,7 +392,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
                     .finally(() => setRetrying(false));
                 }}
               >
-                Thử đồng bộ lại
+                <AppIcon name="again" size={18} /> Thử đồng bộ lại
               </button>
             </>
           )}
@@ -392,8 +405,8 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
           enabled={authenticated}
         />
       )}
-      {activeTab === 'review' && (
-        !authenticated ? (
+      {activeTab === 'review' &&
+        (!authenticated ? (
           <PanelLoading
             label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải thẻ ôn.'}
           />
@@ -409,10 +422,9 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
               enabled={authenticated}
             />
           </Suspense>
-        )
-      )}
-      {activeTab === 'vocabulary' && (
-        !authenticated ? (
+        ))}
+      {activeTab === 'vocabulary' &&
+        (!authenticated ? (
           <PanelLoading
             label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải từ vựng.'}
           />
@@ -427,8 +439,32 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
               enabled={authenticated}
             />
           </Suspense>
-        )
-      )}
+        ))}
+      <nav className="app-tabs" aria-label="Điều hướng chính">
+        {(
+          [
+            { tab: 'voice', label: 'Voice Tutor', icon: 'voice' },
+            { tab: 'review', label: 'Flashcards SRS', icon: 'review' },
+            {
+              tab: 'vocabulary',
+              label: vocabularyLoaded ? `Vocabulary (${words.length})` : 'Vocabulary',
+              icon: 'vocabulary',
+            },
+          ] as const
+        ).map(({ tab, label, icon }) => (
+          <button
+            key={tab}
+            type="button"
+            className={`btn-chip ${activeTab === tab ? 'active' : ''}`}
+            data-testid={`tab-${tab}`}
+            aria-pressed={activeTab === tab}
+            onClick={() => setActiveTab(tab)}
+          >
+            <AppIcon name={icon} size={22} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
     </main>
   );
 }

@@ -21,7 +21,11 @@ export type AppIconName =
   | 'spark'
   | 'speaker'
   | 'eye'
-  | 'copy';
+  | 'copy'
+  | 'info'
+  | 'moon'
+  | 'sun'
+  | 'close';
 
 const ICON_PATHS: Record<AppIconName, string> = {
   voice: 'M3 10v4 M7 6v12 M11 3v18 M15 7v10 M19 5v14 M23 10v4',
@@ -49,6 +53,10 @@ const ICON_PATHS: Record<AppIconName, string> = {
   speaker: 'M4 10v4h4l5 4V6l-5 4z M16 9a5 5 0 0 1 0 6 M18 5a10 10 0 0 1 0 14',
   eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   copy: 'M8 8V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4 M4 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z',
+  info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 11v6 M12 7h.01',
+  moon: 'M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.7 8.7 0 1 0 20.5 15.5z',
+  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v2 M12 20v2 M4.93 4.93l1.42 1.42 M17.65 17.65l1.42 1.42 M2 12h2 M20 12h2 M4.93 19.07l1.42-1.42 M17.65 6.35l1.42-1.42',
+  close: 'M18 6 6 18 M6 6l12 12',
 };
 
 export function AppIcon({ name, size = 20 }: { name: AppIconName; size?: number }) {

@@ -44,6 +44,7 @@ export function FlashcardReviewPanel({
   const [previewData, setPreviewData] = useState<ReviewPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [reviewedTodayCount, setReviewedTodayCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +108,7 @@ export function FlashcardReviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [isRevealed, targetId, version, onPreview]);
+  }, [isRevealed, targetId, version, onPreview, previewAttempt]);
 
   const handleGrade = async (rating: ReviewRating) => {
     if ((!currentCard && !pending) || busy || !enabled) {
@@ -219,7 +220,28 @@ export function FlashcardReviewPanel({
 
               <div className="srs-buttons" role="group" aria-label="Rate memory recall">
                 {previewLoading && <p role="status">Đang xem lịch ôn...</p>}
-                {previewError && <p role="alert">{previewError}</p>}
+                {previewError && (
+                  <div
+                    className="review-preview-error"
+                    role="alert"
+                    data-testid="review-preview-error"
+                  >
+                    <p>{previewError}</p>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-outline-info"
+                      disabled={!enabled || previewLoading}
+                      onClick={() => {
+                        setPreviewData(null);
+                        setPreviewError(null);
+                        setPreviewAttempt((attempt) => attempt + 1);
+                      }}
+                      data-testid="btn-retry-review-preview"
+                    >
+                      <AppIcon name="again" size={18} /> Thử tải lịch lại
+                    </button>
+                  </div>
+                )}
                 {[
                   {
                     rating: 'again' as const,

@@ -13,6 +13,7 @@ export interface VoiceSessionPanelProps {
   translateText: (text: string) => Promise<string>;
   enabled?: boolean;
   onVoiceStateChange?: (state: VoiceSessionState) => void;
+  onToast?: (message: string, tone: 'success' | 'info' | 'warning') => void;
 }
 
 interface TranscriptTurn extends ConversationContextTurn {
@@ -94,6 +95,7 @@ export function VoiceSessionPanel({
   translateText,
   enabled = true,
   onVoiceStateChange,
+  onToast,
 }: VoiceSessionPanelProps) {
   const session = useRef<VoiceSession | null>(null);
   const transcriptBox = useRef<HTMLDivElement | null>(null);
@@ -106,7 +108,6 @@ export function VoiceSessionPanel({
   const [followingTranscript, setFollowingTranscript] = useState(true);
   const [interim, setInterim] = useState('');
   const [text, setText] = useState('');
-  const [captureNotices, setCaptureNotices] = useState<Record<string, 'pending' | 'failed'>>({});
   const notifyVoiceState = useCallback(
     (nextState: VoiceSessionState) => {
       setState(nextState);
@@ -141,7 +142,6 @@ export function VoiceSessionPanel({
 
   const start = () => {
     setError(null);
-    setCaptureNotices({});
     session.current?.stop();
     session.current = sessionFactory({
       onStateChange: notifyVoiceState,
@@ -156,17 +156,8 @@ export function VoiceSessionPanel({
       },
       onAudioChunk: () => {},
       onError: setError,
-      onVocabularyCaptureStatus: ({ word, status }) =>
-        setCaptureNotices((previous) => {
-          const next = { ...previous };
-          if (status === 'saved') delete next[word];
-          else next[word] = status;
-          const oldest = Object.keys(next)[0];
-          if (Object.keys(next).length > 30 && oldest) delete next[oldest];
-          return next;
-        }),
       onClarificationNeeded: () =>
-        setError('Chưa xác định đúng từ cần lưu. Hãy hỏi lại bằng tên từ cụ thể.'),
+        onToast?.('Chưa xác định được từ cần lưu. Hãy hỏi lại bằng tên từ cụ thể.', 'warning'),
     });
     void session.current.start();
   };
@@ -218,19 +209,6 @@ export function VoiceSessionPanel({
   return (
     <section className="voice-panel" aria-label="Voice Conversation Session">
       <VoiceStatusBadge state={state} />
-      {Object.keys(captureNotices).length > 0 && (
-        <div role="status" data-testid="vocabulary-capture-notice">
-          {Object.entries(captureNotices)
-            .slice(-3)
-            .map(([word, status]) => (
-              <p key={word}>
-                {status === 'pending'
-                  ? `Đang ghi nhận từ: ${word}…`
-                  : `Chưa xác nhận lưu từ ${word}. Kiểm tra trạng thái đồng bộ hoặc hỏi lại tên từ cụ thể.`}
-              </p>
-            ))}
-        </div>
-      )}
       {error && (
         <div role="alert" className="voice-error-banner" data-testid="mic-error-banner">
           {error}
@@ -246,7 +224,6 @@ export function VoiceSessionPanel({
               session.current?.stop();
               notifyVoiceState('idle');
               setInterim('');
-              setCaptureNotices({});
             }}
           >
             <AppIcon name="stop" size={19} /> Stop Microphone

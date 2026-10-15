@@ -26,6 +26,7 @@ import {
 } from '../integrations/telegram/telegram-adapter.js';
 import { AppIcon } from '../components/app-icon.js';
 import { SavedWordToast } from './SavedWordToast.js';
+import { FeedbackToast, type FeedbackToastTone } from './FeedbackToast.js';
 import { ApiClientError, LearningApiClient } from '../services/learning-api-client.js';
 import {
   VoiceSessionPanel,
@@ -43,6 +44,15 @@ import {
 import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 import { CoalescedRefresh } from '../services/coalesced-refresh.js';
 import type { StartupDiagnostic } from '../services/startup-diagnostics.js';
+
+type AppToastNotice =
+  | { id: string; kind: 'saved'; word: string }
+  | { id: string; kind: 'feedback'; message: string; tone: FeedbackToastTone };
+
+interface QueueCaptureError {
+  event: VerifiedSaveVocabularyEvent;
+  message: string;
+}
 
 const FlashcardReviewPanel = lazy(() =>
   import('../features/review/components/FlashcardReviewPanel.js').then((module) => ({
@@ -62,6 +72,33 @@ function PanelLoading({ label }: { label: string }) {
       <span className="loading-bar" aria-hidden="true" />
       <span className="loading-bar loading-bar-short" aria-hidden="true" />
     </section>
+  );
+}
+
+function PanelError({
+  message,
+  retryLabel,
+  busy,
+  onRetry,
+}: {
+  message: string;
+  retryLabel: string;
+  busy: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="panel-load-error" role="alert">
+      <p>{message}</p>
+      <button
+        type="button"
+        className="btn-secondary btn-outline-info"
+        disabled={busy}
+        onClick={onRetry}
+      >
+        <AppIcon name={busy ? 'clock' : 'again'} size={18} />
+        {busy ? 'Đang tải lại…' : retryLabel}
+      </button>
+    </div>
   );
 }
 
@@ -97,14 +134,19 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const [reviewLoaded, setReviewLoaded] = useState(false);
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [authenticated, setAuthenticated] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [vocabularyError, setVocabularyError] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [queueCaptureError, setQueueCaptureError] = useState<QueueCaptureError | null>(null);
   const [entries, setEntries] = useState<QueuedVocabularyEntry[]>([]);
-  const [savedToasts, setSavedToasts] = useState<Array<{ id: string; word: string }>>([]);
+  const [toastNotices, setToastNotices] = useState<AppToastNotice[]>([]);
   const [retrying, setRetrying] = useState(false);
   const infoButtonRef = useRef<HTMLButtonElement | null>(null);
   const infoCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const infoDialogRef = useRef<HTMLDivElement | null>(null);
   const notifiedSavedEvents = useRef(new Set<string>());
+  const queueCaptureErrorRef = useRef<QueueCaptureError | null>(null);
+  const captureFailureToastTimes = useRef(new Map<string, number>());
   const deletes = useRef(new Map<string, string>());
   const reviews = useRef(new Map<string, ReviewSubmitRequest>());
   const refreshVersion = useRef(0);
@@ -112,6 +154,27 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const reviewLoadedRef = useRef(false);
   // Performance.now() is relative to this document's navigation start, even before React mounts.
   const startupStartedAt = useRef(0);
+  const showToast = useCallback((message: string, tone: FeedbackToastTone) => {
+    setToastNotices((previous) => {
+      if (
+        previous.some(
+          (toast) => toast.kind === 'feedback' && toast.message === message && toast.tone === tone,
+        )
+      )
+        return previous;
+      return [
+        ...previous,
+        { id: `feedback-${crypto.randomUUID()}`, kind: 'feedback' as const, message, tone },
+      ].slice(-3);
+    });
+  }, []);
+  const dismissToast = useCallback((id: string) => {
+    setToastNotices((previous) => previous.filter((toast) => toast.id !== id));
+  }, []);
+  const updateQueueCaptureError = useCallback((notice: QueueCaptureError | null) => {
+    queueCaptureErrorRef.current = notice;
+    setQueueCaptureError(notice);
+  }, []);
   const recordStartup = useCallback(
     (stage: StartupDiagnostic['stage'], stageStartedAt?: number) => {
       const now = performance.now();
@@ -190,34 +253,53 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         const reviewStartedAt = keys.includes('review') ? performance.now() : null;
         if (vocabularyStartedAt !== null) recordStartup('vocabulary_load_started');
         if (reviewStartedAt !== null) recordStartup('review_load_started');
-        try {
-          const [items, cards, stats] = await Promise.all([
-            keys.includes('vocabulary') ? api.listVocabulary() : undefined,
-            keys.includes('review') ? api.listDueReviews() : undefined,
-            keys.includes('review') ? api.getReviewStats() : undefined,
-          ]);
-          if (version === refreshVersion.current) {
-            if (items) {
-              vocabularyLoadedRef.current = true;
-              setWords(items);
-              setVocabularyLoaded(true);
-              recordStartup('vocabulary_load_completed', vocabularyStartedAt ?? undefined);
-            }
-            if (cards && stats) {
-              reviewLoadedRef.current = true;
-              setDueCards(cards);
-              setReviewStats(stats);
-              setReviewLoaded(true);
-              recordStartup('review_load_completed', reviewStartedAt ?? undefined);
-            }
-            setError(null);
+        const [vocabularyResult, reviewResult] = await Promise.all([
+          keys.includes('vocabulary')
+            ? api.listVocabulary().then(
+                (value) => ({ ok: true as const, value }),
+                (reason: unknown) => ({ ok: false as const, reason }),
+              )
+            : Promise.resolve(null),
+          keys.includes('review')
+            ? Promise.all([api.listDueReviews(), api.getReviewStats()]).then(
+                (value) => ({ ok: true as const, value }),
+                (reason: unknown) => ({ ok: false as const, reason }),
+              )
+            : Promise.resolve(null),
+        ]);
+        if (version !== refreshVersion.current) return;
+
+        if (vocabularyResult) {
+          if (vocabularyResult.ok) {
+            vocabularyLoadedRef.current = true;
+            setWords(vocabularyResult.value);
+            setVocabularyLoaded(true);
+            setVocabularyError(null);
+            recordStartup('vocabulary_load_completed', vocabularyStartedAt ?? undefined);
+          } else {
+            recordStartup('vocabulary_load_failed', vocabularyStartedAt ?? undefined);
+            setVocabularyError(
+              vocabularyResult.reason instanceof Error
+                ? vocabularyResult.reason.message
+                : 'Không thể tải từ vựng.',
+            );
           }
-        } catch (failure) {
-          if (version === refreshVersion.current) {
-            if (vocabularyStartedAt !== null)
-              recordStartup('vocabulary_load_failed', vocabularyStartedAt);
-            if (reviewStartedAt !== null) recordStartup('review_load_failed', reviewStartedAt);
-            setError(failure instanceof Error ? failure.message : 'Không thể tải từ vựng.');
+        }
+        if (reviewResult) {
+          if (reviewResult.ok) {
+            reviewLoadedRef.current = true;
+            setDueCards(reviewResult.value[0]);
+            setReviewStats(reviewResult.value[1]);
+            setReviewLoaded(true);
+            setReviewError(null);
+            recordStartup('review_load_completed', reviewStartedAt ?? undefined);
+          } else {
+            recordStartup('review_load_failed', reviewStartedAt ?? undefined);
+            setReviewError(
+              reviewResult.reason instanceof Error
+                ? reviewResult.reason.message
+                : 'Không thể tải thẻ ôn tập.',
+            );
           }
         }
       }),
@@ -227,8 +309,8 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     (scope: 'vocabulary' | 'review' | 'all' = 'all') => {
       const keys: Array<'vocabulary' | 'review'> =
         scope === 'all' ? ['vocabulary', 'review'] : [scope];
-      if (keys.includes('vocabulary') && !vocabularyLoadedRef.current) setVocabularyLoading(true);
-      if (keys.includes('review') && !reviewLoadedRef.current) setReviewLoading(true);
+      if (keys.includes('vocabulary')) setVocabularyLoading(true);
+      if (keys.includes('review')) setReviewLoading(true);
       return refresher.request(keys).finally(() => {
         if (keys.includes('vocabulary')) setVocabularyLoading(false);
         if (keys.includes('review')) setReviewLoading(false);
@@ -284,12 +366,12 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         if (cancelled) return;
         recordStartup('auth_ready', authStartedAt);
         setAuthenticated(true);
-        setError(null);
+        setAuthError(null);
       })
       .catch((failure) => {
         recordStartup('auth_failed', authStartedAt);
         if (!cancelled)
-          setError(failure instanceof Error ? failure.message : 'Đăng nhập thất bại.');
+          setAuthError(failure instanceof Error ? failure.message : 'Đăng nhập thất bại.');
       })
       .finally(() => {
         if (!cancelled) setAuthLoading(false);
@@ -314,12 +396,33 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         if (result.status === 'saved' && vocabularyLoaded) void refresh('vocabulary');
         return { ok: result.status === 'saved' };
       } catch (failure) {
-        setError(failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.');
+        updateQueueCaptureError({
+          event,
+          message: failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.',
+        });
         return { ok: false };
       }
     },
-    [queue, refresh, vocabularyLoaded],
+    [queue, refresh, updateQueueCaptureError, vocabularyLoaded],
   );
+  const retryQueueCaptureError = useCallback(async () => {
+    const notice = queueCaptureErrorRef.current;
+    if (!notice || retrying) return;
+    setRetrying(true);
+    try {
+      const result = await queue.enqueueAndAttempt(notice.event);
+      setEntries(queue.getEntries());
+      updateQueueCaptureError(null);
+      if (result.status === 'saved' && vocabularyLoaded) void refresh('vocabulary');
+    } catch (failure) {
+      updateQueueCaptureError({
+        ...notice,
+        message: failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.',
+      });
+    } finally {
+      setRetrying(false);
+    }
+  }, [queue, refresh, retrying, updateQueueCaptureError, vocabularyLoaded]);
   useEffect(() => {
     const newlySaved = entries.filter(
       (entry) =>
@@ -328,24 +431,51 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     if (newlySaved.length === 0) return;
 
     for (const entry of newlySaved) notifiedSavedEvents.current.add(entry.request.event_id);
-    setSavedToasts((previous) =>
+    setToastNotices((previous) =>
       [
         ...previous,
-        ...newlySaved.map((entry) => ({ id: entry.request.event_id, word: entry.request.word })),
+        ...newlySaved.map((entry) => ({
+          id: entry.request.event_id,
+          kind: 'saved' as const,
+          word: entry.request.word,
+        })),
       ].slice(-3),
     );
   }, [entries]);
-  const dismissSavedToast = useCallback((id: string) => {
-    setSavedToasts((previous) => previous.filter((toast) => toast.id !== id));
-  }, []);
+  const handleCaptureFailure = useCallback(
+    (word: string) => {
+      const normalizedWord = word.trim().toLowerCase();
+      const hasQueueEntry = queue
+        .getEntries()
+        .some(
+          (entry) =>
+            entry.status !== 'saved' && entry.request.word.trim().toLowerCase() === normalizedWord,
+        );
+      const queueFailure = queueCaptureErrorRef.current?.event.word.trim().toLowerCase();
+      if (hasQueueEntry || queueFailure === normalizedWord) return;
+
+      const now = Date.now();
+      const lastToastAt = captureFailureToastTimes.current.get(normalizedWord) ?? 0;
+      if (now - lastToastAt < 6000) return;
+      captureFailureToastTimes.current.set(normalizedWord, now);
+      for (const [key, shownAt] of captureFailureToastTimes.current) {
+        if (now - shownAt >= 6000) captureFailureToastTimes.current.delete(key);
+      }
+      showToast(`Chưa xác nhận lưu từ “${word}”. Hãy hỏi lại tên từ cụ thể.`, 'warning');
+    },
+    [queue, showToast],
+  );
   const sessionFactory = useCallback<VoiceSessionFactory>(
     (callbacks) =>
       voiceFactory(() => api.mintLiveToken(), {
         ...callbacks,
         onSaveVocabulary: saveVocabulary,
+        onVocabularyCaptureStatus: ({ word, status }) => {
+          if (status === 'failed') handleCaptureFailure(word);
+        },
         onCaptureDiagnostic: (metadata) => api.diagnostics.recordCapture(metadata),
       }),
-    [api, saveVocabulary, voiceFactory],
+    [api, handleCaptureFailure, saveVocabulary, voiceFactory],
   );
   const grade = async (
     cardId: string,
@@ -449,46 +579,51 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
           Đang xác thực Telegram...
         </div>
       )}
-      {error && (
+      {authError && !authLoading && (
         <div role="alert" className="voice-error-banner">
-          {error}{' '}
-          {authenticated && (
-            <button
-              type="button"
-              className="btn-secondary btn-outline-info"
-              onClick={() => void refresh()}
-            >
-              <AppIcon name="again" size={18} /> Tải lại dữ liệu
-            </button>
-          )}
-          {!authenticated && !authLoading && (
-            <button
-              type="button"
-              className="btn-warning"
-              onClick={() => {
-                setAuthLoading(true);
-                setError(null);
-                setLoginAttempt((attempt) => attempt + 1);
-              }}
-            >
-              <AppIcon name="again" size={18} /> Thử kết nối lại
-            </button>
-          )}
+          {authError}{' '}
+          <button
+            type="button"
+            className="btn-warning"
+            onClick={() => {
+              setAuthLoading(true);
+              setAuthError(null);
+              setLoginAttempt((attempt) => attempt + 1);
+            }}
+          >
+            <AppIcon name="again" size={18} /> Thử kết nối lại
+          </button>
         </div>
       )}
-      <ApiDiagnosticsPanel api={api} />
+      <ApiDiagnosticsPanel api={api} onToast={showToast} />
       {!authenticated && !authLoading && (
         <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}
 
-      {unresolvedEntries.length > 0 && (
+      {(unresolvedEntries.length > 0 || queueCaptureError !== null) && (
         <section aria-label="Vocabulary sync status" className="saved-badges-bar">
+          {queueCaptureError && (
+            <div className="queue-capture-error" role="alert" data-testid="queue-capture-error">
+              <p>
+                <strong>{queueCaptureError.event.word}</strong>: {queueCaptureError.message}
+              </p>
+              <button
+                type="button"
+                className="btn-warning"
+                disabled={retrying}
+                onClick={() => void retryQueueCaptureError()}
+              >
+                <AppIcon name="again" size={18} /> Thử xếp hàng lại
+              </button>
+            </div>
+          )}
           {unresolvedEntries.map((entry) => (
             <div
               key={entry.request.event_id}
               className="saved-word-badge"
               data-testid="saved-word-badge"
               data-status={entry.status}
+              role={entry.status === 'failed' ? 'alert' : 'status'}
             >
               <AppIcon
                 name={
@@ -509,9 +644,9 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
               {entry.lastError && <span> — {entry.lastError}</span>}
             </div>
           ))}
-          {entries.some((entry) => entry.status === 'pending') && (
+          {unresolvedEntries.length > 0 && (
             <>
-              <p>Các từ đang chờ chỉ được giữ trong phiên này. Hãy thử lại trước khi đóng trang.</p>
+              <p>Các từ chưa lưu chỉ được giữ trong phiên này. Hãy thử lại trước khi đóng trang.</p>
               <button
                 type="button"
                 className="btn-warning"
@@ -522,7 +657,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
                     .retryPending()
                     .then(async () => {
                       setEntries(queue.getEntries());
-                      await refresh();
+                      await refresh('vocabulary');
                     })
                     .finally(() => setRetrying(false));
                 }}
@@ -539,53 +674,82 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
           translateText={translateText}
           enabled={authenticated}
           onVoiceStateChange={setVoiceState}
+          onToast={showToast}
         />
       </div>
-      {activeTab === 'review' &&
-        (!authenticated ? (
-          <PanelLoading
-            label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải thẻ ôn.'}
+      {activeTab === 'review' && !authenticated && (
+        <PanelLoading
+          label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải thẻ ôn.'}
+        />
+      )}
+      {activeTab === 'review' && authenticated && reviewError && (
+        <PanelError
+          message={`Không tải được thẻ ôn: ${reviewError}`}
+          retryLabel="Tải lại thẻ ôn"
+          busy={reviewLoading}
+          onRetry={() => void refresh('review')}
+        />
+      )}
+      {activeTab === 'review' && authenticated && !reviewLoaded && !reviewError && (
+        <PanelLoading label="Đang tải thẻ ôn tập..." />
+      )}
+      {activeTab === 'review' && authenticated && reviewLoaded && (
+        <Suspense fallback={<PanelLoading label="Đang mở Flashcards..." />}>
+          <FlashcardReviewPanel
+            items={dueCards}
+            onGrade={grade}
+            onPreview={preview}
+            stats={reviewStats}
+            enabled={authenticated}
           />
-        ) : !reviewLoaded || reviewLoading ? (
-          <PanelLoading label="Đang tải thẻ ôn tập..." />
-        ) : (
-          <Suspense fallback={<PanelLoading label="Đang mở Flashcards..." />}>
-            <FlashcardReviewPanel
-              items={dueCards}
-              onGrade={grade}
-              onPreview={preview}
-              stats={reviewStats}
-              enabled={authenticated}
-            />
-          </Suspense>
-        ))}
-      {activeTab === 'vocabulary' &&
-        (!authenticated ? (
-          <PanelLoading
-            label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải từ vựng.'}
+        </Suspense>
+      )}
+      {activeTab === 'vocabulary' && !authenticated && (
+        <PanelLoading
+          label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải từ vựng.'}
+        />
+      )}
+      {activeTab === 'vocabulary' && authenticated && vocabularyError && (
+        <PanelError
+          message={`Không tải được từ vựng: ${vocabularyError}`}
+          retryLabel="Tải lại từ vựng"
+          busy={vocabularyLoading}
+          onRetry={() => void refresh('vocabulary')}
+        />
+      )}
+      {activeTab === 'vocabulary' && authenticated && !vocabularyLoaded && !vocabularyError && (
+        <PanelLoading label="Đang tải từ vựng..." />
+      )}
+      {activeTab === 'vocabulary' && authenticated && vocabularyLoaded && (
+        <Suspense fallback={<PanelLoading label="Đang mở sổ từ..." />}>
+          <VocabularyManagerPanel
+            items={words}
+            onUpdateItem={update}
+            onDeleteItem={remove}
+            enabled={authenticated}
           />
-        ) : !vocabularyLoaded || vocabularyLoading ? (
-          <PanelLoading label="Đang tải từ vựng..." />
-        ) : (
-          <Suspense fallback={<PanelLoading label="Đang mở sổ từ..." />}>
-            <VocabularyManagerPanel
-              items={words}
-              onUpdateItem={update}
-              onDeleteItem={remove}
-              enabled={authenticated}
-            />
-          </Suspense>
-        ))}
-      {savedToasts.length > 0 && (
-        <div className="saved-toast-stack" role="region" aria-label="Thông báo lưu từ">
-          {savedToasts.map((toast) => (
-            <SavedWordToast
-              key={toast.id}
-              id={toast.id}
-              word={toast.word}
-              onDismiss={dismissSavedToast}
-            />
-          ))}
+        </Suspense>
+      )}
+      {toastNotices.length > 0 && (
+        <div className="saved-toast-stack" role="region" aria-label="Thông báo">
+          {toastNotices.map((toast) =>
+            toast.kind === 'saved' ? (
+              <SavedWordToast
+                key={toast.id}
+                id={toast.id}
+                word={toast.word}
+                onDismiss={dismissToast}
+              />
+            ) : (
+              <FeedbackToast
+                key={toast.id}
+                id={toast.id}
+                message={toast.message}
+                tone={toast.tone}
+                onDismiss={dismissToast}
+              />
+            ),
+          )}
         </div>
       )}
       {infoOpen && (

@@ -23,7 +23,7 @@ Nguồn chính thức: [Material Design 3 foundations](https://m3.material.io/fo
 
 ## Phạm vi
 
-`apps/web/src/styles.css`, App navigation/theme, icon dùng trong voice/review/vocabulary, cùng component tests cần thiết. Không thêm dependency icon, không đổi API/Worker/Sheet/D1 và không deploy trong M8-04.
+`apps/web/src/styles.css`, App navigation/theme, icon dùng trong voice/review/vocabulary, cùng component tests cần thiết. Không thêm dependency icon, không đổi API/Worker/Sheet/D1. Việc triển khai Pages được ghi ở phần rollout bên dưới theo yêu cầu riêng sau khi hoàn thành local.
 
 ## Tiêu chí hoàn thành
 
@@ -31,4 +31,16 @@ Nguồn chính thức: [Material Design 3 foundations](https://m3.material.io/fo
 2. Tab, microphone, send, translate, transcript latest, reveal/rating, export, edit/delete/save có icon nhìn rõ và viền semantic.
 3. Nhãn chữ, trạng thái loading/disabled và focus keyboard vẫn dễ hiểu; responsive ở chiều rộng điện thoại.
 4. Regression tests phù hợp, `typecheck`, `lint`, `test`, `build`, secret scan và `git diff --check` pass.
-5. `PROGRESS.md` và `CHANGELOG.md` ghi đúng evidence, giới hạn và bước tiếp theo; chưa đánh dấu deploy.
+5. `PROGRESS.md` và `CHANGELOG.md` ghi đúng evidence, giới hạn và bước tiếp theo; trạng thái local và production được phân biệt rõ.
+
+## Production rollout — 2026-10-15 19:23 +07:00
+
+Người dùng yêu cầu deploy sau khi M8-04 hoàn tất local. Chỉ triển khai static frontend lên Pages project `voice-chat-learn-language`, production branch `production`; không thay Worker, D1 hoặc Apps Script.
+
+- Production: [Mini App](https://voice-chat-learn-language.pages.dev/?v=M8-04-20261015). Deployment: [1cbde724-f582-4111-97a3-a64a43fe191b](https://1cbde724.voice-chat-learn-language.pages.dev/). Source `49ff593aa6e25a7241b845ca07bdc10f3c468414`, build tag `M8-04-20261015`.
+- Trước upload, `typecheck`, `lint`, full suite (206/206 tests, 32/32 files, `--testTimeout=20000`), production build, secret scan (0 secret patterns / 0 forbidden tracked files) và `git diff --check` đều pass. Build dùng `VITE_API_BASE_URL=https://voice-chat-learn-language-worker.voice-chat-learn-language.workers.dev` và `VITE_APP_VERSION=M8-04-20261015`.
+- Smoke sau deploy: production URL và deployment URL đều HTTP 200; entry JS `index-DGDO56WH.js`, CSS `index-8QlYSybz.css`, lazy chunk `VocabularyManagerPanel-Pk3pP5CZ.js` và `FlashcardReviewPanel-B-2B-J17.js` đều HTTP 200. Hash JS/CSS công khai khớp artifact local:
+  - JS: `032B49A2C6FC915D771226FC6EAAF22C8D1FDAAC07D8A32D8712EEC372622567`.
+  - CSS: `F763DBB9535DF43C3E75042C50C13E84D823D83C3A26F30D1726D29760907269`.
+- Rollback point ngay trước lần deploy này là Pages deployment `59ebfc76-8227-4e6f-9340-c942266ec6e1` (M8-03). Chưa thực hiện rollback.
+- Còn chờ người dùng đóng/mở lại Mini App trong Telegram và kiểm tra theme, icons/nút cùng các tab. Smoke HTTP không thay thế kiểm tra trực tiếp Telegram hoặc accessibility audit đầy đủ trên thiết bị.

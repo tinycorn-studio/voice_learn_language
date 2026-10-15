@@ -1,5 +1,7 @@
 # CHANGELOG
 
+- 2026-10-15 19:23 +07:00 — M8-04 deployed production: đồng bộ visual light/dark theo Telegram/system, làm icon rõ hơn, thêm viền button theo ý nghĩa. Pages deployment `1cbde724-f582-4111-97a3-a64a43fe191b` (build `M8-04-20261015`); HTML, JS/CSS và hai lazy chunks HTTP 200, hash JS/CSS trùng local. Rollback point M8-03 `59ebfc76-8227-4e6f-9340-c942266ec6e1`. 206/206 tests, typecheck/lint/build/secret scan pass; Worker/D1/GAS không đổi. Chờ người dùng QA trong Telegram; docs/35_M8_04_VISUAL_SYSTEM.md.
+
 - 2026-10-15 13:57 +07:00 — M8-01 deployed production: transcript tự theo câu mới và nút quay về cuối; dịch theo yêu cầu qua Worker/Gemini. Worker version `b667f34c-6776-40db-b498-0bab921ebcb9`; Pages build `M8-01-20261015` (`index-HOwcTy7J.js`). Production smoke: Pages 200, Worker `/health` 200 healthy, translate CORS preflight 204 và unauthenticated guard 401. Full suite 198/198, typecheck/lint/build/secret scan/Worker dry-run pass.
 
 - 2026-10-15 — M7-12 IN_PROGRESS: sửa cấu hình build Mini App thiếu API origin gây đăng nhập về Pages/405; public production origin được version trong Git, env đọc đúng apps/web và build chặn config sai. Regression thực thi bundle thật trước 5 fail/sau 5 pass; chờ gates/CI/Pages verification. docs/32_PRODUCTION_API_ORIGIN_FIX.md.

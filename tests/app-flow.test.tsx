@@ -181,8 +181,9 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       expect(gas.spreadsheet.getSheetByName('Words')?.getLastRow()).toBe(2);
       fireEvent.click(screen.getByText('Thử đồng bộ lại'));
       await waitFor(() =>
-        expect(screen.getByTestId('saved-word-badge').getAttribute('data-status')).toBe('saved'),
+        expect(screen.getByTestId('saved-word-toast').textContent).toContain('bank đã lưu'),
       );
+      expect(screen.queryByTestId('saved-word-badge')).toBeNull();
       await waitFor(() =>
         expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(1)'),
       );
@@ -190,7 +191,8 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       expect(gas.spreadsheet.getSheetByName('Events')?.getLastRow()).toBe(2);
       expect(gas.spreadsheet.getSheetByName('Cards')?.getLastRow()).toBe(2);
       fireEvent.click(screen.getByTestId('tab-vocabulary'));
-      expect(stopped).toBeGreaterThan(0);
+      expect(stopped).toBe(0);
+      expect(screen.getByTestId('voice-return-banner').textContent).toContain('vẫn đang chạy');
       fireEvent.click(screen.getByText('Edit'));
       fireEvent.change(screen.getByTestId('edit-meaning-input'), {
         target: { value: 'ngân hàng thương mại' },

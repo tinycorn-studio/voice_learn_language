@@ -18,9 +18,9 @@ it('unlocks Voice after auth and loads Vocabulary only when its tab is opened', 
     expires_at: '2099-01-01T00:00:00.000Z',
   });
   let releaseVocabulary!: (items: VocabularyItem[]) => void;
-  const list = vi.spyOn(api, 'listVocabulary').mockImplementation(
-    () => new Promise((resolve) => (releaseVocabulary = resolve)),
-  );
+  const list = vi
+    .spyOn(api, 'listVocabulary')
+    .mockImplementation(() => new Promise((resolve) => (releaseVocabulary = resolve)));
   const due = vi.spyOn(api, 'listDueReviews');
   const stats = vi.spyOn(api, 'getReviewStats');
   vi.spyOn(api, 'createVocabulary').mockResolvedValue({
@@ -63,11 +63,14 @@ it('unlocks Voice after auth and loads Vocabulary only when its tab is opened', 
   });
   expect(acknowledged).toBe(true);
   expect(list).not.toHaveBeenCalled();
-  expect(screen.getByTestId('saved-word-badge').getAttribute('data-status')).toBe('saved');
+  expect(screen.getByTestId('saved-word-toast').textContent).toContain('bank đã lưu');
+  expect(screen.queryByTestId('saved-word-badge')).toBeNull();
 
   fireEvent.click(screen.getByTestId('tab-vocabulary'));
   await waitFor(() => expect(list).toHaveBeenCalledOnce());
-  await waitFor(() => expect(screen.getByTestId('panel-loading').textContent).toContain('Đang tải'));
+  await waitFor(() =>
+    expect(screen.getByTestId('panel-loading').textContent).toContain('Đang tải'),
+  );
   await act(async () => releaseVocabulary([]));
   await waitFor(() => expect(screen.getByTestId('vocab-list')).toBeTruthy());
   expect(api.diagnostics.getStartupSnapshot().map((entry) => entry.stage)).toEqual(

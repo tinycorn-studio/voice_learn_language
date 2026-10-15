@@ -12,6 +12,7 @@ export interface VoiceSessionPanelProps {
   sessionFactory: VoiceSessionFactory;
   translateText: (text: string) => Promise<string>;
   enabled?: boolean;
+  onVoiceStateChange?: (state: VoiceSessionState) => void;
 }
 
 interface TranscriptTurn extends ConversationContextTurn {
@@ -92,6 +93,7 @@ export function VoiceSessionPanel({
   sessionFactory,
   translateText,
   enabled = true,
+  onVoiceStateChange,
 }: VoiceSessionPanelProps) {
   const session = useRef<VoiceSession | null>(null);
   const transcriptBox = useRef<HTMLDivElement | null>(null);
@@ -105,6 +107,13 @@ export function VoiceSessionPanel({
   const [interim, setInterim] = useState('');
   const [text, setText] = useState('');
   const [captureNotices, setCaptureNotices] = useState<Record<string, 'pending' | 'failed'>>({});
+  const notifyVoiceState = useCallback(
+    (nextState: VoiceSessionState) => {
+      setState(nextState);
+      onVoiceStateChange?.(nextState);
+    },
+    [onVoiceStateChange],
+  );
   useEffect(
     () => () => {
       session.current?.stop();
@@ -135,7 +144,7 @@ export function VoiceSessionPanel({
     setCaptureNotices({});
     session.current?.stop();
     session.current = sessionFactory({
-      onStateChange: setState,
+      onStateChange: notifyVoiceState,
       onTranscript: (speaker, transcript, final) => {
         if (final) {
           setTurns((previous) => [
@@ -235,6 +244,7 @@ export function VoiceSessionPanel({
             data-testid="btn-stop-mic"
             onClick={() => {
               session.current?.stop();
+              notifyVoiceState('idle');
               setInterim('');
               setCaptureNotices({});
             }}

@@ -1,16 +1,31 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type {
   DueReviewCard,
   ReviewRating,
   ReviewStatsResponse,
   ReviewSubmitRequest,
+  VoiceSessionState,
   VocabularyItem,
 } from '@voice-chat/shared';
 import {
+  readThemePreference,
   initTelegramEnvironment,
   subscribeColorScheme,
+  writeThemePreference,
+  type ColorScheme,
+  type ThemePreference,
 } from '../integrations/telegram/telegram-adapter.js';
 import { AppIcon } from '../components/app-icon.js';
+import { SavedWordToast } from './SavedWordToast.js';
 import { ApiClientError, LearningApiClient } from '../services/learning-api-client.js';
 import {
   VoiceSessionPanel,
@@ -68,6 +83,10 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     [suppliedApi],
   );
   const [activeTab, setActiveTab] = useState<'voice' | 'review' | 'vocabulary'>('voice');
+  const [environmentColorScheme, setEnvironmentColorScheme] = useState<ColorScheme>('light');
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreference);
+  const [voiceState, setVoiceState] = useState<VoiceSessionState>('idle');
+  const [infoOpen, setInfoOpen] = useState(false);
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [dueCards, setDueCards] = useState<DueReviewCard[]>([]);
   const [reviewStats, setReviewStats] = useState<ReviewStatsResponse | null>(null);
@@ -80,7 +99,12 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<QueuedVocabularyEntry[]>([]);
+  const [savedToasts, setSavedToasts] = useState<Array<{ id: string; word: string }>>([]);
   const [retrying, setRetrying] = useState(false);
+  const infoButtonRef = useRef<HTMLButtonElement | null>(null);
+  const infoCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const infoDialogRef = useRef<HTMLDivElement | null>(null);
+  const notifiedSavedEvents = useRef(new Set<string>());
   const deletes = useRef(new Map<string, string>());
   const reviews = useRef(new Map<string, ReviewSubmitRequest>());
   const refreshVersion = useRef(0);
@@ -100,13 +124,63 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     [api],
   );
 
-  useEffect(
-    () =>
-      subscribeColorScheme((scheme) => {
-        document.documentElement.dataset.theme = scheme;
-      }),
-    [],
-  );
+  const colorScheme = themePreference === 'auto' ? environmentColorScheme : themePreference;
+  const changeThemePreference = useCallback((preference: ThemePreference) => {
+    setThemePreferenceState(preference);
+    writeThemePreference(preference);
+  }, []);
+
+  useLayoutEffect(() => subscribeColorScheme(setEnvironmentColorScheme), []);
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = colorScheme;
+    document
+      .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      ?.setAttribute('content', colorScheme === 'dark' ? '#0d1523' : '#f4f7fc');
+  }, [colorScheme]);
+
+  useEffect(() => {
+    if (!infoOpen) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    const focusableSelector =
+      'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    infoCloseButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setInfoOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        infoDialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [],
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [infoOpen]);
 
   const refresher = useMemo(
     () =>
@@ -246,6 +320,24 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     },
     [queue, refresh, vocabularyLoaded],
   );
+  useEffect(() => {
+    const newlySaved = entries.filter(
+      (entry) =>
+        entry.status === 'saved' && !notifiedSavedEvents.current.has(entry.request.event_id),
+    );
+    if (newlySaved.length === 0) return;
+
+    for (const entry of newlySaved) notifiedSavedEvents.current.add(entry.request.event_id);
+    setSavedToasts((previous) =>
+      [
+        ...previous,
+        ...newlySaved.map((entry) => ({ id: entry.request.event_id, word: entry.request.word })),
+      ].slice(-3),
+    );
+  }, [entries]);
+  const dismissSavedToast = useCallback((id: string) => {
+    setSavedToasts((previous) => previous.filter((toast) => toast.id !== id));
+  }, []);
   const sessionFactory = useCallback<VoiceSessionFactory>(
     (callbacks) =>
       voiceFactory(() => api.mintLiveToken(), {
@@ -295,19 +387,62 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     setWords((previous) => previous.filter((item) => item.word_id !== wordId));
     deletes.current.delete(wordId);
   };
+  const unresolvedEntries = entries.filter((entry) => entry.status !== 'saved');
+  const nextTheme = colorScheme === 'dark' ? 'light' : 'dark';
+  const themeLabel = colorScheme === 'dark' ? 'Tối' : 'Sáng';
+  const nextThemeLabel = nextTheme === 'dark' ? 'tối' : 'sáng';
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div>
+        <div className="app-header-copy">
           <h1 className="app-title">VoiceChat English Tutor</h1>
           <p className="app-subtitle">Luyện nói và ôn từ vựng cá nhân</p>
         </div>
+        <div className="app-header-actions" role="group" aria-label="Tùy chọn giao diện">
+          <button
+            type="button"
+            className="theme-toggle"
+            data-testid="theme-toggle"
+            aria-label={`Chuyển sang giao diện ${nextThemeLabel}`}
+            title={`Giao diện hiện tại: ${themeLabel}. Chuyển sang ${nextThemeLabel}`}
+            onClick={() => changeThemePreference(nextTheme)}
+          >
+            <AppIcon name={colorScheme === 'dark' ? 'sun' : 'moon'} size={19} />
+            <span>{themeLabel}</span>
+          </button>
+          <button
+            ref={infoButtonRef}
+            type="button"
+            className="info-button"
+            data-testid="info-button"
+            aria-label="Hướng dẫn và quyền riêng tư"
+            aria-haspopup="dialog"
+            aria-expanded={infoOpen}
+            onClick={() => {
+              infoButtonRef.current?.focus();
+              setInfoOpen(true);
+            }}
+          >
+            <AppIcon name="info" size={21} />
+          </button>
+        </div>
       </header>
-      <div className="privacy-notice" role="note">
-        Bấm Start để gửi giọng nói đến Gemini. Bấm “Dịch” để gửi riêng câu đã chọn cho Gemini dịch.
-        Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch; dữ liệu gửi đến Gemini tuân theo
-        chính sách của Google theo tier đang dùng.
-      </div>
+      {activeTab !== 'voice' && voiceState !== 'idle' && (
+        <button
+          type="button"
+          className="voice-return-banner"
+          data-testid="voice-return-banner"
+          data-state={voiceState}
+          onClick={() => setActiveTab('voice')}
+        >
+          <AppIcon name={voiceState === 'error' ? 'warning' : 'voice'} size={20} />
+          <span>
+            {voiceState === 'error'
+              ? 'Phiên Voice gặp sự cố — quay lại để xem'
+              : 'Phiên Voice vẫn đang chạy — quay lại hội thoại'}
+          </span>
+        </button>
+      )}
       {authLoading && (
         <div className="app-loading" role="status" data-testid="auth-loading">
           <span className="loading-dot" aria-hidden="true" />
@@ -346,9 +481,9 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}
 
-      {entries.length > 0 && (
+      {unresolvedEntries.length > 0 && (
         <section aria-label="Vocabulary sync status" className="saved-badges-bar">
-          {entries.map((entry) => (
+          {unresolvedEntries.map((entry) => (
             <div
               key={entry.request.event_id}
               className="saved-word-badge"
@@ -398,13 +533,14 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
           )}
         </section>
       )}
-      {activeTab === 'voice' && (
+      <div className="app-tab-panel" data-testid="voice-tab-panel" hidden={activeTab !== 'voice'}>
         <VoiceSessionPanel
           sessionFactory={sessionFactory}
           translateText={translateText}
           enabled={authenticated}
+          onVoiceStateChange={setVoiceState}
         />
-      )}
+      </div>
       {activeTab === 'review' &&
         (!authenticated ? (
           <PanelLoading
@@ -440,6 +576,84 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
             />
           </Suspense>
         ))}
+      {savedToasts.length > 0 && (
+        <div className="saved-toast-stack" role="region" aria-label="Thông báo lưu từ">
+          {savedToasts.map((toast) => (
+            <SavedWordToast
+              key={toast.id}
+              id={toast.id}
+              word={toast.word}
+              onDismiss={dismissSavedToast}
+            />
+          ))}
+        </div>
+      )}
+      {infoOpen && (
+        <div
+          className="info-modal-backdrop"
+          data-testid="info-modal-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setInfoOpen(false);
+          }}
+        >
+          <div
+            ref={infoDialogRef}
+            className="info-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="info-modal-title"
+            tabIndex={-1}
+          >
+            <div className="info-modal-header">
+              <div>
+                <p className="info-modal-eyebrow">VOICECHAT ENGLISH TUTOR</p>
+                <h2 id="info-modal-title">Hướng dẫn & quyền riêng tư</h2>
+              </div>
+              <button
+                ref={infoCloseButtonRef}
+                type="button"
+                className="info-modal-close"
+                data-testid="info-close-button"
+                aria-label="Đóng hướng dẫn"
+                onClick={() => setInfoOpen(false)}
+              >
+                <AppIcon name="close" size={20} />
+              </button>
+            </div>
+            <div className="info-modal-content">
+              <section>
+                <h3>Cách bắt đầu</h3>
+                <p>
+                  Bấm <strong>Start Microphone</strong> để bắt đầu hội thoại tiếng Anh với Gemini.
+                  Chọn <strong>Dịch</strong> dưới từng câu nếu bạn muốn dịch riêng câu đó.
+                </p>
+              </section>
+              <section>
+                <h3>Quyền riêng tư</h3>
+                <p>
+                  Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch. Nội dung được gửi đến
+                  Gemini tuân theo chính sách của Google theo tier đang dùng.
+                </p>
+              </section>
+              <section className="theme-preference-row" aria-label="Chế độ giao diện">
+                <span>
+                  Giao diện: <strong>{themePreference === 'auto' ? 'Tự động' : themeLabel}</strong>
+                </span>
+                <button
+                  type="button"
+                  className="btn-secondary btn-outline-info"
+                  data-testid="theme-auto-button"
+                  disabled={themePreference === 'auto'}
+                  onClick={() => changeThemePreference('auto')}
+                >
+                  Dùng theme Telegram/thiết bị
+                </button>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
       <nav className="app-tabs" aria-label="Điều hướng chính">
         {(
           [

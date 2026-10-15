@@ -23,7 +23,7 @@ Hoàn thiện bốn điểm UX đã được người dùng duyệt từ mockup:
 3. Từ lưu thành công tạo toast có thể đóng và tự ẩn; pending/failed tiếp tục có trạng thái và thao tác retry phù hợp.
 4. Hướng dẫn không còn chiếm chỗ trong trang chính; nút Info mở dialog dùng được bằng bàn phím.
 5. Regression tests cho theme, đổi tab/giữ mount, toast và dialog; typecheck, lint, full test suite, build, secret scan và `git diff --check` pass.
-6. `PROGRESS.md` và `CHANGELOG.md` ghi evidence local và nêu rõ production chưa deploy.
+6. `PROGRESS.md` và `CHANGELOG.md` ghi evidence local, đồng thời phân biệt trạng thái production.
 
 ## Tài liệu API tham khảo
 
@@ -34,4 +34,19 @@ Telegram Mini Apps cung cấp `colorScheme` và theme events realtime; implement
 - `npm test -- --silent --reporter=dot --testTimeout=20000`: 213/213 tests, 35 files PASS.
 - `npm run typecheck`, `npm run lint`, `npm run build`, `npm run check:secrets` và `git diff --check`: PASS.
 - Web production bundle được Vite tạo thành công. Các regression kiểm theme persist/reset, Info dialog/keyboard, toast lifecycle, và giữ voice session khi qua tab.
-- Thay đổi nằm trên branch `feat/M8-05-miniapp-controls`. Pages production chưa deploy; Telegram device QA bắt đầu sau khi có yêu cầu phát hành riêng.
+- Bản implementation local nằm trên branch `feat/M8-05-miniapp-controls`. Khi chốt task local, Pages production chưa deploy; release được thực hiện riêng theo yêu cầu phát hành bên dưới.
+
+## Production rollout — 2026-10-15 23:07 +07:00
+
+Người dùng yêu cầu phát hành M8-05 lên Cloudflare Pages. Chỉ deploy static frontend project `voice-chat-learn-language`, production branch `production`; không deploy Worker, D1 hoặc Apps Script.
+
+- Production Mini App: [voice-chat-learn-language.pages.dev](https://voice-chat-learn-language.pages.dev/?v=M8-05-20261015). Unique deployment URL: [6fb2db7f.voice-chat-learn-language.pages.dev](https://6fb2db7f.voice-chat-learn-language.pages.dev/).
+- Deployment `6fb2db7f-5479-471d-be4d-efd75d483af6`, source commit `bb1d130faa9a73c431f6f8b0b01abaf50b6d4daf`, build tag `M8-05-20261015`.
+- Trước upload: full suite 213/213 tests/35 files, typecheck, lint, production build, secret scan và `git diff --check` PASS. Lần chạy test đầu có một false positive vì regex `/999/` khớp chuỗi request ID ngẫu nhiên `web-24999…`; chạy lại toàn suite ngay sau đó pass 213/213.
+- Smoke sau deploy: hai URL trả HTML 200; entry JS/CSS và lazy chunks Vocabulary/Flashcards đều HTTP 200 trên cả hai host. Public SHA256 khớp local:
+  - JS `index-BOem_VuS.js`: `3F7E99AC32446DCF8F7E8EA02BC706F691E515586082573DD263FC134136DA0C`.
+  - CSS `index-BwDjMOpb.css`: `138BE271D50F8B8FC1F69511BFCC3ED01A4DC857267D4B67176FDEC4DC7B8760`.
+  - Vocabulary chunk: `ECB3D39DC3C2DCDE996B2C94CCBB450B998010E7C36221320BB96B3D89D2D03C`.
+  - Flashcards chunk: `399119EC5F791F88FCBE8EA9878A7C4C49EA226AA4B62C349AC5E540C1BA4346`.
+- Public entry bundle contains build tag `M8-05-20261015` and expected production Worker origin. Rollback point is M8-04 deployment `1cbde724-f582-4111-97a3-a64a43fe191b`; no rollback performed.
+- Chờ người dùng kiểm tra trong Telegram: đổi theme, chuyển tab khi Voice đang chạy rồi quay lại, xác nhận toast sau khi lưu từ và mở Info popup. HTTP smoke không thay thế QA trên thiết bị thật.

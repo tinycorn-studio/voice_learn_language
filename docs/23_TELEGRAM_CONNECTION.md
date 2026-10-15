@@ -32,7 +32,7 @@ Máy kiểm tra không hỗ trợ junction/symlink workspace và sandbox chặn 
 
 1. Xác nhận URL Mini App/API đang dùng, kiểm tra `/health` và request OPTIONS với **Origin của trang Mini App**. URL query `?v=...` không thuộc Origin. HTTP 204 nhưng thiếu header allow-origin vẫn khiến trình duyệt chặn request.
 2. Kiểm tra `VITE_API_BASE_URL` tại lúc build frontend và `ALLOWED_ORIGIN` của Worker đang deploy. Không dùng `*` để chữa lỗi CORS; không đưa bot token/Gemini key vào biến `VITE_*`.
-3. Vite nạp `.env.local` tại root repo do `envDir: '../..'`. Thay biến môi trường cần restart dev server hoặc build/deploy lại frontend; chỉ đổi query URL không thay bundle đang public. Base trống chỉ hoạt động nếu host thực sự route `/api/v1/*` đến Worker; host static Pages hiện tại cần URL Worker đầy đủ.
+3. Từ M7-12, Vite nạp env trong `apps/web` và dùng public production Worker origin đã version trong `apps/web/public-config.json` khi không có override. Hướng dẫn root repo/envDir `../..` cũ đã được thay thế. Thay env cần restart dev server hoặc build/deploy lại; query URL không thay bundle public. Build chặn base rỗng/Pages/sai URL trước phát hành; xem docs/32_PRODUCTION_API_ORIGIN_FIX.md.
 4. Nếu API trả 401/403, kiểm tra auth_date/allowlist và mở bằng nút Mini App trong Telegram. Không copy raw initData, bearer token hoặc bot token vào chat/log.
 5. Nếu vẫn báo lỗi kết nối sau bản vá, ghi platform/phiên bản Telegram, mã HTTP, request_id nếu có và việc request auth có xuất hiện trên network/Worker logs hay không. Không có request trước sửa có thể do thiếu timeout API; có request thì tiếp tục kiểm tra DNS/TLS/proxy/mạng trên thiết bị. Không log transcript/PII.
 

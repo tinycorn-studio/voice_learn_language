@@ -38,7 +38,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     () =>
       suppliedApi ??
       new LearningApiClient(
-        import.meta.env['VITE_API_BASE_URL'] ?? '',
+        import.meta.env.VITE_API_BASE_URL ?? '',
         () => initTelegramEnvironment().rawInitData,
       ),
     [suppliedApi],

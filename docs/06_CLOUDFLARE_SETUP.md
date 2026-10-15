@@ -77,6 +77,16 @@ M7-11 còn kích hoạt một mirror job bằng `ctx.waitUntil` sau mutation th�
 
 Pages project hiện dùng nhánh production tên `production`, không phải `main`. Build với `VITE_APP_VERSION`, deploy `--branch production`, kiểm Environment=Production và hash bundle trên URL chính trước báo thành công. `--branch main` tạo Preview trong cấu hình này.
 
+M7-12: Vite root/envDir là thư mục `apps/web` tuyệt đối; không đặt frontend env tại monorepo root. Production Worker URL mặc định nằm trong `apps/web/public-config.json` (chỉ public URL, có trong Git); `VITE_API_BASE_URL` từ process env hoặc env file `apps/web` được ưu tiên. Clean checkout/CI không cần env private để build production. Empty override, Pages origin, HTTP, placeholder, credentials/path/query/hash bị chặn lúc build. Dev server có thể dùng `apps/web/.env.local` để chọn Worker riêng. Mọi `VITE_*` đều public, không thêm keys/token.
+
+```powershell
+$env:VITE_APP_VERSION = 'M7-12-20261015'
+npm run build
+# Chỉ sau gates/CI PASS mới deploy apps/web/dist với --branch production.
+```
+
+Gate kiểm bundle phải thực thi App đã compile, chặn fetch bằng synthetic initData để đối chiếu URL auth và diagnostic api_origin. Sau deploy tải JS public, kiểm hash/tag/origin và probe Worker auth/CORS; hash giống local chưa chứng minh API origin đúng. Auth giả phải trả JSON 401/400 từ Worker, không được coi là Telegram real-user login pass. Evidence M7-12: docs/32_PRODUCTION_API_ORIGIN_FIX.md.
+
 Sheet mirror cần GAS source đã push/version/redeploy và RPC signed `migration.enableMirror` sau frozen export/import/verify thành công: `DATA_AUTHORITY=d1`, `MIRROR_ENABLED=true`, `MIRROR_EPOCH` khớp Worker/D1. Legacy GAS writers tiếp tục bị khóa; không unfreeze GAS để sửa dữ liệu sau cutover. Xem docs/31_D1_ROLLOUT_RECOVERY.md.
 
 ## VIII. Deploy / rollback

@@ -73,7 +73,7 @@ Get-Content .\PROGRESS.md
 
 Nếu PowerShell không cho chạy script, dùng `powershell -ExecutionPolicy Bypass -File .\scripts\Start-Session.ps1` cho phiên chạy đó; không cần thay đổi policy toàn hệ thống.
 
-Frontend đọc `VITE_API_BASE_URL` từ `.env.local` ở root (copy `.env.example`, chỉ public vars). Worker giữ secret riêng theo docs setup. `npm run build` tạo web assets; kiểm bundle Worker riêng bằng `wrangler deploy --dry-run --config apps/worker/wrangler.toml --outdir .artifacts/worker`. Lệnh dry-run không triển khai. Sheet hiện có cần backup và `migrateSchemaV3(true/false)` theo [runbook FSRS](docs/FSRS_MIGRATION.md) trước khi mở writers của Worker mới.
+Frontend đọc env trong `apps/web` (copy `.env.example` thành `apps/web/.env.local`, chỉ public vars). Production có Worker origin mặc định được version trong `apps/web/public-config.json`; có thể override bằng `VITE_API_BASE_URL`. Build chặn origin rỗng/Pages/HTTP/placeholder thay vì phát hành bundle gọi nhầm static host. Worker giữ secret riêng theo docs setup. `npm run build` tạo web assets; kiểm bundle Worker riêng bằng `wrangler deploy --dry-run --config apps/worker/wrangler.toml --outdir .artifacts/worker`. Lệnh dry-run không triển khai. Sheet hiện có cần backup và `migrateSchemaV3(true/false)` theo [runbook FSRS](docs/FSRS_MIGRATION.md) trước khi mở writers của Worker mới.
 
 ## Chốt yêu cầu sản phẩm
 

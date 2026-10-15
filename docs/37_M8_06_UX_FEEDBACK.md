@@ -33,7 +33,7 @@ Giảm cảnh báo chiếm diện tích hoặc lặp lại trên Mini App; đặ
 6. Lỗi cập nhật/xóa Vocabulary hiển thị cạnh hàng tương ứng và retry được.
 7. Regression tests/full test suite, typecheck, lint, build, secret scan và `git diff --check` pass. Production Pages deploy chỉ thực hiện khi người dùng yêu cầu; yêu cầu deploy đã được đưa ra.
 
-## Evidence local — 2026-10-16 06:42 +07:00
+## Evidence release — 2026-10-16 06:44 +07:00
 
 - `npm test` theo concurrency mặc định: PASS, 213/213 tests trong 35 files. Test bundle lazy chunks có timeout 20 giây vì full suite chạy song song có thể mất hơn timeout mặc định 5 giây; chạy độc lập đạt.
 - `npm run typecheck`: PASS cho toàn bộ workspace.
@@ -42,8 +42,10 @@ Giảm cảnh báo chiếm diện tích hoặc lặp lại trên Mini App; đặ
 - SHA256 entry `9DBA438DB7F58B7AA4D571AC92E7FE1BC4BCC9B934996BF01450FED7CBA53E5E`; CSS `6BD9ACE4549B3123BFCDA055000D8FC353ADD313441FA94714AE7F3B1614DED7`; Vocabulary chunk `C92BA87C8E99AAE54F96977099DD46B7E255FFBAF4C518C1539919199AFABEBB`; Review chunk `9CB8DDFABFC90D3E1DAED7CAECB782E2966EC637E1590C99BD273FFF1D7C590B`.
 - `scripts/Check-Secrets.ps1`: PASS, không thấy file cấm hoặc secret pattern trong tracked files.
 - `git diff --check`: PASS.
-- Wrangler 4.149.0 xác nhận Pages project `voice-chat-learn-language` tồn tại; OAuth hiện có quyền `pages:write`. Deploy production chưa thực hiện tại mốc ghi nhận này.
-- Chỉ frontend tĩnh thuộc `apps/web/dist` trong phạm vi deploy; Worker, D1 và Apps Script không đổi. Rollback dự kiến về Pages deployment M8-05 `6fb2db7f-5479-471d-be4d-efd75d483af6`.
+- Wrangler 4.149.0 xác nhận Pages project `voice-chat-learn-language`; deployment `802f523e-0af0-4918-b2af-6666b0c811c2` ở Environment `Production`, branch `production`, source commit `fa9af38d76c5391229ab8f0eec88436b243a91c7`.
+- URL chính [voice-chat-learn-language.pages.dev](https://voice-chat-learn-language.pages.dev/?v=M8-06-20261016) và [unique deployment URL](https://802f523e.voice-chat-learn-language.pages.dev/) trả HTTP 200. HTML có tham chiếu build M8-06; entry JS, CSS và hai lazy chunks trả HTTP 200, SHA256 từng asset khớp build local.
+- Chỉ deploy frontend tĩnh từ `apps/web/dist`; Worker, D1 và Apps Script không đổi. Rollback Pages về M8-05 deployment `6fb2db7f-5479-471d-be4d-efd75d483af6`.
+- Chờ người dùng kiểm tra UI thật trong Telegram trên PC/mobile; chưa có bằng chứng QA thiết bị từ task này.
 
 ## Cơ sở UX
 

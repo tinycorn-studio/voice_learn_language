@@ -2,10 +2,10 @@
 
 > Updated: 2026-10-14 14:26 +07:00
 > Phase: M7 D1 PRIMARY PRODUCTION — phục hồi/runtime M7-11 đã đạt; dữ liệu cũ verify, GAS v7, Worker 0f087b37/Pages M7-11; Worker đã tự ACK 3 mirror jobs, pending=0. Toàn milestone chưa DONE vì gates vận hành M7-10.
-> Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: M7-10: kiem scheduled invocation sau 14:38 +07, profile CPU mirror 32/13/16 ms (Free 10 ms), Google outage/retry/restore target rieng va user Mini App/Telegram Good/device QA; theo doi PR #1 de xem ket qua Git integration.
+> Đang thực hiện: M7-12 IN_PROGRESS — sửa build frontend thiếu Worker API origin gây auth về Pages/405/INVALID_JSON theo log Desktop 15/10.
+> Next action: Regression bundle thực tế → cấu hình public được version trong Git/envDir đúng/build guard → gates/CI → Pages production → verify bundle/API origin và route auth, ghi evidence.
 > Blockers: M7-10: Cron chưa có scheduled invocation trong phiên (deploy cuối 14:22:55, kiểm sau 14:38); mirror background CPU 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. Human QA chưa thử; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
-> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch fix/M7-11-complete-d1-rollout.
+> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch fix/M7-12-production-api-origin.
 
 ## Legend
 
@@ -82,6 +82,7 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 - [ ] M7-09 — P1, CUTOVER_VERIFIED / OPERATIONAL_GATES_PENDING: M7-11 đã phục hồi Sheet/hash/integrity, migration_run verified, GAS v7/Worker 0f087b37/Pages M7-11; post-commit mirror ACK thật đạt. Chưa đóng toàn release gate vì scheduled invocation/Free CPU thuộc M7-08/M7-10 còn thiếu; docs/31_D1_ROLLOUT_RECOVERY.md.
 - [ ] M7-10 — P1, LIVE_QA_PENDING / REOPENED M7-11: production 0 Reviews, outbox chưa attempt; chưa có live rating/due/mirror hoặc device/CPU/restore evidence đủ đóng task. Synthetic/local suite không thay real QA.
 - [x] M7-11 — P1, DONE_RUNTIME: phục hồi/rollout D1 sau audit; source parity/integrity/foreign preservation, GAS v7, Worker 0f087b37 background ACK=3/pending=0, Pages hash/build đúng, FSRS/replay đạt, 181 tests/gates và CI code SUCCESS; tích hợp Git qua PR #1 có CI head guard. Cron invocation/CPU/device vẫn M7-10, không tự đóng toàn milestone. docs/31_D1_ROLLOUT_RECOVERY.md.
+- [ ] M7-12 — P0, IN_PROGRESS: auth M7-11 trỏ về Pages do Vite envDir/root không đọc apps/web/.env.production ignored. Acceptance: bundle thật gửi auth tới Worker khi không có env private; production build từ chối API origin rỗng/Pages/sai URL; cấu hình public có trong Git, tests/gates/CI, Pages tag/hash/API route verify; không coi auth giả là Telegram user QA.
 
 ## Latest accomplished
 

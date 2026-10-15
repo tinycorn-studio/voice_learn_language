@@ -2,7 +2,13 @@ import { useState, useSyncExternalStore } from 'react';
 import { AppIcon } from '../components/app-icon.js';
 import type { LearningApiClient } from '../services/learning-api-client.js';
 
-export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
+export function ApiDiagnosticsPanel({
+  api,
+  onToast,
+}: {
+  api: LearningApiClient;
+  onToast?: (message: string, tone: 'success' | 'info' | 'warning') => void;
+}) {
   const entries = useSyncExternalStore(api.diagnostics.subscribe, api.diagnostics.getSnapshot);
   const capture = useSyncExternalStore(
     api.diagnostics.subscribe,
@@ -31,9 +37,10 @@ export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
     }
   };
   const copyReport = async () => {
+    setCopyStatus('');
     try {
       await navigator.clipboard.writeText(api.diagnostics.exportReport());
-      setCopyStatus('Đã sao chép log.');
+      onToast?.('Đã sao chép log chẩn đoán.', 'success');
     } catch {
       setCopyStatus(
         'Không thể sao chép tự động. Chạm vào ô log bên dưới, chọn tất cả và sao chép.',
@@ -77,7 +84,11 @@ export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
           </button>
         </div>
         {connectionStatus && <p role="status">{connectionStatus}</p>}
-        {copyStatus && <p role="status">{copyStatus}</p>}
+        {copyStatus && (
+          <p role="status" data-testid="copy-log-fallback">
+            {copyStatus}
+          </p>
+        )}
         <textarea
           aria-label="Log chẩn đoán"
           readOnly

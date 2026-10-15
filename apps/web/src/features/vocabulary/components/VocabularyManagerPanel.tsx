@@ -13,6 +13,11 @@ export interface VocabularyManagerPanelProps {
   enabled?: boolean;
 }
 
+interface ItemActionError {
+  action: 'update' | 'delete';
+  message: string;
+}
+
 export function VocabularyManagerPanel({
   items,
   onUpdateItem,
@@ -25,8 +30,16 @@ export function VocabularyManagerPanel({
   const [draftExample, setDraftExample] = useState('');
   const [csvExportPreview, setCsvExportPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [itemErrors, setItemErrors] = useState<Record<string, ItemActionError>>({});
   const pendingEdit = useRef<{ key: string; eventId: string } | null>(null);
+
+  const setItemError = (wordId: string, error: ItemActionError | null) =>
+    setItemErrors((previous) => {
+      const next = { ...previous };
+      if (error) next[wordId] = error;
+      else delete next[wordId];
+      return next;
+    });
 
   const visibleItems = items.filter((it) => {
     if (it.deleted_at !== '') {
@@ -44,6 +57,7 @@ export function VocabularyManagerPanel({
   });
 
   const startEdit = (item: VocabularyItem) => {
+    setItemError(item.word_id, null);
     setEditingId(item.word_id);
     setDraftMeaning(item.meaning_vi);
     setDraftExample(item.example);
@@ -56,13 +70,32 @@ export function VocabularyManagerPanel({
     if (pendingEdit.current?.key !== key)
       pendingEdit.current = { key, eventId: crypto.randomUUID() };
     setBusy(true);
-    setError(null);
+    setItemError(item.word_id, null);
     try {
       await onUpdateItem(item, changes, pendingEdit.current.eventId);
       setEditingId(null);
       pendingEdit.current = null;
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Không thể sửa từ.');
+      setItemError(item.word_id, {
+        action: 'update',
+        message: failure instanceof Error ? failure.message : 'Không thể sửa từ.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteItem = async (item: VocabularyItem) => {
+    if (busy || !enabled) return;
+    setBusy(true);
+    setItemError(item.word_id, null);
+    try {
+      await onDeleteItem(item.word_id);
+    } catch (failure) {
+      setItemError(item.word_id, {
+        action: 'delete',
+        message: failure instanceof Error ? failure.message : 'Không thể xóa từ.',
+      });
     } finally {
       setBusy(false);
     }
@@ -75,7 +108,6 @@ export function VocabularyManagerPanel({
 
   return (
     <section className="voice-panel" aria-label="Personal Vocabulary Manager">
-      {error && <p role="alert">{error}</p>}
       <div className="vocab-toolbar">
         <label className="vocab-search-field">
           <AppIcon name="search" size={19} />
@@ -112,89 +144,110 @@ export function VocabularyManagerPanel({
       )}
 
       <div className="vocab-list" data-testid="vocab-list">
-        {visibleItems.map((item) => (
-          <article
-            key={item.word_id}
-            className="vocab-row"
-            data-testid={`vocab-item-${item.word_id}`}
-          >
-            <div className="vocab-row-header">
-              <div>
-                <strong>{item.word}</strong> <span>({item.part_of_speech})</span>{' '}
-                <small className="sense-tag">#{item.sense_key}</small>
+        {visibleItems.map((item) => {
+          const itemError = itemErrors[item.word_id];
+          const errorDescription = itemError ? `vocab-error-${item.word_id}` : undefined;
+          return (
+            <article
+              key={item.word_id}
+              className="vocab-row"
+              data-testid={`vocab-item-${item.word_id}`}
+            >
+              <div className="vocab-row-header">
+                <div>
+                  <strong>{item.word}</strong> <span>({item.part_of_speech})</span>{' '}
+                  <small className="sense-tag">#{item.sense_key}</small>
+                </div>
+                <div className="vocab-row-actions">
+                  <button
+                    type="button"
+                    className="btn-chip"
+                    onClick={() => startEdit(item)}
+                    disabled={!enabled || busy}
+                    aria-describedby={errorDescription}
+                    data-testid={`btn-edit-${item.word_id}`}
+                  >
+                    <AppIcon name="edit" size={17} /> Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-chip btn-outline-danger"
+                    disabled={!enabled || busy}
+                    aria-describedby={errorDescription}
+                    onClick={() => void deleteItem(item)}
+                    data-testid={`btn-delete-${item.word_id}`}
+                  >
+                    <AppIcon name="delete" size={17} /> Delete
+                  </button>
+                </div>
               </div>
-              <div className="vocab-row-actions">
-                <button
-                  type="button"
-                  className="btn-chip"
-                  onClick={() => startEdit(item)}
-                  disabled={!enabled || busy}
-                  data-testid={`btn-edit-${item.word_id}`}
-                >
-                  <AppIcon name="edit" size={17} /> Edit
-                </button>
-                <button
-                  type="button"
-                  className="btn-chip btn-outline-danger"
-                  disabled={!enabled || busy}
-                  onClick={() => {
-                    setBusy(true);
-                    setError(null);
-                    void onDeleteItem(item.word_id)
-                      .catch((failure) =>
-                        setError(failure instanceof Error ? failure.message : 'Không thể xóa từ.'),
-                      )
-                      .finally(() => setBusy(false));
-                  }}
-                  data-testid={`btn-delete-${item.word_id}`}
-                >
-                  <AppIcon name="delete" size={17} /> Delete
-                </button>
-              </div>
-            </div>
 
-            {editingId === item.word_id ? (
-              <div className="vocab-edit-form">
-                <input
-                  type="text"
-                  value={draftMeaning}
-                  onChange={(e) => setDraftMeaning(e.target.value)}
-                  maxLength={300}
-                  aria-label="Edit Vietnamese meaning"
-                  data-testid="edit-meaning-input"
-                />
-                <input
-                  type="text"
-                  value={draftExample}
-                  onChange={(e) => setDraftExample(e.target.value)}
-                  maxLength={500}
-                  aria-label="Edit example sentence"
-                  data-testid="edit-example-input"
-                />
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={() => saveEdit(item)}
-                  disabled={!enabled || busy}
-                  data-testid="btn-save-edit"
-                >
-                  <AppIcon name="save" size={18} /> Save Correction
-                </button>
-              </div>
-            ) : (
-              <div className="vocab-row-body">
-                <p>
-                  <strong>Nghĩa:</strong> {item.meaning_vi}
-                </p>
-                {item.example && (
+              {editingId === item.word_id ? (
+                <div className="vocab-edit-form">
+                  <input
+                    type="text"
+                    value={draftMeaning}
+                    onChange={(e) => setDraftMeaning(e.target.value)}
+                    maxLength={300}
+                    aria-label="Edit Vietnamese meaning"
+                    aria-describedby={errorDescription}
+                    data-testid="edit-meaning-input"
+                  />
+                  <input
+                    type="text"
+                    value={draftExample}
+                    onChange={(e) => setDraftExample(e.target.value)}
+                    maxLength={500}
+                    aria-label="Edit example sentence"
+                    aria-describedby={errorDescription}
+                    data-testid="edit-example-input"
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => saveEdit(item)}
+                    disabled={!enabled || busy}
+                    data-testid="btn-save-edit"
+                  >
+                    <AppIcon name="save" size={18} /> Save Correction
+                  </button>
+                </div>
+              ) : (
+                <div className="vocab-row-body">
                   <p>
-                    <strong>Ví dụ:</strong> {item.example}
+                    <strong>Nghĩa:</strong> {item.meaning_vi}
                   </p>
-                )}
-              </div>
-            )}
-          </article>
-        ))}
+                  {item.example && (
+                    <p>
+                      <strong>Ví dụ:</strong> {item.example}
+                    </p>
+                  )}
+                </div>
+              )}
+              {itemError && (
+                <div
+                  id={`vocab-error-${item.word_id}`}
+                  className="vocab-row-error"
+                  role="alert"
+                  data-testid={`vocab-error-${item.word_id}`}
+                >
+                  <p>{itemError.message}</p>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-outline-info"
+                    disabled={!enabled || busy}
+                    onClick={() =>
+                      itemError.action === 'delete' ? void deleteItem(item) : void saveEdit(item)
+                    }
+                  >
+                    <AppIcon name="again" size={18} />
+                    {itemError.action === 'delete' ? 'Thử xóa lại' : 'Thử lưu lại'}
+                  </button>
+                </div>
+              )}
+            </article>
+          );
+        })}
       </div>
     </section>
   );

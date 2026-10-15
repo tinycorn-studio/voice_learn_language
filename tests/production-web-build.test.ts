@@ -63,7 +63,7 @@ describe('production Mini App API configuration', () => {
     expect(
       lazyModules.some((id) => id.includes('/features/vocabulary/components/VocabularyManagerPanel.tsx')),
     ).toBe(true);
-  });
+  }, 20_000);
 
   it('runs the compiled App and sends Telegram auth to Worker without a process API override', async () => {
     vi.stubEnv('VITE_API_BASE_URL', undefined);

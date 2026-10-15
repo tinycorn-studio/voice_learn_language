@@ -88,7 +88,7 @@ export class VocabularySaveQueue {
   public async retryPending(): Promise<QueuedVocabularyEntry[]> {
     const updated: QueuedVocabularyEntry[] = [];
     for (const entry of this.entries.values()) {
-      if (entry.status === 'pending') {
+      if (entry.status !== 'saved') {
         const res = await this.enqueueAndAttempt(entry.request);
         updated.push(res);
       }

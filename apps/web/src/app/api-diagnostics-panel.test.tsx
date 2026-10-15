@@ -84,7 +84,7 @@ it('shows the failed request ID, adds an unauthenticated health result and copie
   expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText('NETWORK_ERROR')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Sao chép log' }));
-  await waitFor(() => expect(screen.getByText('Đã sao chép log.')).toBeTruthy());
+  await waitFor(() => expect(screen.getByTestId('feedback-toast').textContent).toContain('Đã sao chép log'));
   expect(writeText).toHaveBeenCalledWith(api.diagnostics.exportReport());
   expect(writeText.mock.calls[0]?.[0]).not.toContain('private');
   expect((screen.getByLabelText('Log chẩn đoán') as HTMLTextAreaElement).value).toContain(

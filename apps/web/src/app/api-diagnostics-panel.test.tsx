@@ -23,14 +23,32 @@ it('exposes capture timings without HTTP errors and strips arbitrary private met
     token: 'private token',
   };
   for (let index = 0; index < 105; index++) api.diagnostics.recordCapture(metadata);
+  const startupMetadata = {
+    stage: 'vocabulary_load_completed' as const,
+    elapsed_ms: 300,
+    duration_ms: 120,
+    transcript: 'private transcript',
+  };
+  api.diagnostics.recordStartup(startupMetadata);
   render(<ApiDiagnosticsPanel api={api} />);
   expect(screen.getByText('Log chẩn đoán')).toBeTruthy();
   const report = api.diagnostics.exportReport();
   expect(report).toContain('inquiry_detected');
   expect(report).toContain('persistence_duration_ms');
+  expect(report).toContain('vocabulary_load_completed');
+  expect(report).not.toContain('transcript');
   expect(report).not.toContain('private');
   expect(api.diagnostics.getCaptureSnapshot()).toHaveLength(100);
   expect(screen.queryByText(/Mã lỗi gần nhất/)).toBeNull();
+});
+
+it('bounds startup diagnostics and rejects unknown startup stages', () => {
+  const api = new LearningApiClient('https://worker.example', () => '');
+  for (let index = 0; index < 35; index++)
+    api.diagnostics.recordStartup({ stage: 'voice_ready', elapsed_ms: index });
+  api.diagnostics.recordStartup({ stage: 'private_stage', elapsed_ms: 1 } as never);
+  expect(api.diagnostics.getStartupSnapshot()).toHaveLength(30);
+  expect(api.diagnostics.getStartupSnapshot()[0]?.elapsed_ms).toBe(5);
 });
 
 it('shows the failed request ID, adds an unauthenticated health result and copies the safe report', async () => {

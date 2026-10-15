@@ -465,3 +465,56 @@ body {
   padding: 0.75rem;
   font-size: 1rem;
 }
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #bae6fd;
+  padding: 0.5rem 0;
+}
+
+.loading-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #38bdf8;
+  animation: loading-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.panel-loading {
+  min-height: 12rem;
+  justify-content: center;
+}
+
+.loading-bar {
+  width: min(100%, 23rem);
+  height: 0.8rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1e293b, #475569, #1e293b);
+  background-size: 200% 100%;
+  animation: loading-shimmer 1.5s ease-in-out infinite;
+}
+
+.loading-bar-short {
+  width: min(70%, 15rem);
+}
+
+@keyframes loading-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+
+@keyframes loading-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-dot,
+  .loading-bar {
+    animation: none;
+  }
+}

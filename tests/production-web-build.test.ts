@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { build } from 'vite';
@@ -15,7 +16,7 @@ const { JSDOM } = createRequire(import.meta.url)('jsdom') as {
 const APP_ORIGIN = 'https://voice-chat-learn-language.pages.dev';
 const API_ORIGIN = 'https://voice-chat-learn-language-worker.voice-chat-learn-language.workers.dev';
 
-async function buildEntry() {
+async function buildOutput() {
   const result = await build({
     root: resolve('apps/web'),
     configFile: resolve('apps/web/vite.config.ts'),
@@ -23,13 +24,47 @@ async function buildEntry() {
     build: { write: false, minify: false },
   });
   if (Array.isArray(result) || !('output' in result)) throw new Error('Expected one build');
-  const entry = result.output.find((item) => item.type === 'chunk' && item.isEntry);
+  return result.output;
+}
+
+async function buildEntry() {
+  const output = await buildOutput();
+  const entry = output.find((item) => item.type === 'chunk' && item.isEntry);
   if (!entry || entry.type !== 'chunk') throw new Error('Missing browser entry');
-  return entry.code;
+  // JSDOM evaluates the browser entry as a classic script; its exports are unused by this probe.
+  return entry.code.replace(/export\s*\{[^}]*\};?\s*$/s, '');
 }
 
 afterEach(() => vi.unstubAllEnvs());
 describe('production Mini App API configuration', () => {
+  it('shows an immediate boot shell and defers Telegram SDK before the app module', () => {
+    const html = readFileSync(resolve('apps/web/index.html'), 'utf8');
+    const telegramIndex = html.indexOf('src="https://telegram.org/js/telegram-web-app.js"');
+    const appIndex = html.indexOf('type="module" src="/src/main.tsx"');
+    expect(html).toContain('class="boot-screen"');
+    expect(html.slice(telegramIndex - 24, telegramIndex)).toContain('defer');
+    expect(telegramIndex).toBeGreaterThanOrEqual(0);
+    expect(appIndex).toBeGreaterThan(telegramIndex);
+  });
+
+  it('keeps Review and Vocabulary components out of the entry chunk', async () => {
+    const chunks = (await buildOutput()).filter((item) => item.type === 'chunk');
+    const entry = chunks.find((item) => item.isEntry);
+    expect(entry).toBeDefined();
+    const entryModules = Object.keys(entry!.modules).join('\n');
+    expect(entryModules).not.toContain('/features/review/components/FlashcardReviewPanel.tsx');
+    expect(entryModules).not.toContain('/features/vocabulary/components/VocabularyManagerPanel.tsx');
+    const lazyModules = chunks
+      .filter((item) => !item.isEntry)
+      .flatMap((item) => Object.keys(item.modules));
+    expect(lazyModules.some((id) => id.includes('/features/review/components/FlashcardReviewPanel.tsx'))).toBe(
+      true,
+    );
+    expect(
+      lazyModules.some((id) => id.includes('/features/vocabulary/components/VocabularyManagerPanel.tsx')),
+    ).toBe(true);
+  });
+
   it('runs the compiled App and sends Telegram auth to Worker without a process API override', async () => {
     vi.stubEnv('VITE_API_BASE_URL', undefined);
     const code = await buildEntry();

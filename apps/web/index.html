@@ -8,11 +8,58 @@
     />
     <meta name="theme-color" content="#0f172a" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #1e293b 0%, #0f172a 70%);
+      }
+      .boot-screen {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      .boot-line {
+        height: 1rem;
+        max-width: 19rem;
+        margin: 0.8rem 0;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #1e293b, #334155, #1e293b);
+        background-size: 200% 100%;
+        animation: boot-pulse 1.5s ease-in-out infinite;
+      }
+      .boot-line-short {
+        max-width: 11rem;
+      }
+      @keyframes boot-pulse {
+        to {
+          background-position: -200% 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-line {
+          animation: none;
+        }
+      }
+    </style>
     <title>VoiceChat Learn English</title>
   </head>
   <body>
-    <div id="root"></div>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <div id="root">
+      <main class="boot-screen" role="status" aria-live="polite">
+        <h1>VoiceChat English Tutor</h1>
+        <p>Đang khởi động ứng dụng...</p>
+        <div class="boot-line" aria-hidden="true"></div>
+        <div class="boot-line boot-line-short" aria-hidden="true"></div>
+      </main>
+    </div>
+    <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

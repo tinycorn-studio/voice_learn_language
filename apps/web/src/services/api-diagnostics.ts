@@ -4,6 +4,7 @@ import {
   captureDiagnosticSchema,
   type CaptureDiagnostic,
 } from '../features/voice/services/capture-diagnostics.js';
+import { startupDiagnosticSchema, type StartupDiagnostic } from './startup-diagnostics.js';
 
 export type DiagnosticCode =
   | ApiErrorCode
@@ -107,11 +108,22 @@ export function safeServerRequestId(value: string): string | null {
 export class ApiDiagnostics {
   private entries: readonly ApiDiagnostic[] = [];
   private capture: readonly (CaptureDiagnostic & { timestamp: string })[] = [];
+  private startup: readonly (StartupDiagnostic & { timestamp: string })[] = [];
   private readonly listeners = new Set<() => void>();
   public constructor(private readonly baseUrl: string) {}
 
   public readonly getSnapshot = (): readonly ApiDiagnostic[] => this.entries;
   public readonly getCaptureSnapshot = () => this.capture;
+  public readonly getStartupSnapshot = () => this.startup;
+  public recordStartup(metadata: StartupDiagnostic): void {
+    const parsed = startupDiagnosticSchema.safeParse(metadata);
+    if (!parsed.success) return;
+    this.startup = Object.freeze([
+      ...this.startup.slice(-29),
+      Object.freeze({ ...parsed.data, timestamp: new Date().toISOString() }),
+    ]);
+    this.listeners.forEach((listener) => listener());
+  }
   public recordCapture(metadata: CaptureDiagnostic): void {
     const parsed = captureDiagnosticSchema.safeParse(metadata);
     if (!parsed.success) return;
@@ -185,7 +197,12 @@ export class ApiDiagnostics {
 
   public exportReport(): string {
     return JSON.stringify(
-      { format: 'mini-app-api-diagnostics-v1', attempts: this.entries, capture: this.capture },
+      {
+        format: 'mini-app-api-diagnostics-v1',
+        attempts: this.entries,
+        capture: this.capture,
+        startup: this.startup,
+      },
       null,
       2,
     );

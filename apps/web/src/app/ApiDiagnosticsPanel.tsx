@@ -7,11 +7,15 @@ export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
     api.diagnostics.subscribe,
     api.diagnostics.getCaptureSnapshot,
   );
+  const startup = useSyncExternalStore(
+    api.diagnostics.subscribe,
+    api.diagnostics.getStartupSnapshot,
+  );
   const [checking, setChecking] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
   const lastFailure = [...entries].reverse().find((entry) => entry.code !== 'OK');
-  if (entries.length === 0 && capture.length === 0) return null;
+  if (entries.length === 0 && capture.length === 0 && startup.length === 0) return null;
 
   const checkConnection = async () => {
     setChecking(true);
@@ -51,8 +55,8 @@ export function ApiDiagnosticsPanel({ api }: { api: LearningApiClient }) {
       <details>
         <summary>Log chẩn đoán</summary>
         <p>
-          Giữ tối đa 30 lần gọi và 100 mốc ghi nhận trong phiên này; log mất khi đóng ứng dụng.
-          Không chứa token hay nội dung học.
+          Giữ tối đa 30 lần gọi, 100 mốc ghi nhận và 30 mốc khởi động trong phiên này; log mất khi
+          đóng ứng dụng. Không chứa token hay nội dung học.
         </p>
         <div className="diagnostic-actions">
           <button disabled={checking} onClick={() => void checkConnection()}>

@@ -53,8 +53,15 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       };
       let dropFirstWriteResponse = true;
       let dropFirstReviewResponse = true;
+      let vocabularyReads = 0;
       const store = new SecurityStateStore();
       const bridge: typeof fetch = async (url, init) => {
+        const requestUrl = new URL(String(url));
+        if (
+          requestUrl.pathname === '/api/v1/vocabulary' &&
+          (init?.method ?? 'GET') === 'GET'
+        )
+          vocabularyReads++;
         // jsdom's browser AbortSignal is not an undici Request signal in this in-process bridge.
         const { signal: _browserSignal, ...requestInit } = init ?? {};
         const response = await handleWorkerRequest(
@@ -110,7 +117,13 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       await waitFor(() =>
         expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(false),
       );
+      expect(vocabularyReads).toBe(0);
+      expect(screen.getByTestId('tab-vocabulary').textContent).toBe('Vocabulary');
+      fireEvent.click(screen.getByTestId('tab-vocabulary'));
+      await waitFor(() => expect(screen.getByTestId('vocab-list')).toBeTruthy());
+      expect(vocabularyReads).toBe(1);
       expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(0)');
+      fireEvent.click(screen.getByTestId('tab-voice'));
       fireEvent.click(screen.getByTestId('btn-start-mic'));
       await waitFor(() => expect(sockets).toHaveLength(1));
       act(() => {
@@ -222,6 +235,9 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       expect(gas.spreadsheet.getSheetByName('Reviews')?.getLastRow()).toBe(3);
       view.unmount();
       render(<App api={makeApi()} />);
+      await waitFor(() => expect(screen.getByTestId('btn-start-mic')).toBeTruthy());
+      expect(screen.getByTestId('tab-vocabulary').textContent).toBe('Vocabulary');
+      fireEvent.click(screen.getByTestId('tab-vocabulary'));
       await waitFor(() =>
         expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(1)'),
       );
@@ -241,7 +257,7 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       expect(screen.getByRole('alert').textContent).toContain('Telegram Mini App'),
     );
     expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('tab-vocabulary').textContent).toContain('(0)');
+    expect(screen.getByTestId('tab-vocabulary').textContent).toBe('Vocabulary');
   });
 
   it('retries authentication after a network failure without reopening the Mini App', async () => {
@@ -282,7 +298,7 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
       expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(false),
     );
     expect(screen.queryByRole('alert')).toBeNull();
-    // Voice startup loads vocabulary only; due/stats are fetched when opening review.
-    expect(fetchFn).toHaveBeenCalledTimes(3);
+    // Auth alone enables Voice; Vocabulary and Review requests wait for their tabs.
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   DueReviewCard,
   ReviewRating,
@@ -21,10 +21,30 @@ import {
   VocabularySaveQueue,
   type QueuedVocabularyEntry,
 } from '../features/vocabulary/services/vocabulary-save-queue.js';
-import { FlashcardReviewPanel } from '../features/review/components/FlashcardReviewPanel.js';
-import { VocabularyManagerPanel } from '../features/vocabulary/components/VocabularyManagerPanel.js';
 import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 import { CoalescedRefresh } from '../services/coalesced-refresh.js';
+import type { StartupDiagnostic } from '../services/startup-diagnostics.js';
+
+const FlashcardReviewPanel = lazy(() =>
+  import('../features/review/components/FlashcardReviewPanel.js').then((module) => ({
+    default: module.FlashcardReviewPanel,
+  })),
+);
+const VocabularyManagerPanel = lazy(() =>
+  import('../features/vocabulary/components/VocabularyManagerPanel.js').then((module) => ({
+    default: module.VocabularyManagerPanel,
+  })),
+);
+
+function PanelLoading({ label }: { label: string }) {
+  return (
+    <section className="voice-panel panel-loading" role="status" data-testid="panel-loading">
+      <strong>{label}</strong>
+      <span className="loading-bar" aria-hidden="true" />
+      <span className="loading-bar loading-bar-short" aria-hidden="true" />
+    </section>
+  );
+}
 
 interface AppProps {
   api?: LearningApiClient;
@@ -47,7 +67,11 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const [words, setWords] = useState<VocabularyItem[]>([]);
   const [dueCards, setDueCards] = useState<DueReviewCard[]>([]);
   const [reviewStats, setReviewStats] = useState<ReviewStatsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [vocabularyLoading, setVocabularyLoading] = useState(false);
+  const [vocabularyLoaded, setVocabularyLoaded] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewLoaded, setReviewLoaded] = useState(false);
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,11 +80,32 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const deletes = useRef(new Map<string, string>());
   const reviews = useRef(new Map<string, ReviewSubmitRequest>());
   const refreshVersion = useRef(0);
+  const vocabularyLoadedRef = useRef(false);
+  const reviewLoadedRef = useRef(false);
+  // Performance.now() is relative to this document's navigation start, even before React mounts.
+  const startupStartedAt = useRef(0);
+  const recordStartup = useCallback(
+    (stage: StartupDiagnostic['stage'], stageStartedAt?: number) => {
+      const now = performance.now();
+      api.diagnostics.recordStartup({
+        stage,
+        elapsed_ms: Math.max(0, now - startupStartedAt.current),
+        ...(stageStartedAt !== undefined
+          ? { duration_ms: Math.max(0, now - stageStartedAt) }
+          : {}),
+      });
+    },
+    [api],
+  );
 
   const refresher = useMemo(
     () =>
       new CoalescedRefresh<'vocabulary' | 'review'>(async (keys) => {
         const version = ++refreshVersion.current;
+        const vocabularyStartedAt = keys.includes('vocabulary') ? performance.now() : null;
+        const reviewStartedAt = keys.includes('review') ? performance.now() : null;
+        if (vocabularyStartedAt !== null) recordStartup('vocabulary_load_started');
+        if (reviewStartedAt !== null) recordStartup('review_load_started');
         try {
           const [items, cards, stats] = await Promise.all([
             keys.includes('vocabulary') ? api.listVocabulary() : undefined,
@@ -68,22 +113,43 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
             keys.includes('review') ? api.getReviewStats() : undefined,
           ]);
           if (version === refreshVersion.current) {
-            if (items) setWords(items);
-            if (cards) setDueCards(cards);
-            if (stats) setReviewStats(stats);
+            if (items) {
+              vocabularyLoadedRef.current = true;
+              setWords(items);
+              setVocabularyLoaded(true);
+              recordStartup('vocabulary_load_completed', vocabularyStartedAt ?? undefined);
+            }
+            if (cards && stats) {
+              reviewLoadedRef.current = true;
+              setDueCards(cards);
+              setReviewStats(stats);
+              setReviewLoaded(true);
+              recordStartup('review_load_completed', reviewStartedAt ?? undefined);
+            }
             setError(null);
           }
         } catch (failure) {
           if (version === refreshVersion.current) {
+            if (vocabularyStartedAt !== null)
+              recordStartup('vocabulary_load_failed', vocabularyStartedAt);
+            if (reviewStartedAt !== null) recordStartup('review_load_failed', reviewStartedAt);
             setError(failure instanceof Error ? failure.message : 'Không thể tải từ vựng.');
           }
         }
       }),
-    [api],
+    [api, recordStartup],
   );
   const refresh = useCallback(
-    (scope: 'vocabulary' | 'review' | 'all' = 'all') =>
-      refresher.request(scope === 'all' ? ['vocabulary', 'review'] : [scope]),
+    (scope: 'vocabulary' | 'review' | 'all' = 'all') => {
+      const keys: Array<'vocabulary' | 'review'> =
+        scope === 'all' ? ['vocabulary', 'review'] : [scope];
+      if (keys.includes('vocabulary') && !vocabularyLoadedRef.current) setVocabularyLoading(true);
+      if (keys.includes('review') && !reviewLoadedRef.current) setReviewLoading(true);
+      return refresher.request(keys).finally(() => {
+        if (keys.includes('vocabulary')) setVocabularyLoading(false);
+        if (keys.includes('review')) setReviewLoading(false);
+      });
+    },
     [refresher],
   );
 
@@ -98,6 +164,15 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     }, 30000);
     return () => clearInterval(timer);
   }, [authenticated, activeTab, refresh]);
+
+  useEffect(() => {
+    if (!authenticated || activeTab !== 'vocabulary' || vocabularyLoaded) return;
+    void refresh('vocabulary');
+  }, [authenticated, activeTab, refresh, vocabularyLoaded]);
+
+  useEffect(() => {
+    recordStartup('app_mounted');
+  }, [recordStartup]);
 
   const queue = useMemo(
     () =>
@@ -117,25 +192,33 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
 
   useEffect(() => {
     let cancelled = false;
+    const authStartedAt = performance.now();
+    recordStartup('auth_started');
     void api
       .authenticate()
-      .then(async () => {
+      .then(() => {
         if (cancelled) return;
+        recordStartup('auth_ready', authStartedAt);
         setAuthenticated(true);
-        await refresh('vocabulary');
+        setError(null);
       })
       .catch((failure) => {
+        recordStartup('auth_failed', authStartedAt);
         if (!cancelled)
           setError(failure instanceof Error ? failure.message : 'Đăng nhập thất bại.');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setAuthLoading(false);
       });
     return () => {
       cancelled = true;
       refreshVersion.current++;
     };
-  }, [api, refresh, loginAttempt]);
+  }, [api, loginAttempt, recordStartup]);
+
+  useEffect(() => {
+    if (authenticated) recordStartup('voice_ready');
+  }, [authenticated, recordStartup]);
 
   const saveVocabulary = useCallback(
     async (event: VerifiedSaveVocabularyEvent) => {
@@ -144,14 +227,14 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         setEntries(queue.getEntries());
         const result = await attempt;
         setEntries(queue.getEntries());
-        if (result.status === 'saved') void refresh('vocabulary');
+        if (result.status === 'saved' && vocabularyLoaded) void refresh('vocabulary');
         return { ok: result.status === 'saved' };
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.');
         return { ok: false };
       }
     },
-    [queue, refresh],
+    [queue, refresh, vocabularyLoaded],
   );
   const sessionFactory = useCallback<VoiceSessionFactory>(
     (callbacks) =>
@@ -215,14 +298,19 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch; dữ liệu gửi đến Gemini tuân theo
         chính sách của Google theo tier đang dùng.
       </div>
-      {loading && <p role="status">Đang đăng nhập và tải từ vựng...</p>}
+      {authLoading && (
+        <div className="app-loading" role="status" data-testid="auth-loading">
+          <span className="loading-dot" aria-hidden="true" />
+          Đang xác thực Telegram...
+        </div>
+      )}
       {error && (
         <div role="alert" className="voice-error-banner">
           {error} {authenticated && <button onClick={() => void refresh()}>Tải lại dữ liệu</button>}
-          {!authenticated && !loading && (
+          {!authenticated && !authLoading && (
             <button
               onClick={() => {
-                setLoading(true);
+                setAuthLoading(true);
                 setError(null);
                 setLoginAttempt((attempt) => attempt + 1);
               }}
@@ -233,7 +321,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         </div>
       )}
       <ApiDiagnosticsPanel api={api} />
-      {!authenticated && !loading && (
+      {!authenticated && !authLoading && (
         <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}
 
@@ -242,7 +330,10 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
           [
             { tab: 'voice', label: 'Voice Tutor' },
             { tab: 'review', label: 'Flashcards SRS' },
-            { tab: 'vocabulary', label: `Vocabulary (${words.length})` },
+            {
+              tab: 'vocabulary',
+              label: vocabularyLoaded ? `Vocabulary (${words.length})` : 'Vocabulary',
+            },
           ] as const
         ).map(({ tab, label }) => (
           <button
@@ -298,25 +389,45 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         <VoiceSessionPanel
           sessionFactory={sessionFactory}
           translateText={translateText}
-          enabled={authenticated && !loading}
+          enabled={authenticated}
         />
       )}
       {activeTab === 'review' && (
-        <FlashcardReviewPanel
-          items={dueCards}
-          onGrade={grade}
-          onPreview={preview}
-          stats={reviewStats}
-          enabled={authenticated && !loading}
-        />
+        !authenticated ? (
+          <PanelLoading
+            label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải thẻ ôn.'}
+          />
+        ) : !reviewLoaded || reviewLoading ? (
+          <PanelLoading label="Đang tải thẻ ôn tập..." />
+        ) : (
+          <Suspense fallback={<PanelLoading label="Đang mở Flashcards..." />}>
+            <FlashcardReviewPanel
+              items={dueCards}
+              onGrade={grade}
+              onPreview={preview}
+              stats={reviewStats}
+              enabled={authenticated}
+            />
+          </Suspense>
+        )
       )}
       {activeTab === 'vocabulary' && (
-        <VocabularyManagerPanel
-          items={words}
-          onUpdateItem={update}
-          onDeleteItem={remove}
-          enabled={authenticated && !loading}
-        />
+        !authenticated ? (
+          <PanelLoading
+            label={authLoading ? 'Đang xác thực Telegram...' : 'Cần đăng nhập để tải từ vựng.'}
+          />
+        ) : !vocabularyLoaded || vocabularyLoading ? (
+          <PanelLoading label="Đang tải từ vựng..." />
+        ) : (
+          <Suspense fallback={<PanelLoading label="Đang mở sổ từ..." />}>
+            <VocabularyManagerPanel
+              items={words}
+              onUpdateItem={update}
+              onDeleteItem={remove}
+              enabled={authenticated}
+            />
+          </Suspense>
+        )
       )}
     </main>
   );

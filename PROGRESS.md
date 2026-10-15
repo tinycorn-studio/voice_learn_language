@@ -1,11 +1,11 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-15 15:32 +07:00
+> Updated: 2026-10-15 16:13 +07:00
 > Phase: M7 D1 PRIMARY PRODUCTION — phục hồi/runtime M7-11 đã đạt; dữ liệu cũ verify, GAS v7, Worker 0f087b37/Pages M7-11; Worker đã tự ACK 3 mirror jobs, pending=0. Toàn milestone chưa DONE vì gates vận hành M7-10.
 > Đang thực hiện: Chưa có (task gần nhất đã đóng)
-> Next action: Chờ yêu cầu deploy; sau deploy đo live p95/CPU/quota và QA thiết bị theo M7-10
+> Next action: Chờ yêu cầu deploy; sau khi lên production kiểm tra Mini App trên Telegram, startup latency, D1 metrics/quota và M7-10 vận hành.
 > Blockers: M7-10: bằng chứng 14/10 chưa có scheduled invocation, cần kiểm hiện trạng; CPU mirror 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. User xác nhận auth M7-12 hoạt động ngày 15/10; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
-> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Branch feat/M8-02-interaction-latency, base origin/main 18821e7.
+> Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Kế thừa commit local M8-02 `6ce5e12`; tạo branch riêng `feat/M8-03-fast-startup-storage`.
 
 ## Legend
 
@@ -88,8 +88,11 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 - [x] M8-01 — DONE / DEPLOYED: khung transcript tự theo dõi lượt mới nếu người dùng ở gần cuối; giữ vị trí khi đọc lịch sử và có nút về câu mới nhất. Mỗi lượt hoàn tất có nút “Dịch”; kết quả hiện ngay dưới câu và được cache trong bộ nhớ trang; loading/lỗi/thử lại không tác động phiên Gemini Live. API Worker chỉ nhận câu được chọn (tối đa 500 ký tự), xác thực Telegram, giới hạn tốc độ/thời gian; Gemini key chỉ ở Worker; transcript/dịch không lưu hoặc ghi log. Regressions UI/API pass; full suite 198 tests/30 files, typecheck/lint/build/secret scan/diff check/Worker dry-run PASS. Worker production version `b667f34c-6776-40db-b498-0bab921ebcb9`; Pages production build `M8-01-20261015`, bundle `index-HOwcTy7J.js`; Pages 200, Worker `/health` 200 healthy. Người dùng thử UI production là bước tiếp theo. Spec tại docs/08_API_CONTRACTS.md.
 - [x] M8-02 — P1, DONE LOCAL: D1 create/review batch preflight reads giữ replay/OCC/atomic writes; Telegram ưu tiên revision mới và có timing ACK/commit/delivery; capture chỉ thêm persistence timing metadata; transcript rows memoized và scroll gộp theo animation frame. Regression concurrency/idempotency/order/privacy/UI pass. Benchmark Miniflare/workerd synthetic 30 mẫu: tuần tự 2 round-trips p50 12.61/p95 16.05 ms; batch 1 round-trip p50 6.63/p95 8.04 ms. Typecheck/lint/full 200-test suite/build/secret scan pass; benchmark harness thêm 1 test pass; chưa deploy, production p95/CPU/quota/device QA còn chờ. docs/33_M8_02_LATENCY_OPTIMIZATION.md.
+- [x] M8-03 — P1, DONE LOCAL: auth mở Voice độc lập, Vocabulary chỉ fetch khi mở tab, Review/Vocabulary tách lazy chunks, boot/loading skeleton và Telegram SDK defer; startup diagnostics allowlist/bounded/memory-only, hướng dẫn D1 aggregate storage metrics/query read-only bao phủ bảng durable. Acceptance: app-flow xác nhận không fetch Vocabulary trước tab, lazy chunk/script order/startup privacy tests; typecheck/lint/204 tests/31 files/build/secret scan/diff pass. Chưa deploy; không truy vấn production DB hoặc xóa dữ liệu.
 
 ## Latest accomplished
+
+- **2026-10-15 M8-03:** Giảm critical path: auth xong mở Voice ngay, trì hoãn Vocabulary/Review fetch đến tab, lazy-load panels, thêm boot/loading skeleton, defer Telegram SDK và startup diagnostics whitelist (tối đa 30, memory-only). Hướng dẫn dashboard/aggregate D1 storage chỉ đọc, không cleanup audit/outbox. Full suite 204/204 tests trên 31 files, typecheck/lint/build/secret scan/diff check PASS; entry bundle 347.59 KB / 104.19 KB gzip, Review 5.34 KB và Vocabulary 4.17 KB thành chunks riêng. DONE LOCAL; chưa deploy, chưa đo live p95/storage/quota/device QA. docs/34_M8_03_STARTUP_STORAGE.md.
 
 - **2026-10-14 09:08 M7-07:** Hoàn thiện local đến M7-07, 177 tests/28 files và typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full freeze/export/checksum/quarantine/import/verify/rollback tools, CLI persistent local smoke và reverse restore/edit pass. Người dùng yêu cầu tạm dừng vì quota; đã lưu bàn giao chi tiết docs/30_D1_PAUSE_HANDOFF.md, runbook docs/29_D1_MIGRATION_RUNBOOK.md. Không tạo D1 remote, xử lý dữ liệu thật, push/merge hoặc deploy M7; production GAS giữ nguyên.
 
@@ -230,6 +233,8 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | 2026-10-15 13:57 +07:00 | M8-01 | DONE / DEPLOYED | Transcript auto-follow/return-latest và dịch theo nút qua Worker Gemini; auth, validation, rate/timeout, privacy. `npm test -- --maxWorkers=1 --minWorkers=1 --testTimeout=20000`: 198/198 trên 30 files; typecheck/lint/build/secret scan/diff check/Worker dry-run PASS. Worker production `b667f34c-6776-40db-b498-0bab921ebcb9`; Pages build `M8-01-20261015`, bundle `index-HOwcTy7J.js`; Pages 200, Worker `/health` 200, translate CORS preflight 204 và unauthenticated guard 401. | Giữ M7-10 operational QA pending; chờ người dùng thử transcript auto-follow/dịch trên Mini App production. |
 
 | 2026-10-15 15:32 +07:00 | M8-02 | DONE | DONE LOCAL; batched D1 preflight preserves replay/OCC/atomic writes; 200 tests plus 1 local benchmark PASS; p50/p95 12.61/16.05 ms sequential vs 6.63/8.04 ms batched; typecheck/lint/build/secret scan PASS; docs/33_M8_02_LATENCY_OPTIMIZATION.md | Chờ yêu cầu deploy; sau deploy đo live p95/CPU/quota và QA thiết bị theo M7-10 |
+
+| 2026-10-15 16:13 +07:00 | M8-03 | DONE | Auth-to-Voice and on-demand/lazy panels verified; 204/204 tests, typecheck, lint, build, secret scan and diff check pass; D1 storage runbook added; not deployed. | Chờ yêu cầu deploy; sau khi lên production kiểm tra Mini App trên Telegram, startup latency, D1 metrics/quota và M7-10 vận hành. |
 
 ## Current blockers / risks
 

@@ -1,10 +1,10 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-15 16:22 +07:00
+> Updated: 2026-10-15 16:24 +07:00
 > Phase: M7 D1 PRIMARY PRODUCTION — phục hồi/runtime M7-11 đã đạt; dữ liệu cũ verify, GAS v7, Worker 0f087b37/Pages M7-11; Worker đã tự ACK 3 mirror jobs, pending=0. Toàn milestone chưa DONE vì gates vận hành M7-10.
-> Đang thực hiện: M8-03 — triển khai Pages production từ artifact đã build/tag M8-03-20261015; chỉ đổi frontend, Worker giữ nguyên.
-> Next action: Deploy nhánh Cloudflare Pages `production`, kiểm deployment/URL/hash; sau đó người dùng mở lại Mini App để thử startup/loading và báo lỗi nếu có.
-> Blockers: M7-10: bằng chứng 14/10 chưa có scheduled invocation, cần kiểm hiện trạng; CPU mirror 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. User xác nhận auth M7-12 hoạt động ngày 15/10; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
+> Đang thực hiện: M8-03 — đã deploy Pages production; chờ người dùng mở lại Mini App Telegram để kiểm startup/loading trên thiết bị thật.
+> Next action: Đóng/mở lại Mini App, xác nhận vào Voice nhanh hơn và Vocabulary/Review chỉ tải khi mở tab; gửi log mới nếu gặp lỗi.
+> Blockers: M8-03 còn chờ xác nhận Mini App thật sau deploy. M7-10: bằng chứng 14/10 chưa có scheduled invocation, cần kiểm hiện trạng; CPU mirror 32/13/16 ms vượt con số Free 10 ms dù outcome ok, cần profile/tối ưu. User xác nhận auth M7-12 hoạt động ngày 15/10; voice/Telegram rating/p95/device/outage/restore còn pending. Post-commit Worker ACK và Sheet-D1 parity đã đạt.
 > Important: Repo tại `D:\Profile\VoiceChatLearnLanguage`. Kế thừa commit local M8-02 `6ce5e12`; tạo branch riêng `feat/M8-03-fast-startup-storage`.
 
 ## Legend
@@ -88,11 +88,11 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 
 - [x] M8-01 — DONE / DEPLOYED: khung transcript tự theo dõi lượt mới nếu người dùng ở gần cuối; giữ vị trí khi đọc lịch sử và có nút về câu mới nhất. Mỗi lượt hoàn tất có nút “Dịch”; kết quả hiện ngay dưới câu và được cache trong bộ nhớ trang; loading/lỗi/thử lại không tác động phiên Gemini Live. API Worker chỉ nhận câu được chọn (tối đa 500 ký tự), xác thực Telegram, giới hạn tốc độ/thời gian; Gemini key chỉ ở Worker; transcript/dịch không lưu hoặc ghi log. Regressions UI/API pass; full suite 198 tests/30 files, typecheck/lint/build/secret scan/diff check/Worker dry-run PASS. Worker production version `b667f34c-6776-40db-b498-0bab921ebcb9`; Pages production build `M8-01-20261015`, bundle `index-HOwcTy7J.js`; Pages 200, Worker `/health` 200 healthy. Người dùng thử UI production là bước tiếp theo. Spec tại docs/08_API_CONTRACTS.md.
 - [x] M8-02 — P1, DONE LOCAL: D1 create/review batch preflight reads giữ replay/OCC/atomic writes; Telegram ưu tiên revision mới và có timing ACK/commit/delivery; capture chỉ thêm persistence timing metadata; transcript rows memoized và scroll gộp theo animation frame. Regression concurrency/idempotency/order/privacy/UI pass. Benchmark Miniflare/workerd synthetic 30 mẫu: tuần tự 2 round-trips p50 12.61/p95 16.05 ms; batch 1 round-trip p50 6.63/p95 8.04 ms. Typecheck/lint/full 200-test suite/build/secret scan pass; benchmark harness thêm 1 test pass; chưa deploy, production p95/CPU/quota/device QA còn chờ. docs/33_M8_02_LATENCY_OPTIMIZATION.md.
-- [ ] M8-03 — P1, IN_PROGRESS (PRODUCTION DEPLOY): code đã DONE LOCAL tại `5923c66`, full gates PASS; đang đưa đúng Pages artifact `M8-03-20261015` lên nhánh production. Chỉ đổi frontend; Worker, D1, GAS và dữ liệu không thay đổi. Acceptance deploy: deployment Production đúng branch, host chính HTTP 200, bundle/build tag và SHA256 khớp artifact local; ghi rollback deployment trước. Sau deploy chờ người dùng thử Mini App thật.
+- [ ] M8-03 — P1, DEPLOYED_WAITING_USER_QA: Pages production `59ebfc76-8227-4e6f-9340-c942266ec6e1` (source `5923c66`, build `M8-03-20261015`). Host chính/deployment URL, bundle và hai lazy chunks HTTP 200; bundle public SHA256 khớp local. Rollback: deployment `bd7681c4-d114-47d7-bf64-0da7a61772f8`. Worker/D1/GAS không đổi; chờ user kiểm startup và thao tác thật trong Telegram.
 
 ## Latest accomplished
 
-- **2026-10-15 M8-03:** Giảm critical path: auth xong mở Voice ngay, trì hoãn Vocabulary/Review fetch đến tab, lazy-load panels, thêm boot/loading skeleton, defer Telegram SDK và startup diagnostics whitelist (tối đa 30, memory-only). Hướng dẫn dashboard/aggregate D1 storage chỉ đọc, không cleanup audit/outbox. Full suite 204/204 tests trên 31 files, typecheck/lint/build/secret scan/diff check PASS; entry bundle 347.59 KB / 104.19 KB gzip, Review 5.34 KB và Vocabulary 4.17 KB thành chunks riêng. DONE LOCAL; chưa deploy, chưa đo live p95/storage/quota/device QA. docs/34_M8_03_STARTUP_STORAGE.md.
+- **2026-10-15 16:24 M8-03:** Giảm critical path: auth xong mở Voice ngay, trì hoãn Vocabulary/Review fetch đến tab, lazy-load panels, boot/loading skeleton, defer Telegram SDK, startup diagnostics bounded/memory-only. Local gates 204/204 tests/31 files, typecheck/lint/build/secret scan/diff PASS. Pages production `59ebfc76-8227-4e6f-9340-c942266ec6e1`, source `5923c66`, build `M8-03-20261015`; HTML/main bundle/2 lazy chunks public 200, JS SHA256 khớp local; Worker health 200 và không redeploy. Rollback `bd7681c4-d114-47d7-bf64-0da7a61772f8`. Chờ user Telegram/device QA; p95/storage/quota chưa đo. docs/34_M8_03_STARTUP_STORAGE.md.
 
 - **2026-10-14 09:08 M7-07:** Hoàn thiện local đến M7-07, 177 tests/28 files và typecheck/lint/build/Worker dry-run/secret scan/diff PASS. Full freeze/export/checksum/quarantine/import/verify/rollback tools, CLI persistent local smoke và reverse restore/edit pass. Người dùng yêu cầu tạm dừng vì quota; đã lưu bàn giao chi tiết docs/30_D1_PAUSE_HANDOFF.md, runbook docs/29_D1_MIGRATION_RUNBOOK.md. Không tạo D1 remote, xử lý dữ liệu thật, push/merge hoặc deploy M7; production GAS giữ nguyên.
 
@@ -120,6 +120,7 @@ Thiết kế chi tiết: docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md. Người dùn
 | Time (UTC+7)     | Task     | State         | Evidence / results                               | Next  |
 | ---------------- | -------- | ------------- | ------------------------------------------------ | ----- |
 | 2026-10-12 09:50 | DOC-INIT | DOCS PREPARED | Đã tạo tài liệu và script; chưa chạy integration | M0-01 |
+| 2026-10-15 16:24 +07:00 | M8-03 | DEPLOYED_WAITING_USER_QA | Pages production 59ebfc76-8227-4e6f-9340-c942266ec6e1; build M8-03-20261015; public HTML/JS/lazy chunks 200, bundle SHA256 E40109D7F2A6E145F56BC7A5A728B0063F87AF5C7F75691C318CC6650128D42F matches local; Worker health 200; rollback bd7681c4-d114-47d7-bf64-0da7a61772f8 | Người dùng mở lại Mini App Telegram, thử startup và lazy tab; gửi log/lỗi nếu có |
 
 | 2026-10-12 10:26 +07:00 | M0-01 | DONE | Git repo init (main), LF configured (.gitattributes), node v26.5.1, npm 11.17.0, git 2.55.0.windows.3, clasp 3.4.1, wrangler 4.149.0, .gitignore verified | M0-03: Chốt ADR, workspace root & secret checks (M0-02 chờ user cấu hình tài khoản ngoài) |
 

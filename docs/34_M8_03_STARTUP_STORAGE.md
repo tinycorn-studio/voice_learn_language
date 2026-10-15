@@ -1,6 +1,13 @@
 # M8-03 — Khởi động nhanh và quan sát dung lượng D1
 
-Ngày 15/10/2026. Đây là thay đổi runtime/docs local; chưa deploy và chưa truy vấn database production.
+Ngày 15/10/2026. M8-03 đã deploy riêng frontend Pages; không truy vấn database production.
+
+## Bằng chứng triển khai
+
+- Pages project `voice-chat-learn-language`, environment `Production`, branch `production`; deployment `59ebfc76-8227-4e6f-9340-c942266ec6e1`, source code commit `5923c66`, build tag `M8-03-20261015`.
+- [Mini App production](https://voice-chat-learn-language.pages.dev/?v=M8-03-20261015) và [deployment URL](https://59ebfc76.voice-chat-learn-language.pages.dev/) trả HTTP 200. Public JS `index-qdMBqaQr.js` SHA256 `E40109D7F2A6E145F56BC7A5A728B0063F87AF5C7F75691C318CC6650128D42F`, khớp artifact local; FlashcardReviewPanel/VocabularyManagerPanel lazy chunks đều 200.
+- Worker `/health` trả 200; không deploy Worker hoặc thay D1/GAS. Deployment production trước đó để rollback: `bd7681c4-d114-47d7-bf64-0da7a61772f8`.
+- Chờ người dùng thử lại trong Telegram thật; chưa đo startup latency, p95, D1 storage/quota hoặc thiết bị.
 
 ## Luồng khởi động
 

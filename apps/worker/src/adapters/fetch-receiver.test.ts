@@ -36,8 +36,8 @@ describe('M5-09 Workers native fetch receiver', () => {
       retryable: true,
     });
     expect(warn).toHaveBeenCalledOnce();
-    const serialized = String(warn.mock.calls[0]?.[0]);
-    expect(JSON.parse(serialized)).toMatchObject({
+    const structuredLog = warn.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(structuredLog).toMatchObject({
       event: 'gas_fetch_failed',
       request_id: 'safe-request-001',
       action: 'vocabulary.list',
@@ -46,6 +46,7 @@ describe('M5-09 Workers native fetch receiver', () => {
       exception_name: safeName,
       http_status: null,
     });
+    const serialized = JSON.stringify(structuredLog);
     expect(serialized).not.toMatch(/private|987654321|signature|payload|shared_secret|stack/);
   });
 

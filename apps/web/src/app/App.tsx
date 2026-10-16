@@ -3,56 +3,37 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 import type {
-  DueReviewCard,
   ReviewRating,
-  ReviewStatsResponse,
   ReviewSubmitRequest,
   VoiceSessionState,
   VocabularyItem,
 } from '@voice-chat/shared';
-import {
-  readThemePreference,
-  initTelegramEnvironment,
-  subscribeColorScheme,
-  writeThemePreference,
-  type ColorScheme,
-  type ThemePreference,
-} from '../integrations/telegram/telegram-adapter.js';
+import { initTelegramEnvironment } from '../integrations/telegram/telegram-adapter.js';
 import { AppIcon } from '../components/app-icon.js';
 import { SavedWordToast } from './SavedWordToast.js';
 import { FeedbackToast, type FeedbackToastTone } from './FeedbackToast.js';
-import { ApiClientError, LearningApiClient } from '../services/learning-api-client.js';
+import { LearningApiClient } from '../services/learning-api-client.js';
 import {
   VoiceSessionPanel,
   type VoiceSessionFactory,
 } from '../features/voice/components/VoiceSessionPanel.js';
 import { createVoiceSession } from '../features/voice/services/voice-session.js';
-import type {
-  GeminiLiveClientCallbacks,
-  VerifiedSaveVocabularyEvent,
-} from '../features/voice/services/gemini-live-client.js';
-import {
-  VocabularySaveQueue,
-  type QueuedVocabularyEntry,
-} from '../features/vocabulary/services/vocabulary-save-queue.js';
+import type { GeminiLiveClientCallbacks } from '../features/voice/services/gemini-live-client.js';
 import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
-import { CoalescedRefresh } from '../services/coalesced-refresh.js';
 import type { StartupDiagnostic } from '../services/startup-diagnostics.js';
+import { InfoDialog } from './InfoDialog.js';
+import { useAppTheme } from './hooks/use-app-theme.js';
+import { useLearningData } from './hooks/use-learning-data.js';
+import { useVocabularyCaptureQueue } from '../features/vocabulary/hooks/use-vocabulary-capture-queue.js';
 
 type AppToastNotice =
   | { id: string; kind: 'saved'; word: string }
   | { id: string; kind: 'feedback'; message: string; tone: FeedbackToastTone };
-
-interface QueueCaptureError {
-  event: VerifiedSaveVocabularyEvent;
-  message: string;
-}
 
 const FlashcardReviewPanel = lazy(() =>
   import('../features/review/components/FlashcardReviewPanel.js').then((module) => ({
@@ -120,40 +101,20 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     [suppliedApi],
   );
   const [activeTab, setActiveTab] = useState<'voice' | 'review' | 'vocabulary'>('voice');
-  const [environmentColorScheme, setEnvironmentColorScheme] = useState<ColorScheme>('light');
-  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreference);
   const [voiceState, setVoiceState] = useState<VoiceSessionState>('idle');
   const [infoOpen, setInfoOpen] = useState(false);
-  const [words, setWords] = useState<VocabularyItem[]>([]);
-  const [dueCards, setDueCards] = useState<DueReviewCard[]>([]);
-  const [reviewStats, setReviewStats] = useState<ReviewStatsResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [vocabularyLoading, setVocabularyLoading] = useState(false);
-  const [vocabularyLoaded, setVocabularyLoaded] = useState(false);
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewLoaded, setReviewLoaded] = useState(false);
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [authenticated, setAuthenticated] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [vocabularyError, setVocabularyError] = useState<string | null>(null);
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const [queueCaptureError, setQueueCaptureError] = useState<QueueCaptureError | null>(null);
-  const [entries, setEntries] = useState<QueuedVocabularyEntry[]>([]);
   const [toastNotices, setToastNotices] = useState<AppToastNotice[]>([]);
-  const [retrying, setRetrying] = useState(false);
   const infoButtonRef = useRef<HTMLButtonElement | null>(null);
-  const infoCloseButtonRef = useRef<HTMLButtonElement | null>(null);
-  const infoDialogRef = useRef<HTMLDivElement | null>(null);
   const notifiedSavedEvents = useRef(new Set<string>());
-  const queueCaptureErrorRef = useRef<QueueCaptureError | null>(null);
-  const captureFailureToastTimes = useRef(new Map<string, number>());
   const deletes = useRef(new Map<string, string>());
   const reviews = useRef(new Map<string, ReviewSubmitRequest>());
-  const refreshVersion = useRef(0);
-  const vocabularyLoadedRef = useRef(false);
-  const reviewLoadedRef = useRef(false);
   // Performance.now() is relative to this document's navigation start, even before React mounts.
   const startupStartedAt = useRef(0);
+  const { colorScheme, themePreference, changeThemePreference } = useAppTheme();
   const showToast = useCallback((message: string, tone: FeedbackToastTone) => {
     setToastNotices((previous) => {
       if (
@@ -171,10 +132,6 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const dismissToast = useCallback((id: string) => {
     setToastNotices((previous) => previous.filter((toast) => toast.id !== id));
   }, []);
-  const updateQueueCaptureError = useCallback((notice: QueueCaptureError | null) => {
-    queueCaptureErrorRef.current = notice;
-    setQueueCaptureError(notice);
-  }, []);
   const recordStartup = useCallback(
     (stage: StartupDiagnostic['stage'], stageStartedAt?: number) => {
       const now = performance.now();
@@ -187,174 +144,43 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     [api],
   );
 
-  const colorScheme = themePreference === 'auto' ? environmentColorScheme : themePreference;
-  const changeThemePreference = useCallback((preference: ThemePreference) => {
-    setThemePreferenceState(preference);
-    writeThemePreference(preference);
-  }, []);
+  const closeInfo = useCallback(() => setInfoOpen(false), []);
 
-  useLayoutEffect(() => subscribeColorScheme(setEnvironmentColorScheme), []);
-  useLayoutEffect(() => {
-    document.documentElement.dataset.theme = colorScheme;
-    document
-      .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-      ?.setAttribute('content', colorScheme === 'dark' ? '#0d1523' : '#f4f7fc');
-  }, [colorScheme]);
-
-  useEffect(() => {
-    if (!infoOpen) return;
-    const previousFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousBodyOverflow = document.body.style.overflow;
-    const focusableSelector =
-      'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    infoCloseButtonRef.current?.focus();
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setInfoOpen(false);
-        return;
-      }
-      if (event.key !== 'Tab') return;
-
-      const focusable = Array.from(
-        infoDialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [],
-      );
-      if (focusable.length === 0) {
-        event.preventDefault();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first?.focus();
-      }
-    };
-
-    document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousBodyOverflow;
-      document.removeEventListener('keydown', onKeyDown);
-      previousFocus?.focus();
-    };
-  }, [infoOpen]);
-
-  const refresher = useMemo(
-    () =>
-      new CoalescedRefresh<'vocabulary' | 'review'>(async (keys) => {
-        const version = ++refreshVersion.current;
-        const vocabularyStartedAt = keys.includes('vocabulary') ? performance.now() : null;
-        const reviewStartedAt = keys.includes('review') ? performance.now() : null;
-        if (vocabularyStartedAt !== null) recordStartup('vocabulary_load_started');
-        if (reviewStartedAt !== null) recordStartup('review_load_started');
-        const [vocabularyResult, reviewResult] = await Promise.all([
-          keys.includes('vocabulary')
-            ? api.listVocabulary().then(
-                (value) => ({ ok: true as const, value }),
-                (reason: unknown) => ({ ok: false as const, reason }),
-              )
-            : Promise.resolve(null),
-          keys.includes('review')
-            ? Promise.all([api.listDueReviews(), api.getReviewStats()]).then(
-                (value) => ({ ok: true as const, value }),
-                (reason: unknown) => ({ ok: false as const, reason }),
-              )
-            : Promise.resolve(null),
-        ]);
-        if (version !== refreshVersion.current) return;
-
-        if (vocabularyResult) {
-          if (vocabularyResult.ok) {
-            vocabularyLoadedRef.current = true;
-            setWords(vocabularyResult.value);
-            setVocabularyLoaded(true);
-            setVocabularyError(null);
-            recordStartup('vocabulary_load_completed', vocabularyStartedAt ?? undefined);
-          } else {
-            recordStartup('vocabulary_load_failed', vocabularyStartedAt ?? undefined);
-            setVocabularyError(
-              vocabularyResult.reason instanceof Error
-                ? vocabularyResult.reason.message
-                : 'Không thể tải từ vựng.',
-            );
-          }
-        }
-        if (reviewResult) {
-          if (reviewResult.ok) {
-            reviewLoadedRef.current = true;
-            setDueCards(reviewResult.value[0]);
-            setReviewStats(reviewResult.value[1]);
-            setReviewLoaded(true);
-            setReviewError(null);
-            recordStartup('review_load_completed', reviewStartedAt ?? undefined);
-          } else {
-            recordStartup('review_load_failed', reviewStartedAt ?? undefined);
-            setReviewError(
-              reviewResult.reason instanceof Error
-                ? reviewResult.reason.message
-                : 'Không thể tải thẻ ôn tập.',
-            );
-          }
-        }
-      }),
-    [api, recordStartup],
-  );
-  const refresh = useCallback(
-    (scope: 'vocabulary' | 'review' | 'all' = 'all') => {
-      const keys: Array<'vocabulary' | 'review'> =
-        scope === 'all' ? ['vocabulary', 'review'] : [scope];
-      if (keys.includes('vocabulary')) setVocabularyLoading(true);
-      if (keys.includes('review')) setReviewLoading(true);
-      return refresher.request(keys).finally(() => {
-        if (keys.includes('vocabulary')) setVocabularyLoading(false);
-        if (keys.includes('review')) setReviewLoading(false);
-      });
-    },
-    [refresher],
-  );
-
+  const {
+    words,
+    setWords,
+    dueCards,
+    setDueCards,
+    reviewStats,
+    vocabularyLoading,
+    vocabularyLoaded,
+    reviewLoading,
+    reviewLoaded,
+    vocabularyError,
+    reviewError,
+    refresh,
+  } = useLearningData({ api, authenticated, activeTab, recordStartup });
+  const refreshVocabulary = useCallback(() => refresh('vocabulary'), [refresh]);
+  const {
+    entries,
+    queueCaptureError,
+    retrying,
+    saveVocabulary,
+    retryQueueCaptureError,
+    retryPending,
+    handleCaptureFailure,
+  } = useVocabularyCaptureQueue({
+    api,
+    vocabularyLoaded,
+    refreshVocabulary,
+    showToast,
+  });
   const preview = useCallback((id: string) => api.previewReview(id), [api]);
   const translateText = useCallback((text: string) => api.translateText(text), [api]);
 
   useEffect(() => {
-    if (!authenticated || activeTab !== 'review') return;
-    void refresh('review');
-    const timer = setInterval(() => {
-      void refresh('review');
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [authenticated, activeTab, refresh]);
-
-  useEffect(() => {
-    if (!authenticated || activeTab !== 'vocabulary' || vocabularyLoaded) return;
-    void refresh('vocabulary');
-  }, [authenticated, activeTab, refresh, vocabularyLoaded]);
-
-  useEffect(() => {
     recordStartup('app_mounted');
   }, [recordStartup]);
-
-  const queue = useMemo(
-    () =>
-      new VocabularySaveQueue(async (input) => {
-        try {
-          return { ok: true, data: await api.createVocabulary(input) };
-        } catch (failure) {
-          return {
-            ok: false,
-            errorMessage: failure instanceof Error ? failure.message : 'Không thể lưu từ.',
-            retryable: failure instanceof ApiClientError && failure.retryable,
-          };
-        }
-      }),
-    [api],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -378,7 +204,6 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       });
     return () => {
       cancelled = true;
-      refreshVersion.current++;
     };
   }, [api, loginAttempt, recordStartup]);
 
@@ -386,43 +211,6 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     if (authenticated) recordStartup('voice_ready');
   }, [authenticated, recordStartup]);
 
-  const saveVocabulary = useCallback(
-    async (event: VerifiedSaveVocabularyEvent) => {
-      try {
-        const attempt = queue.enqueueAndAttempt(event);
-        setEntries(queue.getEntries());
-        const result = await attempt;
-        setEntries(queue.getEntries());
-        if (result.status === 'saved' && vocabularyLoaded) void refresh('vocabulary');
-        return { ok: result.status === 'saved' };
-      } catch (failure) {
-        updateQueueCaptureError({
-          event,
-          message: failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.',
-        });
-        return { ok: false };
-      }
-    },
-    [queue, refresh, updateQueueCaptureError, vocabularyLoaded],
-  );
-  const retryQueueCaptureError = useCallback(async () => {
-    const notice = queueCaptureErrorRef.current;
-    if (!notice || retrying) return;
-    setRetrying(true);
-    try {
-      const result = await queue.enqueueAndAttempt(notice.event);
-      setEntries(queue.getEntries());
-      updateQueueCaptureError(null);
-      if (result.status === 'saved' && vocabularyLoaded) void refresh('vocabulary');
-    } catch (failure) {
-      updateQueueCaptureError({
-        ...notice,
-        message: failure instanceof Error ? failure.message : 'Không thể xếp hàng lưu từ.',
-      });
-    } finally {
-      setRetrying(false);
-    }
-  }, [queue, refresh, retrying, updateQueueCaptureError, vocabularyLoaded]);
   useEffect(() => {
     const newlySaved = entries.filter(
       (entry) =>
@@ -442,29 +230,6 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
       ].slice(-3),
     );
   }, [entries]);
-  const handleCaptureFailure = useCallback(
-    (word: string) => {
-      const normalizedWord = word.trim().toLowerCase();
-      const hasQueueEntry = queue
-        .getEntries()
-        .some(
-          (entry) =>
-            entry.status !== 'saved' && entry.request.word.trim().toLowerCase() === normalizedWord,
-        );
-      const queueFailure = queueCaptureErrorRef.current?.event.word.trim().toLowerCase();
-      if (hasQueueEntry || queueFailure === normalizedWord) return;
-
-      const now = Date.now();
-      const lastToastAt = captureFailureToastTimes.current.get(normalizedWord) ?? 0;
-      if (now - lastToastAt < 6000) return;
-      captureFailureToastTimes.current.set(normalizedWord, now);
-      for (const [key, shownAt] of captureFailureToastTimes.current) {
-        if (now - shownAt >= 6000) captureFailureToastTimes.current.delete(key);
-      }
-      showToast(`Chưa xác nhận lưu từ “${word}”. Hãy hỏi lại tên từ cụ thể.`, 'warning');
-    },
-    [queue, showToast],
-  );
   const sessionFactory = useCallback<VoiceSessionFactory>(
     (callbacks) =>
       voiceFactory(() => api.mintLiveToken(), {
@@ -651,16 +416,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
                 type="button"
                 className="btn-warning"
                 disabled={retrying}
-                onClick={() => {
-                  setRetrying(true);
-                  void queue
-                    .retryPending()
-                    .then(async () => {
-                      setEntries(queue.getEntries());
-                      await refresh('vocabulary');
-                    })
-                    .finally(() => setRetrying(false));
-                }}
+                onClick={() => void retryPending()}
               >
                 <AppIcon name="again" size={18} /> Thử đồng bộ lại
               </button>
@@ -753,70 +509,12 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         </div>
       )}
       {infoOpen && (
-        <div
-          className="info-modal-backdrop"
-          data-testid="info-modal-backdrop"
-          role="presentation"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setInfoOpen(false);
-          }}
-        >
-          <div
-            ref={infoDialogRef}
-            className="info-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="info-modal-title"
-            tabIndex={-1}
-          >
-            <div className="info-modal-header">
-              <div>
-                <p className="info-modal-eyebrow">VOICECHAT ENGLISH TUTOR</p>
-                <h2 id="info-modal-title">Hướng dẫn & quyền riêng tư</h2>
-              </div>
-              <button
-                ref={infoCloseButtonRef}
-                type="button"
-                className="info-modal-close"
-                data-testid="info-close-button"
-                aria-label="Đóng hướng dẫn"
-                onClick={() => setInfoOpen(false)}
-              >
-                <AppIcon name="close" size={20} />
-              </button>
-            </div>
-            <div className="info-modal-content">
-              <section>
-                <h3>Cách bắt đầu</h3>
-                <p>
-                  Bấm <strong>Start Microphone</strong> để bắt đầu hội thoại tiếng Anh với Gemini.
-                  Chọn <strong>Dịch</strong> dưới từng câu nếu bạn muốn dịch riêng câu đó.
-                </p>
-              </section>
-              <section>
-                <h3>Quyền riêng tư</h3>
-                <p>
-                  Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch. Nội dung được gửi đến
-                  Gemini tuân theo chính sách của Google theo tier đang dùng.
-                </p>
-              </section>
-              <section className="theme-preference-row" aria-label="Chế độ giao diện">
-                <span>
-                  Giao diện: <strong>{themePreference === 'auto' ? 'Tự động' : themeLabel}</strong>
-                </span>
-                <button
-                  type="button"
-                  className="btn-secondary btn-outline-info"
-                  data-testid="theme-auto-button"
-                  disabled={themePreference === 'auto'}
-                  onClick={() => changeThemePreference('auto')}
-                >
-                  Dùng theme Telegram/thiết bị
-                </button>
-              </section>
-            </div>
-          </div>
-        </div>
+        <InfoDialog
+          onClose={closeInfo}
+          themePreference={themePreference}
+          themeLabel={themeLabel}
+          onUseAuto={() => changeThemePreference('auto')}
+        />
       )}
       <nav className="app-tabs" aria-label="Điều hướng chính">
         {(

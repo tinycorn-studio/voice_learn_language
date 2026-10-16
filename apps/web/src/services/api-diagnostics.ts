@@ -41,6 +41,35 @@ export interface ApiDiagnostic {
   readonly build: string;
 }
 
+export interface LatencyPercentiles {
+  readonly metric: string;
+  readonly sample_count: number;
+  readonly p50_ms: number;
+  readonly p95_ms: number;
+}
+
+/** Interpolated quantiles for the bounded, in-memory samples shown in diagnostics. */
+export function summarizeLatency(metric: string, values: readonly number[]): LatencyPercentiles | null {
+  const sorted = values.filter((value) => Number.isFinite(value) && value >= 0).sort((left, right) => left - right);
+  if (sorted.length === 0) return null;
+
+  const quantile = (fraction: number) => {
+    const position = (sorted.length - 1) * fraction;
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.ceil(position);
+    const lower = sorted[lowerIndex] ?? 0;
+    const upper = sorted[upperIndex] ?? lower;
+    return Math.round(lower + (upper - lower) * (position - lowerIndex));
+  };
+
+  return {
+    metric,
+    sample_count: sorted.length,
+    p50_ms: quantile(0.5),
+    p95_ms: quantile(0.95),
+  };
+}
+
 /** Correlation only, never an authentication token; works without crypto.randomUUID on old iOS. */
 export function createDiagnosticRequestId(): string {
   const bytes = new Uint8Array(12);
@@ -115,6 +144,34 @@ export class ApiDiagnostics {
   public readonly getSnapshot = (): readonly ApiDiagnostic[] => this.entries;
   public readonly getCaptureSnapshot = () => this.capture;
   public readonly getStartupSnapshot = () => this.startup;
+  public getLatencySummary(): readonly LatencyPercentiles[] {
+    const samples = new Map<string, number[]>();
+    const add = (metric: string, value: number) => {
+      const bucket = samples.get(metric) ?? [];
+      bucket.push(value);
+      samples.set(metric, bucket);
+    };
+
+    for (const attempt of this.entries)
+      add(`API ${attempt.method} ${attempt.route}`, attempt.duration_ms);
+    for (const capture of this.capture) {
+      if (
+        (capture.stage === 'persistence_saved' || capture.stage === 'persistence_failed') &&
+        capture.persistence_duration_ms !== undefined
+      ) {
+        add(`Vocabulary persistence (${capture.stage})`, capture.persistence_duration_ms);
+      }
+    }
+    for (const startup of this.startup) {
+      const duration =
+        startup.duration_ms ?? (startup.stage === 'voice_ready' ? startup.elapsed_ms : null);
+      if (duration !== null) add(`Startup ${startup.stage}`, duration);
+    }
+
+    return Array.from(samples, ([metric, values]) => summarizeLatency(metric, values)).filter(
+      (summary): summary is LatencyPercentiles => summary !== null,
+    );
+  }
   public recordStartup(metadata: StartupDiagnostic): void {
     const parsed = startupDiagnosticSchema.safeParse(metadata);
     if (!parsed.success) return;
@@ -202,6 +259,7 @@ export class ApiDiagnostics {
         attempts: this.entries,
         capture: this.capture,
         startup: this.startup,
+        latency_summary: this.getLatencySummary(),
       },
       null,
       2,

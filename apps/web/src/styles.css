@@ -1060,6 +1060,36 @@ button:disabled {
   margin-block: 0.75rem;
 }
 
+.diagnostic-latency {
+  margin-block: 0.75rem;
+}
+
+.diagnostic-latency h3 {
+  margin-block: 0.5rem;
+  font-size: 1rem;
+}
+
+.diagnostic-latency-scroll {
+  overflow-x: auto;
+}
+
+.diagnostic-latency table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.diagnostic-latency th,
+.diagnostic-latency td {
+  padding: 0.4rem;
+  border-bottom: 1px solid var(--color-outline);
+}
+
+.diagnostic-latency td {
+  white-space: nowrap;
+}
+
 .api-diagnostics textarea {
   box-sizing: border-box;
   width: 100%;

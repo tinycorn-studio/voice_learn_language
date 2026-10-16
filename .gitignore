@@ -21,3 +21,4 @@ coverage/
 .vscode/settings.json
 .DS_Store
 Thumbs.db
+.agents/

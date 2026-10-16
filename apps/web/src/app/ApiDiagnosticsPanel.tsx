@@ -18,6 +18,7 @@ export function ApiDiagnosticsPanel({
     api.diagnostics.subscribe,
     api.diagnostics.getStartupSnapshot,
   );
+  const latencySummary = api.diagnostics.getLatencySummary();
   const [checking, setChecking] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
@@ -66,6 +67,34 @@ export function ApiDiagnosticsPanel({
           Giữ tối đa 30 lần gọi, 100 mốc ghi nhận và 30 mốc khởi động trong phiên này; log mất khi
           đóng ứng dụng. Không chứa token hay nội dung học.
         </p>
+        {latencySummary.length > 0 && (
+          <section className="diagnostic-latency" aria-label="Độ trễ trong phiên hiện tại">
+            <h3>Độ trễ trong phiên hiện tại</h3>
+            <p>p50/p95 được tính từ các mẫu cục bộ còn trong phiên; N là số mẫu của từng nhóm.</p>
+            <div className="diagnostic-latency-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Luồng</th>
+                    <th scope="col">N</th>
+                    <th scope="col">p50</th>
+                    <th scope="col">p95</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {latencySummary.map((summary) => (
+                    <tr key={summary.metric}>
+                      <th scope="row">{summary.metric}</th>
+                      <td>{summary.sample_count}</td>
+                      <td>{summary.p50_ms} ms</td>
+                      <td>{summary.p95_ms} ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
         <div className="diagnostic-actions">
           <button
             type="button"

@@ -172,30 +172,32 @@ export async function handleWorkerRequest(
   const started = performance.now();
   const response = await handleWorkerRequestInternal(request, env, deps, securityStore);
   const path = new URL(request.url).pathname;
-  const route = path.startsWith('/api/v1/vocabulary/')
-    ? '/api/v1/vocabulary/:id'
-    : /^\/api\/v1\/reviews\/[^/]+\/preview$/.test(path)
-      ? '/api/v1/reviews/:id/preview'
-      : [
-            '/health',
-            '/telegram/webhook',
-            '/api/v1/auth/telegram',
-            '/api/v1/vocabulary',
-            '/api/v1/live-token',
-            '/api/v1/translate',
-            '/api/v1/reviews',
-            '/api/v1/reviews/due',
-            '/api/v1/reviews/submit',
-            '/api/v1/reviews/stats',
-          ].includes(path)
-        ? path
-        : 'other';
+  const route = diagnosticRouteForPath(path);
   logStructured('info', 'api_request_complete', response.headers.get('x-request-id') ?? 'unknown', {
     route,
     http_status: response.status,
     duration_ms: Math.max(0, Math.round(performance.now() - started)),
   });
   return response;
+}
+
+function diagnosticRouteForPath(path: string): string {
+  if (path.startsWith('/api/v1/vocabulary/')) return '/api/v1/vocabulary/:id';
+  if (/^\/api\/v1\/reviews\/[^/]+\/preview$/.test(path)) return '/api/v1/reviews/:id/preview';
+  return [
+    '/health',
+    '/telegram/webhook',
+    '/api/v1/auth/telegram',
+    '/api/v1/vocabulary',
+    '/api/v1/live-token',
+    '/api/v1/translate',
+    '/api/v1/reviews',
+    '/api/v1/reviews/due',
+    '/api/v1/reviews/submit',
+    '/api/v1/reviews/stats',
+  ].includes(path)
+    ? path
+    : 'other';
 }
 
 async function handleWorkerRequestInternal(
@@ -261,8 +263,7 @@ async function handleWorkerRequestInternal(
       };
       addClientLog(logEntry);
       logStructured('info', 'client_diagnostic_log', requestId, {
-        client_level: logEntry.level,
-        client_msg: logEntry.message,
+        client_level: ['info', 'warn', 'error'].includes(logEntry.level) ? logEntry.level : 'info',
       });
       return jsonEnvelopeResponse(
         { ok: true, data: { received: true }, request_id: requestId },
@@ -864,7 +865,7 @@ async function handleWorkerRequestInternal(
   } catch (err) {
     if (err instanceof AppError) {
       logStructured('warn', 'api_error', requestId, {
-        path,
+        route: diagnosticRouteForPath(path),
         code: err.code,
         status: err.status,
       });
@@ -884,8 +885,8 @@ async function handleWorkerRequestInternal(
     }
 
     logStructured('error', 'unhandled_worker_exception', requestId, {
-      path,
-      error: err instanceof Error ? err.message.slice(0, 120) : 'unknown',
+      route: diagnosticRouteForPath(path),
+      exception_name: err instanceof Error ? err.name : 'Other',
     });
     return jsonEnvelopeResponse(
       {

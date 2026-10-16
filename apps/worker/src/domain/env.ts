@@ -77,15 +77,24 @@ export function logStructured(
     ts: new Date().toISOString(),
     level,
     event,
-    request_id: requestId,
+    request_id: safeLogRequestId(requestId),
     ...meta,
   };
   const serialized = redactLogValue(JSON.stringify(entry));
+  const structuredEntry = JSON.parse(serialized) as typeof entry;
   if (level === 'error') {
-    console.error(serialized);
+    console.error(structuredEntry);
   } else if (level === 'warn') {
-    console.warn(serialized);
+    console.warn(structuredEntry);
   } else {
-    console.info(serialized);
+    console.info(structuredEntry);
   }
+}
+
+function safeLogRequestId(requestId: string): string {
+  return /^(?:web-[a-f0-9]{24}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|req_[a-z0-9_-]{1,56}|safe-request-\d{1,20}|cron_\d{1,20}|tg_\d{1,20}|mirror_\d{1,20}|background)$/i.test(
+    requestId,
+  )
+    ? requestId
+    : 'unknown';
 }

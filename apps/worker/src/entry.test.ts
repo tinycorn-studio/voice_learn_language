@@ -51,6 +51,34 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
   const fixedNowMs = Date.parse('2026-10-12T01:00:00.000Z'); // 08:00 Asia/Ho_Chi_Minh
   const fixedNowSec = Math.floor(fixedNowMs / 1000);
 
+  it('keeps persisted observability logs to structured route templates and diagnostic metadata', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/vocabulary/private-word-record', {
+        method: 'GET',
+        headers: { 'x-request-id': 'req_privacy_001' },
+      }),
+      TEST_ENV,
+      { nowMs: () => fixedNowMs },
+    );
+    await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/client-logs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-request-id': 'req_privacy_002' },
+        body: JSON.stringify({ level: 'info', message: 'private learner sentence' }),
+      }),
+      TEST_ENV,
+      { nowMs: () => fixedNowMs },
+    );
+
+    const output = info.mock.calls.map(([entry]) => JSON.stringify(entry)).join('\n');
+    expect(output).toContain('/api/v1/vocabulary/:id');
+    expect(output).toContain('client_diagnostic_log');
+    expect(output).not.toContain('private-word-record');
+    expect(output).not.toContain('private learner sentence');
+    expect(output).not.toContain('client_msg');
+  });
+
   it('M2-01: GET /health returns 200 with request_id, CORS allowlist, and zero secrets', async () => {
     const req = new Request('https://worker.example/health', {
       method: 'GET',

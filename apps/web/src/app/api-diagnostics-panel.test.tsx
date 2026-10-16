@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { LearningApiClient } from '../services/learning-api-client.js';
+import { summarizeLatency } from '../services/api-diagnostics.js';
 import { App } from './App.js';
 import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 
@@ -8,6 +9,29 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('calculates bounded-session p50/p95 for odd/even/single samples and rejects invalid samples', () => {
+  expect(summarizeLatency('test', [100, 0, 40, 20])).toEqual({
+    metric: 'test',
+    sample_count: 4,
+    p50_ms: 30,
+    p95_ms: 91,
+  });
+  expect(summarizeLatency('odd', [3, 1, 2])).toEqual({
+    metric: 'odd',
+    sample_count: 3,
+    p50_ms: 2,
+    p95_ms: 3,
+  });
+  expect(summarizeLatency('single', [5])).toEqual({
+    metric: 'single',
+    sample_count: 1,
+    p50_ms: 5,
+    p95_ms: 5,
+  });
+  expect(summarizeLatency('no-samples', [])).toBeNull();
+  expect(summarizeLatency('empty', [Number.NaN, -1])).toBeNull();
 });
 
 it('exposes capture timings without HTTP errors and strips arbitrary private metadata', () => {
@@ -30,12 +54,26 @@ it('exposes capture timings without HTTP errors and strips arbitrary private met
     transcript: 'private transcript',
   };
   api.diagnostics.recordStartup(startupMetadata);
+  api.diagnostics.record({
+    request_id: 'web-1234567890abcdef12345678',
+    server_request_id: null,
+    method: 'POST',
+    route: '/api/v1/vocabulary',
+    code: 'OK',
+    phase: 'complete',
+    http_status: 200,
+    duration_ms: 80,
+    exception_name: null,
+  });
   render(<ApiDiagnosticsPanel api={api} />);
   expect(screen.getByText('Log chẩn đoán')).toBeTruthy();
   const report = api.diagnostics.exportReport();
   expect(report).toContain('inquiry_detected');
   expect(report).toContain('persistence_duration_ms');
   expect(report).toContain('vocabulary_load_completed');
+  expect(report).toContain('"p50_ms": 80');
+  expect(report).toContain('"p95_ms": 80');
+  expect(screen.getByLabelText('Độ trễ trong phiên hiện tại').textContent).toContain('80 ms');
   expect(report).not.toContain('transcript');
   expect(report).not.toContain('private');
   expect(api.diagnostics.getCaptureSnapshot()).toHaveLength(100);

@@ -1,4 +1,5 @@
 import type { VocabularyCreateRequest, VocabularyCreateResponse } from '@voice-chat/shared';
+import type { QueuePersistence } from './durable-queue-storage.js';
 
 export type QueueItemStatus = 'pending' | 'saved' | 'failed';
 
@@ -18,21 +19,60 @@ export type PersistVocabularyFn = (
 >;
 
 /**
- * Bounded session retry queue for vocabulary persistence (`docs/01_ARCHITECTURE.md`, `M3-04`, `TC-14`).
+ * Bounded retry queue for vocabulary persistence (`docs/01_ARCHITECTURE.md`, `M3-04`, `TC-14`, `M9-01`).
  * - Never reports `saved` prematurely when GAS/Worker is offline or times out (`TC-14`).
  * - Reuses the exact same `event_id` across retries so `Words`/`Events` remain idempotent (`TC-05`).
+ * - Optional persistence keeps pending/failed entries across reloads (`M9-01`); storage
+ *   failures are swallowed so the queue never loses its in-memory behavior.
  */
 export class VocabularySaveQueue {
   private readonly entries = new Map<string, QueuedVocabularyEntry>();
   private readonly pending = new Map<string, Promise<QueuedVocabularyEntry>>();
+  private persistChain: Promise<void> = Promise.resolve();
 
   public constructor(
     private readonly persistFn: PersistVocabularyFn,
     private readonly maxEntries = 25,
+    private readonly persistence: QueuePersistence | null = null,
   ) {}
 
   public getEntries(): QueuedVocabularyEntry[] {
     return Array.from(this.entries.values(), (entry) => ({ ...entry }));
+  }
+
+  /**
+   * Restores entries persisted by a previous session. Never throws: an unavailable or
+   * corrupt store leaves the queue empty so callers behave like the in-memory queue.
+   */
+  public async hydrate(): Promise<QueuedVocabularyEntry[]> {
+    if (!this.persistence) return this.getEntries();
+    try {
+      const restored = await this.persistence.load();
+      for (const entry of restored) {
+        if (this.entries.has(entry.request.event_id)) continue;
+        if (this.entries.size >= this.maxEntries) break;
+        this.entries.set(entry.request.event_id, entry);
+      }
+    } catch {
+      // Storage is best-effort; the queue continues working in memory.
+    }
+    return this.getEntries();
+  }
+
+  private schedulePersist(): void {
+    if (!this.persistence) return;
+    const snapshot = this.getEntries().filter((entry) => entry.status !== 'saved');
+    this.persistChain = this.persistChain
+      .then(() => this.persistence?.save(snapshot))
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+  }
+
+  /** Resolves after every scheduled persistence write settled (best-effort). */
+  public async flushPersistence(): Promise<void> {
+    await this.persistChain;
   }
 
   public async enqueueAndAttempt(request: VocabularyCreateRequest): Promise<QueuedVocabularyEntry> {
@@ -59,6 +99,7 @@ export class VocabularySaveQueue {
     entry.status = 'pending';
     entry.attempts += 1;
     this.entries.set(request.event_id, entry);
+    this.schedulePersist();
     const work = (async () => {
       try {
         const result = await this.persistFn(request);
@@ -74,6 +115,7 @@ export class VocabularySaveQueue {
         entry.status = entry.attempts >= 3 ? 'failed' : 'pending';
         entry.lastError = err instanceof Error ? err.message : 'Network error';
       }
+      this.schedulePersist();
 
       return { ...entry };
     })();

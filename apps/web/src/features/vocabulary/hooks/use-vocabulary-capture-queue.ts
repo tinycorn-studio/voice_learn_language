@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LearningApiClient } from '../../../services/learning-api-client.js';
 import { ApiClientError } from '../../../services/learning-api-client.js';
 import type { FeedbackToastTone } from '../../../app/FeedbackToast.js';
 import type { VerifiedSaveVocabularyEvent } from '../../voice/services/gemini-live-client.js';
+import { createIndexedDbQueuePersistence } from '../services/durable-queue-storage.js';
 import {
   VocabularySaveQueue,
   type QueuedVocabularyEntry,
@@ -31,19 +32,33 @@ export function useVocabularyCaptureQueue({
   const captureFailureToastTimes = useRef(new Map<string, number>());
   const queue = useMemo(
     () =>
-      new VocabularySaveQueue(async (input) => {
-        try {
-          return { ok: true, data: await api.createVocabulary(input) };
-        } catch (failure) {
-          return {
-            ok: false,
-            errorMessage: failure instanceof Error ? failure.message : 'Không thể lưu từ.',
-            retryable: failure instanceof ApiClientError && failure.retryable,
-          };
-        }
-      }),
+      new VocabularySaveQueue(
+        async (input) => {
+          try {
+            return { ok: true, data: await api.createVocabulary(input) };
+          } catch (failure) {
+            return {
+              ok: false,
+              errorMessage: failure instanceof Error ? failure.message : 'Không thể lưu từ.',
+              retryable: failure instanceof ApiClientError && failure.retryable,
+            };
+          }
+        },
+        25,
+        createIndexedDbQueuePersistence(),
+      ),
     [api],
   );
+
+  useEffect(() => {
+    let active = true;
+    void queue.hydrate().then(() => {
+      if (active) setEntries(queue.getEntries());
+    });
+    return () => {
+      active = false;
+    };
+  }, [queue]);
 
   const updateQueueCaptureError = useCallback((notice: QueueCaptureError | null) => {
     queueCaptureErrorRef.current = notice;

@@ -1,6 +1,6 @@
 # M9 — Độ bền và hiệu năng vận hành
 
-Nhánh `feat/M9-resilience-performance`, ngày 17/10/2026. Các thay đổi local; chưa deploy. Tài liệu gồm ba task: M9-01 queue bền (IndexedDB), M9-02 rate limit D1, M9-03 giảm CPU mirror.
+Nhánh `feat/M9-resilience-performance`, ngày 17/10/2026. Worker (M9-02 + M9-03) và migration D1 đã deploy thử production; M9-01 (frontend) chỉ deploy ở Pages preview — xem mục "Triển khai thử 17/10". Tài liệu gồm ba task: M9-01 queue bền (IndexedDB), M9-02 rate limit D1, M9-03 giảm CPU mirror.
 
 ## M9-01 — Queue lưu từ vựng bền qua reload
 
@@ -69,7 +69,7 @@ Rate limit live-token (5/phút) và translate (12/phút) nằm trong `SecuritySt
 
 ### Thay đổi
 
-- Migration `apps/worker/migrations/0004_rate_limits.sql`: bảng `rate_limit_windows(scope,user_id,window_start,count)` khoá chính `(scope,user_id,window_start)` + index `window_start` cho cleanup. Chưa apply production (deploy riêng khi được yêu cầu).
+- Migration `apps/worker/migrations/0004_rate_limits.sql`: bảng `rate_limit_windows(scope,user_id,window_start,count)` khoá chính `(scope,user_id,window_start)` + index `window_start` cho cleanup. Đã apply production ngày 17/10 (xem mục cuối tài liệu).
 - `apps/worker/src/adapters/d1-rate-limiter.ts`:
   - `D1RateLimiter.consume`: cửa sổ cố định 60 giây neo theo bucket; một `db.batch([upsert ON CONFLICT count+1, select count])` — một vòng D1; `count > maxPerMinute` → `AppError RATE_LIMITED 429` giữ nguyên mã lỗi và message cũ.
   - `cleanupRateLimitWindows`: xoá window cũ hơn cutoff, gọi từ Cron phút.
@@ -82,3 +82,33 @@ Rate limit live-token (5/phút) và translate (12/phút) nằm trong `SecuritySt
 - 5 test mới `tests/d1-rate-limit.test.ts` trên D1 harness thật: cho đúng max rồi chặn và chia sẻ bộ đếm giữa hai instance cùng scope/user khác isolate; rollover theo bucket 60 giây; scope/user độc lập; cleanup chỉ xoá window cũ; fallback bộ nhớ khi limiter lỗi + RATE_LIMITED từ D1 được ném lại; entry integration: 5 request 200 từ store A rồi store B hoàn toàn mới vẫn bị 429 (chứng minh bộ đếm toàn cục).
 - Ghi chú vận hành: gộp nhiều runtime Miniflare trong một file test để tránh startup workerd song song vượt timeout dưới tải máy cao; các file D1 nặng hiện có vẫn giữ nguyên.
 - Full suite: 237/237 tests (39 files); typecheck/lint/build PASS.
+
+## Triển khai thử 17/10
+
+Theo yêu cầu "deploy thử" của người dùng, triển khai theo thứ tự an toàn: migration D1 trước, rồi Worker, rồi Pages preview (không đụng Pages Production vì source M8-09 còn mất).
+
+### D1 migration
+
+- `npx wrangler d1 migrations apply voice-learn-prod-db --remote` từ `apps/worker`: apply đúng 1 migration `0004_rate_limits.sql`, 3 commands, 1.13 ms. Xác minh sau apply bằng `d1 execute --remote`: bảng `rate_limit_windows` tồn tại, `COUNT(*) = 0`.
+
+### Worker
+
+- `npx wrangler deploy`: upload 320.75 KiB / gzip 62.81 KiB, startup 9 ms; binding như cũ (`DB` → `voice-learn-prod-db`, `SHEET_MIRROR_ENABLED=true`, epoch `prod_cutover_01`).
+- Version mới: `ba31b7a7-e378-4029-81d3-157eec28fd9d` (deployment 2026-10-17T16:30Z).
+- Verify: `GET /health` → 200 `{"status":"healthy"}`; `POST /api/v1/live-token` không token → 401 `UNAUTHENTICATED` (guard nguyên vẹn); `wrangler tail` 75 giây không có warning nào (cron phút chạy sạch, không thấy `background_job_deferred`).
+- Rollback nếu cần: `npx wrangler rollback` về version `dcc1f421-212f-491d-8965-530b7570b61b` (M8-07).
+
+### Pages preview
+
+- Build `npm run build -w @voice-chat/web` (Node 22): entry `index-K170HVvu.js` (366.70 KB), CSS `index-DtsbfbpB.css`.
+- `npx wrangler pages deploy apps/web/dist --project-name voice-chat-learn-language --branch preview-m9-resilience`:
+  - Deployment: `https://e9e5f171.voice-chat-learn-language.pages.dev`
+  - Alias: `https://preview-m9-resilience.voice-chat-learn-language.pages.dev`
+- Verify: JS tải về có SHA256 `5cd9aba7a30725846ddfdf198602c81ceb16ba66ceada66a744eeac947e3c9a8` khớp file local; HTML preview trỏ `index-K170HVvu.js`; HTML Production vẫn trỏ `index-6OPvSjQa.js` (bundle M8-09) — Production không bị ảnh hưởng, không mất tính năng.
+- Frontend preview gọi Worker production (M9-01 chỉ cần API không đổi), nên có thể test trực tiếp độ bền queue/rate limit/mirror trên preview URL.
+- Chưa deploy M9-01 lên Pages Production vì cần quyết định xử lý source M8-09 trước (không tự ghi đè).
+
+### Trạng thái sau deploy
+
+- CI #42 PASS trên head `76ce165` (237/237 tests).
+- Theo dõi tiếp (thuộc M7-10, không tự đóng): CPU/quota mirror production sau M9-03, độ trễ rate limit D1, QA Telegram thật.

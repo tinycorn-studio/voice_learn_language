@@ -11,6 +11,12 @@ import {
   type ReviewRating,
 } from '@voice-chat/shared';
 import { createRepositories } from './adapters/repository-factory.js';
+import {
+  D1RateLimiter,
+  cleanupRateLimitWindows,
+  type RateLimiter,
+  type RateLimitScope,
+} from './adapters/d1-rate-limiter.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
 import { translateTranscriptTurn } from './adapters/gemini-translator.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
@@ -67,6 +73,29 @@ export class SecurityStateStore {
     } finally {
       this.pendingUpdates.delete(updateId);
     }
+  }
+
+  /**
+   * Authoritative check when a D1-backed limiter is available; otherwise (or when D1 is
+   * unavailable) degrades to the per-isolate sliding window instead of failing open (`M9-02`).
+   */
+  public async enforceRateLimit(
+    scope: RateLimitScope,
+    limiter: RateLimiter | null,
+    userId: string,
+    nowMs: number,
+    maxPerMinute: number,
+  ): Promise<void> {
+    if (limiter) {
+      try {
+        await limiter.consume(scope, userId, nowMs, maxPerMinute);
+        return;
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+      }
+    }
+    if (scope === 'live_token') this.checkLiveTokenRateLimit(userId, nowMs, maxPerMinute);
+    else this.checkTranslationRateLimit(userId, nowMs, maxPerMinute);
   }
 
   public checkLiveTokenRateLimit(userId: string, nowMs: number, maxPerMinute = 5): void {
@@ -217,6 +246,7 @@ async function handleWorkerRequestInternal(
   const path = url.pathname;
   const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
   const fetchFn = deps.fetchFn ?? fetch;
+  const rateLimiter: RateLimiter | null = env.DB ? new D1RateLimiter(env.DB) : null;
 
   const resolveRepositories = async () => {
     if (deps.vocabRepo && deps.reviewRepo)
@@ -602,7 +632,7 @@ async function handleWorkerRequestInternal(
         });
       }
 
-      securityStore.checkLiveTokenRateLimit(session.userId, nowMs);
+      await securityStore.enforceRateLimit('live_token', rateLimiter, session.userId, nowMs, 5);
 
       const minted = await mintGeminiEphemeralToken({
         geminiApiKey: env.GEMINI_API_KEY,
@@ -636,7 +666,7 @@ async function handleWorkerRequestInternal(
           status: 400,
         });
       }
-      securityStore.checkTranslationRateLimit(session.userId, nowMs);
+      await securityStore.enforceRateLimit('translate', rateLimiter, session.userId, nowMs, 12);
       const translation = await translateTranscriptTurn({
         text: parsed.data.text,
         geminiApiKey: env.GEMINI_API_KEY,
@@ -1051,11 +1081,12 @@ export async function handleScheduledTick(
         1,
       ),
       processSheetMirror(env.DB, env, now, fetchFn),
+      cleanupRateLimitWindows(env.DB, scheduledTime - 3600_000),
     ]);
     outcomes.forEach((outcome, index) => {
       if (outcome.status === 'rejected')
         logStructured('warn', 'background_job_deferred', `cron_${scheduledTime}`, {
-          processor: index === 0 ? 'telegram' : 'sheet_mirror',
+          processor: index === 0 ? 'telegram' : index === 1 ? 'sheet_mirror' : 'rate_limit_cleanup',
         });
     });
     const time = new Date(scheduledTime);

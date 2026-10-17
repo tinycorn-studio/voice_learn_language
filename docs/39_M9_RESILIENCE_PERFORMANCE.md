@@ -60,3 +60,25 @@ Chữ ký (wall, Node threadpool nên không phản ánh CPU workerd): `importKe
 - 5 test mới `tests/m9-03-local-benchmark.test.ts`: bytes compose ≡ `canonicalJson` cho payload canonical; chữ ký verify được với payload lưu kiểu `JSON.stringify`; key cache cho chữ ký trùng với import mới; `processSheetMirror` deliver thật với envelope compose (mock GAS verify HMAC); benchmark legacy/optimized.
 - Regression mirror: `tests/d1-mirror.test.ts` 9/9 PASS.
 - Full gates: typecheck/lint/build PASS.
+
+## M9-02 — Rate limit dùng chung toàn cục
+
+### Vấn đề
+
+Rate limit live-token (5/phút) và translate (12/phút) nằm trong `SecurityStateStore` bộ nhớ per-isolate: khi Worker scale nhiều isolate hoặc isolate bị recycle, bộ đếm mất/mỗi isolate đếm riêng nên giới hạn thực tế bị nới lỏng.
+
+### Thay đổi
+
+- Migration `apps/worker/migrations/0004_rate_limits.sql`: bảng `rate_limit_windows(scope,user_id,window_start,count)` khoá chính `(scope,user_id,window_start)` + index `window_start` cho cleanup. Chưa apply production (deploy riêng khi được yêu cầu).
+- `apps/worker/src/adapters/d1-rate-limiter.ts`:
+  - `D1RateLimiter.consume`: cửa sổ cố định 60 giây neo theo bucket; một `db.batch([upsert ON CONFLICT count+1, select count])` — một vòng D1; `count > maxPerMinute` → `AppError RATE_LIMITED 429` giữ nguyên mã lỗi và message cũ.
+  - `cleanupRateLimitWindows`: xoá window cũ hơn cutoff, gọi từ Cron phút.
+- `SecurityStateStore.enforceRateLimit(scope, limiter, userId, nowMs, max)`: ưu tiên D1; `AppError` (kể cả RATE_LIMITED) được ném lại; lỗi hạ tầng khác (D1 down) rơi về sliding window bộ nhớ per-isolate — không fail open.
+- `entry.ts`: tạo `rateLimiter` từ `env.DB` mỗi request; route live-token/translate gọi bản `enforce` async; `handleScheduledTick` thêm cleanup vào `Promise.allSettled` (processor `rate_limit_cleanup`).
+- Khác biệt chủ động so với trước: fixed window thay sliding (burst qua ranh giới bucket có thể tới ~2× trong trường hợp xấu; chấp nhận vì đây là chống lạm dụng, không phải tính phí) và request bị từ chối vẫn tiếp tục đếm trong window. Không lưu token/initData, chỉ `user_id` + scope.
+
+### Verification
+
+- 5 test mới `tests/d1-rate-limit.test.ts` trên D1 harness thật: cho đúng max rồi chặn và chia sẻ bộ đếm giữa hai instance cùng scope/user khác isolate; rollover theo bucket 60 giây; scope/user độc lập; cleanup chỉ xoá window cũ; fallback bộ nhớ khi limiter lỗi + RATE_LIMITED từ D1 được ném lại; entry integration: 5 request 200 từ store A rồi store B hoàn toàn mới vẫn bị 429 (chứng minh bộ đếm toàn cục).
+- Ghi chú vận hành: gộp nhiều runtime Miniflare trong một file test để tránh startup workerd song song vượt timeout dưới tải máy cao; các file D1 nặng hiện có vẫn giữ nguyên.
+- Full suite: 237/237 tests (39 files); typecheck/lint/build PASS.

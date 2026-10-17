@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { canonicalJson, mirrorBatchSchema, mirrorJobSchema } from '@voice-chat/shared';
 import {
@@ -12,6 +12,9 @@ import {
 } from '../apps/worker/src/adapters/gas-client.js';
 import type { WorkerEnv } from '../apps/worker/src/domain/env.js';
 import { createD1RuntimeHarness } from './d1-runtime-harness.js';
+
+const runtimePromise = createD1RuntimeHarness();
+afterAll(async () => (await runtimePromise).dispose());
 
 const SECRET = 'm9-03-synthetic-secret';
 const USER = 'telegram:123';
@@ -153,10 +156,9 @@ describe('M9-03 mirror CPU optimizations', () => {
     expect(second).toBe(fresh);
   });
 
-  it('processSheetMirror still delivers with the composed envelope', async () => {
-    const runtime = await createD1RuntimeHarness();
-    try {
-      const { db } = runtime;
+  it('processSheetMirror still delivers with the composed envelope', { timeout: 20000 }, async () => {
+    {
+      const { db } = await runtimePromise;
       await db
         .prepare("UPDATE system_state SET value=? WHERE key='source_epoch'")
         .bind(ENV.SHEET_MIRROR_EPOCH!)
@@ -183,8 +185,6 @@ describe('M9-03 mirror CPU optimizations', () => {
         await processSheetMirror(db, ENV, '2026-10-17T00:00:01.000Z', fetchFn as unknown as typeof fetch),
       ).toBe(1);
       expect(fetchFn).toHaveBeenCalledTimes(1);
-    } finally {
-      await runtime.dispose();
     }
   });
 

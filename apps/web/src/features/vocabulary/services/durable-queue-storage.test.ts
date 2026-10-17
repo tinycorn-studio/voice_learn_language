@@ -128,13 +128,13 @@ describe('durable queue persistence (M9-01)', () => {
   });
 
   it('returns null when IndexedDB is unavailable', () => {
-    const scope = globalThis as { indexedDB?: IDBFactory };
-    const original = scope.indexedDB;
-    scope.indexedDB = undefined;
+    const scope = globalThis as unknown as Record<string, unknown>;
+    const original = scope['indexedDB'];
+    scope['indexedDB'] = undefined;
     try {
       expect(createIndexedDbQueuePersistence()).toBeNull();
     } finally {
-      scope.indexedDB = original;
+      scope['indexedDB'] = original;
     }
   });
 });

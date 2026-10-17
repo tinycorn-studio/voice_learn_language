@@ -28,3 +28,35 @@ Nhánh `feat/M9-resilience-performance`, ngày 17/10/2026. Các thay đổi loca
 
 - 9 test mới `apps/web/src/features/vocabulary/services/durable-queue-storage.test.ts`: roundtrip, TTL hết hạn, record hỏng bị bỏ, IndexedDB unavailable → null, khôi phục qua queue instance mới, saved không persist, storage lỗi không phá queue, hydrate bỏ qua trùng, giữ hành vi in-memory khi không có persistence.
 - Full suite: 227/227 tests (37 files); typecheck/lint PASS.
+
+## M9-03 — Giảm CPU đường mirror
+
+### Vấn đề
+
+Mirror từng đo CPU 32/13/16 ms trên request (docs/31) trong khi trần CPU Free là 10 ms. Mỗi lần drain một job, `processSheetMirror` thực hiện: parse `payload_json`, validate toàn bộ cây snapshot hai lần (`mirrorJobSchema` rồi `mirrorBatchSchema` bọc lại), `canonicalJson` lại toàn bộ cây, `importKey` HMAC mới cho mỗi chữ ký, và hai lệnh D1 cuối (update outbox + nhả lease) tách rời.
+
+### Thay đổi
+
+- `apps/worker/src/adapters/gas-client.ts`: cache `CryptoKey` HMAC theo secret trong isolate (tối đa 4 secret, xoá cache khi import lỗi). Mọi call có chữ ký (mirror, digest Telegram) không còn `importKey` lại mỗi lần.
+- `apps/worker/src/adapters/sheet-mirror.ts`:
+  - Bỏ lần validate thứ hai toàn cây: epoch vẫn validate bằng `mirrorBatchSchema.shape.epoch`; job vẫn được validate đầy đủ một lần bằng `mirrorJobSchema` trước khi dùng.
+  - Envelope `mirror.applyBatch` được compose bằng helper `composeMirrorEnvelopePayload` theo đúng thứ tự key canonical (action, data, event_id, issued_at, request_id, user_id) và tái sử dụng `payload_json` nguyên văn, nên không cần `canonicalJson` lại cây snapshot mỗi lần retry. Khi `payload_json` đã canonical, bytes ký giống hệt cách cũ (có test chốt).
+  - Update outbox cuối + nhả lease gộp chung một `db.batch()` (một vòng D1 thay vì hai); `finally` giữ nhả lease như lưới an toàn.
+- Không đổi hành vi nghiệp vụ: lease/epoch/owner check/retry backoff/ngưỡng 8 lần/dead letter giữ nguyên.
+
+### Benchmark local
+
+Harness `tests/m9-03-local-benchmark.test.ts`, Node 22 local, job synthetic 4 entity Words (~25.7 KB payload), 5 warm-up + 60 mẫu, đo phần sync (parse + validate + đóng gói envelope, không gồm crypto/D1/mạng):
+
+| Đường xử lý | p50 | p95 |
+| --- | ---: | ---: |
+| Legacy: 2× zod toàn cây + canonicalJson toàn cây | 0.194 ms | 0.510 ms |
+| Optimized: 1× zod + compose | 0.065 ms | 0.116 ms |
+
+Chữ ký (wall, Node threadpool nên không phản ánh CPU workerd): `importKey` mới p50 0.071 ms so với key cache p50 0.049 ms. Số local chỉ chứng minh cấu trúc giảm việc: bỏ một lần validate toàn cây + một lần canonical hoá toàn cây mỗi attempt, cache key import, giảm một vòng D1 — không dùng để dự đoán CPU production; re-profile production vẫn thuộc M7-10.
+
+### Verification
+
+- 5 test mới `tests/m9-03-local-benchmark.test.ts`: bytes compose ≡ `canonicalJson` cho payload canonical; chữ ký verify được với payload lưu kiểu `JSON.stringify`; key cache cho chữ ký trùng với import mới; `processSheetMirror` deliver thật với envelope compose (mock GAS verify HMAC); benchmark legacy/optimized.
+- Regression mirror: `tests/d1-mirror.test.ts` 9/9 PASS.
+- Full gates: typecheck/lint/build PASS.

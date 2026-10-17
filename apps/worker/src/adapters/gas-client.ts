@@ -38,19 +38,37 @@ import type {
 } from '../domain/repositories.js';
 
 const encoder = new TextEncoder();
+const HMAC_KEY_CACHE_LIMIT = 4;
+const hmacKeyCache = new Map<string, Promise<CryptoKey>>();
 
-/**
- * Signs an exact JSON payload string with HMAC-SHA256 and encodes as unpadded base64url,
- * matching `Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '')` in `apps-script/Code.gs`.
- */
-export async function signGasPayload(payload: string, sharedSecret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
+/** Reuses the imported HMAC key per isolate (`M9-03`): `importKey` costs CPU on every signed call. */
+function importHmacKey(sharedSecret: string): Promise<CryptoKey> {
+  const cached = hmacKeyCache.get(sharedSecret);
+  if (cached) return cached;
+  const keyPromise = crypto.subtle.importKey(
     'raw',
     encoder.encode(sharedSecret) as unknown as BufferSource,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   );
+  hmacKeyCache.set(sharedSecret, keyPromise);
+  if (hmacKeyCache.size > HMAC_KEY_CACHE_LIMIT) {
+    const oldest = hmacKeyCache.keys().next().value;
+    if (oldest !== undefined && oldest !== sharedSecret) hmacKeyCache.delete(oldest);
+  }
+  keyPromise.catch(() => {
+    if (hmacKeyCache.get(sharedSecret) === keyPromise) hmacKeyCache.delete(sharedSecret);
+  });
+  return keyPromise;
+}
+
+/**
+ * Signs an exact JSON payload string with HMAC-SHA256 and encodes as unpadded base64url,
+ * matching `Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '')` in `apps-script/Code.gs`.
+ */
+export async function signGasPayload(payload: string, sharedSecret: string): Promise<string> {
+  const key = await importHmacKey(sharedSecret);
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
   return bytesToBase64Url(new Uint8Array(sig));
 }

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { LearningApiClient } from '../services/learning-api-client.js';
-import { summarizeLatency } from '../services/api-diagnostics.js';
+import { ApiDiagnostics, summarizeLatency } from '../services/api-diagnostics.js';
 import { App } from './App.js';
 import { ApiDiagnosticsPanel } from './ApiDiagnosticsPanel.js';
 
@@ -32,6 +32,52 @@ it('calculates bounded-session p50/p95 for odd/even/single samples and rejects i
   });
   expect(summarizeLatency('no-samples', [])).toBeNull();
   expect(summarizeLatency('empty', [Number.NaN, -1])).toBeNull();
+});
+
+it('excludes local validation failures from API latency summaries', () => {
+  const diagnostics = new ApiDiagnostics('https://worker.example');
+  diagnostics.record({
+    request_id: 'web-1234567890abcdef12345678',
+    server_request_id: null,
+    method: 'POST',
+    route: '/api/v1/auth/telegram',
+    code: 'MISSING_INIT_DATA',
+    phase: 'local',
+    http_status: null,
+    duration_ms: 0,
+    exception_name: null,
+  });
+  diagnostics.record({
+    request_id: 'web-111111111111111111111111',
+    server_request_id: null,
+    method: 'POST',
+    route: '/api/v1/auth/telegram',
+    code: 'INVALID_CONFIG',
+    phase: 'configuration',
+    http_status: null,
+    duration_ms: 0,
+    exception_name: null,
+  });
+  diagnostics.record({
+    request_id: 'web-abcdef123456789012345678',
+    server_request_id: 'web-abcdef123456789012345678',
+    method: 'POST',
+    route: '/api/v1/auth/telegram',
+    code: 'OK',
+    phase: 'complete',
+    http_status: 200,
+    duration_ms: 287,
+    exception_name: null,
+  });
+
+  expect(diagnostics.getLatencySummary()).toEqual([
+    {
+      metric: 'API POST /api/v1/auth/telegram',
+      sample_count: 1,
+      p50_ms: 287,
+      p95_ms: 287,
+    },
+  ]);
 });
 
 it('exposes capture timings without HTTP errors and strips arbitrary private metadata', () => {
@@ -140,7 +186,7 @@ it.each(['missing', 'denied'])(
         ? {}
         : { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('Denied')) } },
     );
-    const api = new LearningApiClient('https://worker.example', () => '', vi.fn<typeof fetch>());
+    const api = new LearningApiClient('https://worker.example', () => '', vi.fn<typeof fetch>(), 0);
     render(<App api={api} />);
     await waitFor(() => expect(screen.getByText('MISSING_INIT_DATA')).toBeTruthy());
     fireEvent.click(screen.getByText('Log chẩn đoán'));

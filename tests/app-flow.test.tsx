@@ -254,7 +254,7 @@ describe('R01/R02 App -> Worker -> GAS with real client and synthetic audio/Gemi
   );
 
   it('rejects standalone unauthenticated access without showing sample words or opening microphone', async () => {
-    render(<App api={new LearningApiClient('https://worker.example', () => '')} />);
+    render(<App api={new LearningApiClient('https://worker.example', () => '', undefined, 0)} />);
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toContain('Telegram Mini App'),
     );

@@ -152,8 +152,11 @@ export class ApiDiagnostics {
       samples.set(metric, bucket);
     };
 
-    for (const attempt of this.entries)
-      add(`API ${attempt.method} ${attempt.route}`, attempt.duration_ms);
+    for (const attempt of this.entries) {
+      // Local/config validation never reaches fetch, so its duration is not API latency.
+      if (attempt.phase !== 'local' && attempt.phase !== 'configuration')
+        add(`API ${attempt.method} ${attempt.route}`, attempt.duration_ms);
+    }
     for (const capture of this.capture) {
       if (
         (capture.stage === 'persistence_saved' || capture.stage === 'persistence_failed') &&

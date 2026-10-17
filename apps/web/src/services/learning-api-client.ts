@@ -41,6 +41,9 @@ interface RequestTrace {
   serverRequestId: string | null;
 }
 
+const INIT_DATA_WAIT_TIMEOUT_MS = 2500;
+const INIT_DATA_POLL_INTERVAL_MS = 100;
+
 export class ApiClientError extends Error {
   public diagnostic: ApiDiagnostic | undefined;
   public constructor(
@@ -63,6 +66,7 @@ export class LearningApiClient {
     private readonly baseUrl: string,
     private readonly getInitData: () => string,
     private readonly fetchFn: typeof fetch = fetch,
+    private readonly initDataWaitTimeoutMs = INIT_DATA_WAIT_TIMEOUT_MS,
   ) {
     this.diagnostics = new ApiDiagnostics(baseUrl);
   }
@@ -71,7 +75,14 @@ export class LearningApiClient {
     if (this.session && Date.parse(this.session.expires_at) > Date.now() + 30000)
       return this.session;
     if (this.authenticating) return this.authenticating;
-    const initData = this.getInitData();
+    this.authenticating = this.authenticateWithInitData().finally(() => {
+      this.authenticating = null;
+    });
+    return this.authenticating;
+  }
+
+  private async authenticateWithInitData(): Promise<TelegramAuthResponse> {
+    const initData = await this.waitForInitData();
     if (!initData) {
       const error = new ApiClientError(
         'Hãy mở ứng dụng từ Telegram Mini App để đăng nhập.',
@@ -92,17 +103,26 @@ export class LearningApiClient {
       });
       throw error;
     }
-    this.authenticating = this.send('/api/v1/auth/telegram', 'POST', telegramAuthResponseSchema, {
+    const session = await this.send('/api/v1/auth/telegram', 'POST', telegramAuthResponseSchema, {
       init_data: initData,
-    })
-      .then((session) => {
-        this.session = session;
-        return session;
-      })
-      .finally(() => {
-        this.authenticating = null;
-      });
-    return this.authenticating;
+    });
+    this.session = session;
+    return session;
+  }
+
+  /** Telegram's deferred WebApp bridge can appear shortly after the React app mounts. */
+  private async waitForInitData(): Promise<string> {
+    const deadline = Date.now() + Math.max(0, this.initDataWaitTimeoutMs);
+    let initData = this.getInitData().trim();
+    while (!initData) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, Math.min(INIT_DATA_POLL_INTERVAL_MS, remainingMs)),
+      );
+      initData = this.getInitData().trim();
+    }
+    return initData;
   }
 
   private async send<T>(

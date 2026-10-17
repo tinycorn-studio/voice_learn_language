@@ -201,7 +201,7 @@ describe('M5-07 API diagnostics', () => {
       },
     });
     vi.stubEnv('VITE_APP_VERSION', 'M5-07-test');
-    const api = new LearningApiClient('https://worker.example', () => '', vi.fn<typeof fetch>());
+    const api = new LearningApiClient('https://worker.example', () => '', vi.fn<typeof fetch>(), 0);
     await api.authenticate().catch(() => undefined);
     expect(api.diagnostics.getSnapshot()[0]).toMatchObject({
       telegram_platform: 'ios',
@@ -257,7 +257,7 @@ describe('M5-07 API diagnostics', () => {
   it('records local missing initData and invalid config without sending requests or leaking URL secrets', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const fetchFn = vi.fn<typeof fetch>();
-    const missing = new LearningApiClient('https://worker.example', () => '', fetchFn);
+    const missing = new LearningApiClient('https://worker.example', () => '', fetchFn, 0);
     await expect(missing.authenticate()).rejects.toMatchObject({ code: 'MISSING_INIT_DATA' });
     expect(missing.diagnostics.getSnapshot()[0]).toMatchObject({
       phase: 'local',
@@ -275,6 +275,29 @@ describe('M5-07 API diagnostics', () => {
     });
     expect(invalid.diagnostics.exportReport()).not.toMatch(/private-|user:|\/path|token=/);
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('waits for deferred Telegram initData and shares the pending authentication attempt', async () => {
+    vi.useFakeTimers();
+    let initData = '';
+    const getInitData = vi.fn(() => initData);
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(authResponse());
+    const client = new LearningApiClient('https://worker.example', getInitData, fetchFn, 1000);
+
+    const firstAttempt = client.authenticate();
+    const secondAttempt = client.authenticate();
+    setTimeout(() => {
+      initData = ' signed-telegram-init-data ';
+    }, 150);
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(Promise.all([firstAttempt, secondAttempt])).resolves.toEqual([session, session]);
+    expect(getInitData).toHaveBeenCalledTimes(3);
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(fetchFn.mock.calls[0]?.[1]?.body))).toEqual({
+      init_data: 'signed-telegram-init-data',
+    });
+    expect(client.diagnostics.getSnapshot().map((entry) => entry.code)).toEqual(['OK']);
   });
 
   it.each([

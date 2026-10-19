@@ -27,6 +27,15 @@ export interface TelegramMutationContext {
   confirmationText?: string;
 }
 
+/** Metered features counted against per-user daily caps (`M9-03`). */
+export type DailyUsageKind = 'chat_turn' | 'translation' | 'live_session';
+
+export interface DailyUsageOutcome {
+  allowed: boolean;
+  used: number;
+  cap: number;
+}
+
 /**
  * Repository abstraction for vocabulary storage (`AGENTS.md` Section 2).
  * Allows swapping Google Sheets/Apps Script with Cloudflare D1 without altering domain/routes.
@@ -116,6 +125,17 @@ export interface ReviewRepository {
     },
     telegram?: TelegramMutationContext,
   ): Promise<{ updated: boolean; notifications_enabled: boolean }>;
+  /**
+   * Atomically checks and consumes one unit of a metered daily quota (`M9-03`).
+   * Optional: adapters without durable counters (GAS mode, test doubles) simply skip enforcement.
+   */
+  checkAndConsumeUsage?(input: {
+    userId: string;
+    kind: DailyUsageKind;
+    cap: number;
+    localDate: string;
+    nowIso: string;
+  }): Promise<DailyUsageOutcome>;
   acceptTelegramCommand?(
     userId: string,
     requestId: string,

@@ -16,7 +16,12 @@ export async function createRepositories(
     if (!env.DB)
       throw new AppError({ code: 'UNAVAILABLE', message: 'D1 binding is missing', status: 503 });
     await requireD1Schema(env.DB);
-    const repository = new D1RepositoryAdapter(env.DB, env.GAS_SHARED_SECRET);
+    const repository = new D1RepositoryAdapter(
+      env.DB,
+      env.GAS_SHARED_SECRET,
+      undefined,
+      `telegram:${env.OWNER_TELEGRAM_ID.trim()}`,
+    );
     return { vocabulary: repository, review: repository };
   }
   if (env.DATA_BACKEND !== undefined && env.DATA_BACKEND !== 'gas')

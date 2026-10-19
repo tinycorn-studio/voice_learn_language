@@ -144,6 +144,49 @@ describe('M7-06 D1 -> Sheet mirror', () => {
       await db.prepare('SELECT status,attempts FROM sync_outbox ORDER BY sequence LIMIT 1').first(),
     ).toEqual({ status: 'pending', attempts: 1 });
   });
+  it('M9-02: keeps mirror jobs owner-only while other users still get full D1 authority', async () => {
+    const { db } = await setup();
+    const ownerScopedRepo = new D1RepositoryAdapter(db, ENV.GAS_SHARED_SECRET, undefined, USER);
+    await ownerScopedRepo.upsert('telegram:999', 'req_member_create', {
+      event_id: 'mirror_member_create',
+      word: 'river',
+      part_of_speech: 'noun',
+      sense_key: 'watercourse',
+      meaning_vi: 'con sông',
+      example: '',
+      source_excerpt: '',
+    });
+    expect(
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM sync_outbox WHERE event_id='mirror_member_create'")
+          .first()
+      )?.['n'],
+    ).toBe(0);
+    expect(
+      (await db.prepare("SELECT COUNT(*) AS n FROM words WHERE user_id='telegram:999'").first())?.[
+        'n'
+      ],
+    ).toBe(1);
+
+    const ownerCreated = await ownerScopedRepo.upsert(USER, 'req_owner_create', {
+      event_id: 'mirror_owner_create',
+      word: 'lender',
+      part_of_speech: 'noun',
+      sense_key: 'financial',
+      meaning_vi: 'người cho vay',
+      example: '',
+      source_excerpt: '',
+    });
+    expect(ownerCreated.word_id).toBeTruthy();
+    expect(
+      (
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM sync_outbox WHERE event_id='mirror_owner_create'")
+          .first()
+      )?.['n'],
+    ).toBe(1);
+  });
   it('drains mirror on daytime minute ticks while claiming digest only inside its morning window', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-14T06:00:00.000Z'));

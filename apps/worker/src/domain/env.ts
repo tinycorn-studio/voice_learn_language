@@ -9,6 +9,7 @@ export interface WorkerEnv {
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   OWNER_TELEGRAM_ID: string;
+  ALLOWED_TELEGRAM_IDS?: string;
   SESSION_SIGNING_SECRET?: string;
   GAS_SHARED_SECRET: string;
   GAS_EXEC_URL: string;
@@ -16,6 +17,9 @@ export interface WorkerEnv {
   DATA_BACKEND?: 'gas' | 'd1';
   SHEET_MIRROR_ENABLED?: 'true' | 'false';
   SHEET_MIRROR_EPOCH?: string;
+  DAILY_CHAT_TURNS_CAP?: string;
+  DAILY_TRANSLATIONS_CAP?: string;
+  DAILY_LIVE_SESSIONS_CAP?: string;
   DB?: Pick<D1Database, 'prepare' | 'batch'>;
 }
 

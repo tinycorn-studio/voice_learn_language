@@ -23,18 +23,68 @@ import {
 } from './adapters/telegram-delivery-store.js';
 import {
   issueSessionToken,
+  parseAllowedTelegramIds,
   verifySessionToken,
   verifyTelegramInitData,
   verifyTelegramWebhookSecret,
 } from './auth/telegram-auth.js';
 import { AppError, jsonEnvelopeResponse, logStructured, type WorkerEnv } from './domain/env.js';
-import type { ReviewRepository, VocabularyRepository } from './domain/repositories.js';
+import { dailyCapMessage, resolveDailyCaps } from './domain/quota.js';
+import type {
+  DailyUsageKind,
+  DailyUsageOutcome,
+  ReviewRepository,
+  VocabularyRepository,
+} from './domain/repositories.js';
 
 export interface WorkerDependencies {
   fetchFn?: typeof fetch;
   vocabRepo?: VocabularyRepository;
   reviewRepo?: ReviewRepository;
   nowMs?: () => number;
+}
+
+/** Resolves the multi-user allowlist once per entry point (`M9-02`; owner always included). */
+function allowedIds(env: WorkerEnv): number[] {
+  return parseAllowedTelegramIds({
+    raw: env.ALLOWED_TELEGRAM_IDS,
+    ownerTelegramId: env.OWNER_TELEGRAM_ID,
+  });
+}
+
+/** Bounds per-tick digest fan-out so Free-tier subrequest budgets stay safe (`M9-02`). */
+const DIGEST_USERS_PER_TICK = 5;
+
+/**
+ * Enforces per-user daily free-tier caps when the active backend keeps durable counters (`M9-03`).
+ * Adapters without `checkAndConsumeUsage` (GAS mode, lightweight test doubles) skip enforcement.
+ */
+async function enforceDailyCap(params: {
+  reviewRepo: ReviewRepository;
+  userId: string;
+  kind: DailyUsageKind;
+  cap: number;
+  nowMs: number;
+  requestId: string;
+}): Promise<DailyUsageOutcome> {
+  if (typeof params.reviewRepo.checkAndConsumeUsage !== 'function') {
+    return { allowed: true, used: 0, cap: params.cap };
+  }
+  const outcome = await params.reviewRepo.checkAndConsumeUsage({
+    userId: params.userId,
+    kind: params.kind,
+    cap: params.cap,
+    localDate: formatLocalDateAsiaHoChiMinh(new Date(params.nowMs)),
+    nowIso: new Date(params.nowMs).toISOString(),
+  });
+  if (!outcome.allowed) {
+    logStructured('info', 'daily_cap_exhausted', params.requestId, {
+      kind: params.kind,
+      used: outcome.used,
+      cap: outcome.cap,
+    });
+  }
+  return outcome;
 }
 
 /**
@@ -357,7 +407,7 @@ async function handleWorkerRequestInternal(
       const verifiedUser = await verifyTelegramInitData({
         initData: parsed.data.init_data,
         botToken: env.TELEGRAM_BOT_TOKEN,
-        ownerTelegramId: env.OWNER_TELEGRAM_ID,
+        allowedTelegramIds: allowedIds(env),
         nowEpochSeconds: Math.floor(nowMs / 1000),
       });
 
@@ -404,15 +454,16 @@ async function handleWorkerRequestInternal(
       const update = parsedUpdate.data;
       const { review: reviewRepo } = await resolveRepositories();
       return await securityStore.processTelegramUpdate(update.update_id, requestId, async () => {
-        const ownerNumericId = Number(env.OWNER_TELEGRAM_ID.trim());
+        const allowed = new Set(allowedIds(env));
         const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
 
         if (update.callback_query) {
           const cb = update.callback_query;
-          if (cb.from?.id !== ownerNumericId) {
+          const senderId = cb.from?.id;
+          if (senderId === undefined || !allowed.has(senderId)) {
             throw new AppError({
               code: 'FORBIDDEN',
-              message: 'Callback sender is not authorized owner',
+              message: 'Callback sender is not in the allowlist',
               status: 403,
             });
           }
@@ -445,7 +496,7 @@ async function handleWorkerRequestInternal(
           });
           const commitStarted = performance.now();
           const result = await reviewRepo.recordReview(
-            `telegram:${ownerNumericId}`,
+            `telegram:${senderId}`,
             requestId,
             {
               event_id: eventId.length >= 12 ? eventId : `${eventId}_review`,
@@ -492,16 +543,17 @@ async function handleWorkerRequestInternal(
 
         if (update.message) {
           const msg = update.message;
-          if (msg.from?.id !== ownerNumericId) {
+          const senderId = msg.from?.id;
+          if (senderId === undefined || !allowed.has(senderId)) {
             throw new AppError({
               code: 'FORBIDDEN',
-              message: 'Message sender is not authorized owner',
+              message: 'Message sender is not in the allowlist',
               status: 403,
             });
           }
           const text = (msg.text ?? '').trim();
-          const chatId = String(msg.chat?.id ?? ownerNumericId);
-          const userId = `telegram:${ownerNumericId}`;
+          const chatId = String(msg.chat?.id ?? senderId);
+          const userId = `telegram:${senderId}`;
 
           if (text.startsWith('/pause')) {
             const confirmation =
@@ -610,7 +662,7 @@ async function handleWorkerRequestInternal(
     const session = await verifySessionToken({
       authorizationHeader: request.headers.get('authorization'),
       signingSecret: getSigningSecret(env),
-      ownerTelegramId: env.OWNER_TELEGRAM_ID,
+      allowedTelegramIds: allowedIds(env),
       nowEpochSeconds: Math.floor(nowMs / 1000),
     });
 
@@ -627,6 +679,23 @@ async function handleWorkerRequestInternal(
       }
 
       securityStore.checkLiveTokenRateLimit(session.userId, nowMs);
+
+      const { review: quotaRepo } = await resolveRepositories();
+      const liveQuota = await enforceDailyCap({
+        reviewRepo: quotaRepo,
+        userId: session.userId,
+        kind: 'live_session',
+        cap: resolveDailyCaps(env).live_session,
+        nowMs,
+        requestId,
+      });
+      if (!liveQuota.allowed) {
+        throw new AppError({
+          code: 'RATE_LIMITED',
+          message: dailyCapMessage('live_session', liveQuota.cap),
+          status: 429,
+        });
+      }
 
       const minted = await mintGeminiEphemeralToken({
         geminiApiKey: env.GEMINI_API_KEY,
@@ -661,6 +730,22 @@ async function handleWorkerRequestInternal(
         });
       }
       securityStore.checkTranslationRateLimit(session.userId, nowMs);
+      const { review: quotaRepo } = await resolveRepositories();
+      const translationQuota = await enforceDailyCap({
+        reviewRepo: quotaRepo,
+        userId: session.userId,
+        kind: 'translation',
+        cap: resolveDailyCaps(env).translation,
+        nowMs,
+        requestId,
+      });
+      if (!translationQuota.allowed) {
+        throw new AppError({
+          code: 'RATE_LIMITED',
+          message: dailyCapMessage('translation', translationQuota.cap),
+          status: 429,
+        });
+      }
       const translation = await translateTranscriptTurn({
         text: parsed.data.text,
         geminiApiKey: env.GEMINI_API_KEY,
@@ -685,6 +770,22 @@ async function handleWorkerRequestInternal(
         });
       }
       securityStore.checkChatTurnRateLimit(session.userId, nowMs);
+      const { review: quotaRepo } = await resolveRepositories();
+      const chatQuota = await enforceDailyCap({
+        reviewRepo: quotaRepo,
+        userId: session.userId,
+        kind: 'chat_turn',
+        cap: resolveDailyCaps(env).chat_turn,
+        nowMs,
+        requestId,
+      });
+      if (!chatQuota.allowed) {
+        throw new AppError({
+          code: 'RATE_LIMITED',
+          message: dailyCapMessage('chat_turn', chatQuota.cap),
+          status: 429,
+        });
+      }
       const reply = await generateTutorReply({
         message: parsed.data.message,
         ...(parsed.data.history ? { history: parsed.data.history } : {}),
@@ -954,7 +1055,9 @@ async function handleWorkerRequestInternal(
 
 /**
  * Scheduled Cron handler running at `01:00 UTC` (`08:00 Asia/Ho_Chi_Minh`, `M2-04`, `M4-03`).
- * Claims a daily digest idempotently in `DailyDispatchLog` and sends at most 1 reminder per local day.
+ * Claims daily digests idempotently per allowlisted user (`M9-02`). Each minute tick handles a
+ * rotated window of users so Free-tier subrequest budgets stay bounded; long allowlists need the
+ * durable deliveries redesign before scaling past this window.
  */
 export async function handleScheduledCron(
   scheduledTimeMs: number,
@@ -970,72 +1073,81 @@ export async function handleScheduledCron(
   const localDate = formatLocalDateAsiaHoChiMinh(new Date(scheduledTimeMs));
   const fetchFn = deps.fetchFn ?? fetch;
   const reviewRepo = deps.reviewRepo ?? (await createRepositories(env, fetchFn)).review;
-  const userId = `telegram:${env.OWNER_TELEGRAM_ID.trim()}`;
-
-  const claim = await reviewRepo.claimDailyDigest(
-    userId,
-    requestId,
-    localDate,
-    10,
-    new Date(scheduledTimeMs).toISOString(),
+  const ids = allowedIds(env);
+  const windowStart =
+    (Math.floor(scheduledTimeMs / 60_000) * DIGEST_USERS_PER_TICK) % (ids.length || 1);
+  const windowIds = [...ids.slice(windowStart), ...ids.slice(0, windowStart)].slice(
+    0,
+    DIGEST_USERS_PER_TICK,
   );
-  if (claim.already_dispatched) {
-    return {
-      dispatched: false,
-      reason: 'already_dispatched',
-      localDate,
-      dueCount: claim.due_cards.length,
-    };
-  }
 
-  if (!claim.notifications_enabled) {
-    return {
-      dispatched: false,
-      reason: 'notifications_disabled',
+  const results: Array<{ dispatched: boolean; reason: string; dueCount: number }> = [];
+  for (const numericId of windowIds) {
+    const userId = `telegram:${numericId}`;
+    const claim = await reviewRepo.claimDailyDigest(
+      userId,
+      requestId,
       localDate,
-      dueCount: 0,
-    };
-  }
+      10,
+      new Date(scheduledTimeMs).toISOString(),
+    );
+    if (claim.already_dispatched) {
+      results.push({
+        dispatched: false,
+        reason: 'already_dispatched',
+        dueCount: claim.due_cards.length,
+      });
+      continue;
+    }
+    if (!claim.notifications_enabled) {
+      results.push({ dispatched: false, reason: 'notifications_disabled', dueCount: 0 });
+      continue;
+    }
+    if (claim.due_cards.length === 0) {
+      results.push({ dispatched: false, reason: 'no_due_words', dueCount: 0 });
+      continue;
+    }
 
-  if (claim.due_cards.length === 0) {
-    return {
-      dispatched: false,
-      reason: 'no_due_words',
-      localDate,
-      dueCount: 0,
-    };
-  }
-
-  const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
-  const firstCard = claim.due_cards[0]!;
-  if (!claim.claim_token)
-    throw new AppError({
-      code: 'UPSTREAM_ERROR',
-      message: 'Missing digest claim token',
-      status: 502,
+    const botClient = new TelegramBotClient(env.TELEGRAM_BOT_TOKEN, fetchFn);
+    const firstCard = claim.due_cards[0]!;
+    if (!claim.claim_token)
+      throw new AppError({
+        code: 'UPSTREAM_ERROR',
+        message: 'Missing digest claim token',
+        status: 502,
+      });
+    const chatId = claim.telegram_chat_id || String(numericId);
+    const sendResult = await botClient.sendMessage({
+      chatId,
+      text: TelegramBotClient.formatDigestMessage(localDate, claim.due_cards),
+      inlineKeyboard: TelegramBotClient.buildQuizKeyboard(
+        firstCard.card_id ?? firstCard.word_id,
+        firstCard.row_version ?? firstCard.version,
+      ),
     });
-  const chatId = claim.telegram_chat_id || env.OWNER_TELEGRAM_ID.trim();
-  const sendResult = await botClient.sendMessage({
-    chatId,
-    text: TelegramBotClient.formatDigestMessage(localDate, claim.due_cards),
-    inlineKeyboard: TelegramBotClient.buildQuizKeyboard(
-      firstCard.card_id ?? firstCard.word_id,
-      firstCard.row_version ?? firstCard.version,
-    ),
-  });
 
-  await reviewRepo.finishDailyDigest(userId, requestId, {
-    dispatch_id: claim.dispatch_id,
-    claim_token: claim.claim_token,
-    status: sendResult.ok ? 'sent' : sendResult.outcome === 'unknown' ? 'unknown' : 'failed',
-    ...(sendResult.messageId !== undefined ? { message_id: sendResult.messageId } : {}),
-  });
+    await reviewRepo.finishDailyDigest(userId, requestId, {
+      dispatch_id: claim.dispatch_id,
+      claim_token: claim.claim_token,
+      status: sendResult.ok ? 'sent' : sendResult.outcome === 'unknown' ? 'unknown' : 'failed',
+      ...(sendResult.messageId !== undefined ? { message_id: sendResult.messageId } : {}),
+    });
+    results.push({
+      dispatched: sendResult.ok,
+      reason: sendResult.ok ? 'sent' : 'telegram_send_failed',
+      dueCount: claim.due_cards.length,
+    });
+  }
 
+  const dispatched = results.some((result) => result.dispatched);
+  const firstActionable = results.find((result) => result.reason !== 'already_dispatched');
   return {
-    dispatched: sendResult.ok,
-    reason: sendResult.ok ? 'sent' : 'telegram_send_failed',
+    dispatched,
+    reason: dispatched
+      ? 'sent'
+      : (firstActionable?.reason ?? (results.length > 0 ? 'already_dispatched' : 'no_users')),
     localDate,
-    dueCount: claim.due_cards.length,
+    dueCount: results.reduce((total, result) => total + result.dueCount, 0),
   };
 }
 

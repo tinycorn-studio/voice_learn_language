@@ -173,6 +173,98 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
     expect(forbiddenRes.status).toBe(403);
   });
 
+  it('M9-02: serves every allowlisted user with isolated identity while outsiders stay blocked', async () => {
+    const multiUserEnv: WorkerEnv = { ...TEST_ENV, ALLOWED_TELEGRAM_IDS: '333222111, 444333222' };
+
+    // 1. Second allowlisted user completes Mini App auth with their own identity
+    const memberInitData = await buildSignedInitData({
+      userId: 333222111,
+      authDate: fixedNowSec - 20,
+      botToken: TEST_ENV.TELEGRAM_BOT_TOKEN,
+    });
+    const memberRes = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/auth/telegram', {
+        method: 'POST',
+        body: JSON.stringify({ init_data: memberInitData }),
+      }),
+      multiUserEnv,
+      { nowMs: () => fixedNowMs },
+    );
+    expect(memberRes.status).toBe(200);
+    const memberJson = (await memberRes.json()) as { data: { user_id: string } };
+    expect(memberJson.data.user_id).toBe('telegram:333222111');
+
+    // 2. Member session reads only their own scoped data on protected routes
+    const statsSpy = vi.fn(async () => ({
+      due_today: 0,
+      completed_today: 0,
+      new_cards: 0,
+      learning_cards: 0,
+      review_cards: 0,
+      relearning_cards: 0,
+      total_active_cards: 0,
+      total_reviews_count: 0,
+    }));
+    const mockReviewRepo = {
+      listDue: vi.fn(),
+      preview: vi.fn(),
+      recordReview: vi.fn(),
+      getStats: statsSpy,
+      claimDailyDigest: vi.fn(),
+      finishDailyDigest: vi.fn(),
+      updateUserPreferences: vi.fn(),
+    };
+    const memberSession = await issueSessionToken({
+      userId: 'telegram:333222111',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: fixedNowSec,
+    });
+    const statsRes = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/reviews/stats', {
+        headers: { authorization: `Bearer ${memberSession.token}` },
+      }),
+      multiUserEnv,
+      { nowMs: () => fixedNowMs, reviewRepo: mockReviewRepo },
+    );
+    expect(statsRes.status).toBe(200);
+    expect(statsSpy).toHaveBeenCalledWith(
+      'telegram:333222111',
+      expect.any(String),
+      expect.any(String),
+    );
+
+    // 3. Session token for an id outside the allowlist is rejected even with a valid signature
+    const outsiderSession = await issueSessionToken({
+      userId: 'telegram:555000111',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: fixedNowSec,
+    });
+    const outsiderRes = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/reviews/stats', {
+        headers: { authorization: `Bearer ${outsiderSession.token}` },
+      }),
+      multiUserEnv,
+      { nowMs: () => fixedNowMs, reviewRepo: mockReviewRepo },
+    );
+    expect(outsiderRes.status).toBe(403);
+
+    // 4. Signed initData for an id outside the allowlist is rejected
+    const outsiderInitData = await buildSignedInitData({
+      userId: 555000111,
+      authDate: fixedNowSec - 10,
+      botToken: TEST_ENV.TELEGRAM_BOT_TOKEN,
+    });
+    const outsiderAuthRes = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/auth/telegram', {
+        method: 'POST',
+        body: JSON.stringify({ init_data: outsiderInitData }),
+      }),
+      multiUserEnv,
+      { nowMs: () => fixedNowMs },
+    );
+    expect(outsiderAuthRes.status).toBe(403);
+  });
+
   it('M2-03: POST /api/v1/live-token mints single-use ephemeral token for verified user and enforces rate limit (429)', async () => {
     const session = await issueSessionToken({
       userId: 'telegram:777888999',
@@ -411,6 +503,131 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
     expect(pausedRun.dispatched).toBe(false);
     expect(pausedRun.reason).toBe('notifications_disabled');
     expect(fakeFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('M9-02: webhook accepts allowlisted users, scopes commands to their own account, and blocks outsiders', async () => {
+    const store = new SecurityStateStore();
+    const multiUserEnv: WorkerEnv = { ...TEST_ENV, ALLOWED_TELEGRAM_IDS: '333222111' };
+    const updateUserPreferencesSpy = vi.fn().mockResolvedValue({ updated: true });
+    const fakeFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const mockReviewRepo = {
+      listDue: vi.fn(),
+      preview: vi.fn(),
+      recordReview: vi.fn(),
+      getStats: vi.fn(),
+      claimDailyDigest: vi.fn(),
+      finishDailyDigest: vi.fn(),
+      updateUserPreferences: updateUserPreferencesSpy,
+    };
+
+    // 1. /pause from the second allowlisted user writes to their own account key only
+    const memberRes = await handleWorkerRequest(
+      new Request('https://worker.example/telegram/webhook', {
+        method: 'POST',
+        headers: { 'x-telegram-bot-api-secret-token': TEST_ENV.TELEGRAM_WEBHOOK_SECRET },
+        body: JSON.stringify({
+          update_id: 7001,
+          message: {
+            message_id: 11,
+            from: { id: 333222111 },
+            chat: { id: 333222111 },
+            text: '/pause',
+          },
+        }),
+      }),
+      multiUserEnv,
+      { fetchFn: fakeFetch, nowMs: () => fixedNowMs, reviewRepo: mockReviewRepo },
+      store,
+    );
+    expect(memberRes.status).toBe(200);
+    expect(updateUserPreferencesSpy).toHaveBeenCalledWith(
+      'telegram:333222111',
+      expect.any(String),
+      'tgcmd_pause_7001',
+      { telegram_chat_id: '333222111', notifications_enabled: false },
+    );
+
+    // 2. Message from a sender outside the allowlist -> 403, no preference write
+    const outsiderRes = await handleWorkerRequest(
+      new Request('https://worker.example/telegram/webhook', {
+        method: 'POST',
+        headers: { 'x-telegram-bot-api-secret-token': TEST_ENV.TELEGRAM_WEBHOOK_SECRET },
+        body: JSON.stringify({
+          update_id: 7002,
+          message: {
+            message_id: 12,
+            from: { id: 555000111 },
+            chat: { id: 555000111 },
+            text: '/pause',
+          },
+        }),
+      }),
+      multiUserEnv,
+      { fetchFn: fakeFetch, nowMs: () => fixedNowMs, reviewRepo: mockReviewRepo },
+      store,
+    );
+    expect(outsiderRes.status).toBe(403);
+    expect(updateUserPreferencesSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('M9-02: cron fans out one digest per allowlisted user within the same tick', async () => {
+    const multiUserEnv: WorkerEnv = { ...TEST_ENV, ALLOWED_TELEGRAM_IDS: '333222111' };
+    const fakeFetch = vi
+      .fn()
+      .mockImplementation(async () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true, result: { message_id: 77 } }), { status: 200 }),
+        ),
+      );
+    const dueCard = (word: string) => ({
+      review_id: `rev_${word}`,
+      word_id: `w_${word}`,
+      word,
+      lemma: word,
+      part_of_speech: 'noun' as const,
+      meaning_vi: 'nghĩa',
+      example: '',
+      source_excerpt: '',
+      due_at: '2026-10-12T00:00:00.000Z',
+      review_state: 'review' as const,
+      repetitions: 1,
+      interval_days: 1,
+      ease_factor: 2.5,
+      version: 1,
+    });
+    const claimSpy = vi.fn(async (userId: string) => ({
+      dispatch_id: `2026-10-12|${userId}`,
+      already_dispatched: false,
+      claim_token: `token_${userId}`,
+      notifications_enabled: true,
+      telegram_chat_id: userId.replace('telegram:', ''),
+      due_cards: [dueCard(userId.endsWith('777888999') ? 'owner_word' : 'member_word')],
+    }));
+    const finishSpy = vi.fn().mockResolvedValue({ updated: true });
+    const mockReviewRepo = {
+      listDue: vi.fn(),
+      preview: vi.fn(),
+      recordReview: vi.fn(),
+      getStats: vi.fn(),
+      claimDailyDigest: claimSpy,
+      finishDailyDigest: finishSpy,
+      updateUserPreferences: vi.fn(),
+    };
+
+    const run = await handleScheduledCron(fixedNowMs, multiUserEnv, {
+      fetchFn: fakeFetch,
+      reviewRepo: mockReviewRepo,
+    });
+    expect(run.dispatched).toBe(true);
+    expect(run.dueCount).toBe(2);
+    expect(claimSpy.mock.calls.map(([userId]) => userId).sort()).toEqual([
+      'telegram:333222111',
+      'telegram:777888999',
+    ]);
+    expect(fakeFetch).toHaveBeenCalledTimes(2);
+    expect(finishSpy).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -710,5 +927,79 @@ describe('M9-01 authenticated lite chat-turn route', () => {
     );
     expect(limited.status).toBe(429);
     expect(fakeFetch).toHaveBeenCalledTimes(10);
+  });
+
+  it('M9-03: enforces the per-user daily cap before calling Gemini and returns a clear 429', async () => {
+    const token = await chatSession();
+    const capSpy = vi.fn(
+      async (input: { userId: string; kind: string; cap: number; localDate: string }) => {
+        const denied = capSpy.mock.calls.length > 1;
+        return { allowed: !denied, used: denied ? input.cap : 1, cap: input.cap };
+      },
+    );
+    const mockReviewRepo = {
+      listDue: vi.fn(),
+      preview: vi.fn(),
+      recordReview: vi.fn(),
+      getStats: vi.fn(),
+      claimDailyDigest: vi.fn(),
+      finishDailyDigest: vi.fn(),
+      updateUserPreferences: vi.fn(),
+      checkAndConsumeUsage: capSpy,
+    };
+    const fakeFetch = vi
+      .fn<typeof fetch>()
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Great job!' }] } }] }),
+            { status: 200 },
+          ),
+      );
+    const capEnv: WorkerEnv = { ...TEST_ENV, DAILY_CHAT_TURNS_CAP: '31' };
+    const store = new SecurityStateStore();
+
+    const allowedRun = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'First turn of the day.' }),
+      }),
+      capEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs, reviewRepo: mockReviewRepo },
+      store,
+    );
+    expect(allowedRun.status).toBe(200);
+    expect(fakeFetch).toHaveBeenCalledTimes(1);
+    expect(capSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'telegram:777888999',
+        kind: 'chat_turn',
+        cap: 31,
+        localDate: '2026-10-19',
+      }),
+    );
+
+    const deniedRun = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'One turn over the daily cap.' }),
+      }),
+      capEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs, reviewRepo: mockReviewRepo },
+      store,
+    );
+    expect(deniedRun.status).toBe(429);
+    const deniedBody = (await deniedRun.json()) as { error: { message: string } };
+    expect(deniedBody.error.message).toContain('31');
+    expect(deniedBody.error.message).toContain('giờ Việt Nam');
+    expect(fakeFetch).toHaveBeenCalledTimes(1);
   });
 });

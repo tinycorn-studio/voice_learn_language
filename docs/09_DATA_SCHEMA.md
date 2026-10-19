@@ -75,3 +75,18 @@ M7-06: migration `0003_sync_processor_lease.sql` thêm singleton lease để ser
 M7-07 / M7-08 / M7-09: snapshot voice-d1-snapshot-v1 giữ raw headers/cells bảy tabs, SHA-256 từng tab/toàn manifest, owner/freeze/timestamps/schema metadata. Reverse export thêm `_snapshot_json` để preserve null/optional fields; verify trước reopen GAS và clear transient metadata khi unfreeze, backup file không đổi. migration_runs có immutable source checksum, trạng thái importing/verified và chunk checkpoint. `writes_enabled = 'true'`, `source_epoch = 'prod_cutover_01'` đã được kích hoạt trên production D1.
 
 M7-11 bổ sung tùy chọn thư viện operator `exportD1Snapshot(..., {onlyOwner:true})`, `importSnapshot/verifyImport(..., {preserveOtherOwners:true})` để phục hồi một owner vào DB đã có owner khác. Mặc định vẫn kiểm toàn DB và từ chối foreign owner. Opt-in chỉ giới hạn so sánh ID/hash theo owner bound SQL, không overwrite ID xung đột; quick_check/FK vẫn toàn DB. Full SQL backup và checksum dữ liệu owner khác trước/sau bắt buộc trong runbook phục hồi. Không thay auth/runtime repository hoặc mở đường import công khai.
+
+M9-03: migration `0004_usage_daily.sql` thêm bảng vận hành `usage_daily`:
+
+```sql
+CREATE TABLE usage_daily (
+  user_id TEXT NOT NULL,
+  local_date TEXT NOT NULL,          -- ngày theo Asia/Ho_Chi_Minh, reset 0:00 giờ VN
+  kind TEXT NOT NULL CHECK(kind IN ('chat_turn', 'translation', 'live_session')),
+  used INTEGER NOT NULL DEFAULT 0 CHECK(used >= 0),
+  updated_at TEXT NOT NULL,          -- ISO8601 UTC
+  PRIMARY KEY (user_id, local_date, kind)
+);
+```
+
+Check-and-consume nguyên tử bằng một câu UPSERT điều kiện: `INSERT ... ON CONFLICT(user_id,local_date,kind) DO UPDATE SET used=used+1 ... WHERE usage_daily.used < :cap RETURNING used` — không cần lock ngoài, nhiều isolate song song không vượt cap. Đây là bảng operational (không mirror sang Sheet, không nằm trong snapshot phục hồi); counter giữ lại theo ngày để audit, có thể prune định kỳ bằng SQL vận hành khi lớn.

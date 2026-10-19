@@ -7,7 +7,7 @@
 - Base: `https://<worker>/api/v1`. JSON UTF-8; header `Content-Type: application/json`; optional `X-Request-Id` (server generate nếu thiếu).
 - Success: `{ "ok": true, "data": ..., "request_id": "..." }`.
 - Error: `{ "ok": false, "error": { "code": "INVALID_ARGUMENT", "message": "...", "retryable": false }, "request_id": "..." }`.
-- HTTP errors: 400 INVALID_ARGUMENT, 401 UNAUTHENTICATED, 403 FORBIDDEN, 409 CONFLICT, 429 RATE_LIMITED, 502 UPSTREAM_ERROR, 503 UNAVAILABLE, 504 TIMEOUT.
+- HTTP errors: 400 INVALID_ARGUMENT, 401 UNAUTHENTICATED, 403 FORBIDDEN, 409 CONFLICT, 429 RATE_LIMITED (rate limit theo phút hoặc hạn mức ngày M9-03), 502 UPSTREAM_ERROR, 503 UNAVAILABLE, 504 TIMEOUT.
 - Client auth: `Authorization: Bearer <short-lived-server-issued-session>` sau `POST /api/v1/auth/telegram` với raw `initData`. Không dùng client-supplied user_id.
 - `event_id`: UUIDv4; one event retry reuse same value. Durations seconds, times RFC3339 UTC ISO. All data validated with strict limits.
 - M5-07: frontend tạo `X-Request-Id: web-<24 hex>` mới cho mỗi lần gọi API, kể cả retry; đây là mã chẩn đoán, không thay `event_id` idempotency. Worker hiện có echo mã này trong envelope và response header, `api_error` ghi cùng mã. CORS đã cho phép `x-request-id`; frontend đọc envelope vì response header chưa được expose qua CORS.
@@ -39,6 +39,10 @@ Tại thời điểm kiểm tra triển khai M8-01 (15/10/2026), trang giá củ
 Yêu cầu Bearer session Telegram đã xác minh. Request `{ "message": "I went to the market.", "history": [{ "role": "learner", "text": "..." }, { "role": "tutor", "text": "..." }] }`: `message` trim 1–500 ký tự; `history` tùy chọn, tối đa 6 lượt gần nhất, mỗi `text` 1–300 ký tự, `role` chỉ `learner`/`tutor`; field lạ bị từ chối. Response `{ "reply": "..." }` 1–1200 ký tự với `Cache-Control: no-store`.
 
 Worker gọi Gemini `generateContent` bằng `GEMINI_API_KEY` với model `GEMINI_TRANSLATION_MODEL` (mặc định `gemini-3.5-flash-lite`), `maxOutputTokens 320`, temperature 0.6, timeout provider 10 giây; system instruction cố định vai trò gia sư tiếng Anh thân thiện, không cho đổi vai/tiết lộ hướng dẫn. Bộ giới hạn theo từng Worker isolate cho phép 10 lượt/user/phút. HTTP 429 từ provider thành `RATE_LIMITED`; timeout thành `TIMEOUT` 504; lỗi provider/kết quả rỗng/quá dài/SAFETY thành `UPSTREAM_ERROR` 502 đã sanitize. Route không ghi D1/Sheet, không lưu/log nội dung hội thoại; client giữ `history` trong bộ nhớ trang và chỉ gửi lại 6 lượt gần nhất khi người dùng gửi lượt mới. Đây là route cho chế độ hội thoại nhẹ (STT/TTS chạy trên thiết bị, fallback nhập chữ); không thay thế `/api/v1/live-token` của Gemini Live.
+
+## Hạn mức ngày per-user (M9-03)
+
+Ba route tốn Gemini — `POST /api/v1/live-token` (kind `live_session`), `POST /api/v1/translate` (kind `translation`), `POST /api/v1/chat-turn` (kind `chat_turn`) — ngoài rate limit theo phút còn bị chặn bởi hạn mức ngày per-user lưu ở D1 (`usage_daily`, `local_date` theo `Asia/Ho_Chi_Minh`). Mặc định/user/ngày: 5 phiên live, 30 lượt dịch, 30 lượt chat-turn; override bằng env `DAILY_LIVE_SESSIONS_CAP`, `DAILY_TRANSLATIONS_CAP`, `DAILY_CHAT_TURNS_CAP` (giá trị `0` = tắt tính năng trong ngày). Check-and-consume nguyên tử trước khi gọi Gemini; vượt hạn mức trả 429 `RATE_LIMITED` với message tiếng Việt nêu số cap và mốc reset 0:00 giờ Việt Nam, `retryable: false`. Không tiêu tốn lượt Gemini khi bị chặn. Chỉ enforce khi `DATA_BACKEND=d1`; backend GAS (legacy) bỏ qua hạn mức.
 
 ## POST /api/v1/vocabulary
 

@@ -132,3 +132,11 @@ Mọi thay đổi lớn tạo ADR mới bằng `docs/templates/ADR_TEMPLATE.md`,
 - Full raw snapshot bảy tabs có tab/global checksums, freeze/drain dưới ScriptLock, giữ cột ngoài schema và quarantine thay vì tự sửa/lược lịch sử. Import INSERT-only, atomic bounded chunks/checkpoints + verify canonical ID/hash toàn bảng; không dùng business mutations để nhập lịch sử, không tự mở writers.
 - Reverse migration dùng target GAS riêng/frozen và JSON metadata để bảo toàn null/optional values; verify trước reopen, xóa transient metadata khi GAS authority mở ghi lại. Full SQL backup vẫn cần cho operational tables. CLI private artifacts/process env, không đưa dữ liệu/credentials lên Git hoặc terminal.
 - Remote REST batch transaction/real service parity phải được kiểm chứng ở staging M7-08; local task không thay quyền hoặc tạo DB/deploy.
+
+## ADR-011 — Multi-user allowlist qua env và daily caps nguyên tử trong D1
+
+- Date: 2026-10-19
+- Status: Accepted (M9-02/M9-03; chờ deploy secret cấu hình)
+- Decision: Mở nhiều user bằng allowlist tĩnh `ALLOWED_TELEGRAM_IDS` (secret Worker), owner luôn được gộp vào danh sách; auth/initData/session/webhook check membership, dữ liệu vẫn cô lập theo `telegram:<id>`. Cron digest lặp per-user trong cửa sổ xoay vòng ≤5 user/tick (cửa sổ 08:00–08:05 +07). Mirror Google Sheet tiếp tục chỉ dành cho owner (GAS policy owner-only) — adapter D1 gate outbox theo `mirrorOwnerUserId`. Hạn mức ngày mỗi user cho từng tính năng tốn AI (live/dịch/chat-turn) enforce bằng UPSERT điều kiện nguyên tử trong bảng `usage_daily` (D1), cấu hình centralized trong `domain/quota.ts`, vượt cap trả 429 tiếng Việt.
+- Rationale: chưa có ngân sách cho hệ auth/DB người dùng thật; allowlist env rollback được trong vài giây, không thêm bảng/luồng dữ liệu. Counter nguyên tử 1 câu SQL không cần lock ngoài, đúng semantics Free-tier guardrail. Mirror owner-only tránh job chết và không đổi quyền GAS.
+- Tradeoff: thêm user phải sửa secret + redeploy Worker (không self-serve); digest window giới hạn allowlist nhỏ (~≤30 user/ngày) trước khi cần redesign deliveries; caps D1 thêm 1 statement/request AI; GAS-mode bỏ qua caps (chấp nhận vì production là D1).

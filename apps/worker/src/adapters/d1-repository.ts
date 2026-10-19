@@ -31,6 +31,8 @@ import type {
   VocabularyRepository,
   ReviewRepository,
   DailyDigestClaimResult,
+  DailyUsageKind,
+  DailyUsageOutcome,
   TelegramMutationContext,
 } from '../domain/repositories.js';
 import { clearGuard, writeGuard, type DatabaseBinding, type Statement } from './d1-database.js';
@@ -129,7 +131,16 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     public readonly db: DatabaseBinding,
     private readonly fingerprintKey: string,
     private readonly clock: () => string = () => new Date().toISOString(),
+    private readonly mirrorOwnerUserId: string | undefined = undefined,
   ) {}
+
+  /**
+   * Google Sheets mirror stays owner-only (`M9-02`): Apps Script enforces the same owner policy,
+   * so enqueueing other users' snapshots would only create dead outbox jobs.
+   */
+  private shouldMirror(userId: string): boolean {
+    return this.mirrorOwnerUserId === undefined || this.mirrorOwnerUserId === userId;
+  }
 
   public async fingerprint(action: string, userId: string, data: Row): Promise<string> {
     // Exact GAS field order is intentional: imported Events must still replay across cutover.
@@ -275,22 +286,26 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
             now,
           )
         : []),
-      this.db
-        .prepare(
-          'INSERT INTO sync_outbox(event_id,payload_json,committed_at,next_attempt_at) VALUES (?,?,?,?)',
-        )
-        .bind(
-          params.eventId,
-          JSON.stringify({
-            event_id: params.eventId,
-            entities: [
-              ...params.entities,
-              { tab: 'Events', id: params.eventId, version: 1, row: event },
-            ],
-          }),
-          now,
-          now,
-        ),
+      ...(this.shouldMirror(params.userId)
+        ? [
+            this.db
+              .prepare(
+                'INSERT INTO sync_outbox(event_id,payload_json,committed_at,next_attempt_at) VALUES (?,?,?,?)',
+              )
+              .bind(
+                params.eventId,
+                JSON.stringify({
+                  event_id: params.eventId,
+                  entities: [
+                    ...params.entities,
+                    { tab: 'Events', id: params.eventId, version: 1, row: event },
+                  ],
+                }),
+                now,
+                now,
+              ),
+          ]
+        : []),
       clearGuard(this.db, guardId),
     ];
     const started = performance.now();
@@ -394,9 +409,13 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
     );
     if (replay) return replay;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const row = attempt === 0
-        ? (wordRead!.results[0] ?? null)
-        : await this.db.prepare('SELECT record_json FROM words WHERE word_key=?').bind(key).first();
+      const row =
+        attempt === 0
+          ? (wordRead!.results[0] ?? null)
+          : await this.db
+              .prepare('SELECT record_json FROM words WHERE word_key=?')
+              .bind(key)
+              .first();
       const previous = row ? decode(row, vocabularyItemSchema) : null;
       const now = this.clock();
       const word: VocabularyItem = previous
@@ -944,6 +963,40 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
   ): Promise<void> {
     await acceptTelegramCommand(this.db, userId, updateId, chatId, payload, this.clock());
   }
+
+  /**
+   * Atomic daily-cap check-and-consume (`M9-03`). The conditional UPSERT both increments and
+   * enforces the cap inside one SQLite statement, so concurrent isolates cannot overshoot.
+   * `cap = 0` disables the feature for the day without writing a counter.
+   */
+  public async checkAndConsumeUsage(input: {
+    userId: string;
+    kind: DailyUsageKind;
+    cap: number;
+    localDate: string;
+    nowIso: string;
+  }): Promise<DailyUsageOutcome> {
+    if (input.cap <= 0) return { allowed: false, used: 0, cap: input.cap };
+    const inserted = await this.db
+      .prepare(
+        `INSERT INTO usage_daily(user_id,local_date,kind,used,updated_at) VALUES (?,?,?,1,?)
+        ON CONFLICT(user_id,local_date,kind) DO UPDATE
+        SET used=usage_daily.used+1, updated_at=excluded.updated_at
+        WHERE usage_daily.used < ?
+        RETURNING used`,
+      )
+      .bind(input.userId, input.localDate, input.kind, input.nowIso, input.cap)
+      .all();
+    const consumed = inserted.results[0];
+    if (consumed !== undefined) {
+      return { allowed: true, used: Number(consumed['used']), cap: input.cap };
+    }
+    const existing = await this.db
+      .prepare('SELECT used FROM usage_daily WHERE user_id=? AND local_date=? AND kind=?')
+      .bind(input.userId, input.localDate, input.kind)
+      .first();
+    return { allowed: false, used: Number(existing?.['used'] ?? input.cap), cap: input.cap };
+  }
   public async claimDailyDigest(
     userId: string,
     requestId: string,
@@ -995,7 +1048,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
               "UPDATE daily_dispatches SET status='unknown',record_json=? WHERE dispatch_id=?",
             )
             .bind(JSON.stringify(unknown), dispatchId),
-          dispatchMirrorStatement(this.db, unknown, nowIso),
+          ...(this.shouldMirror(userId) ? [dispatchMirrorStatement(this.db, unknown, nowIso)] : []),
           clearGuard(this.db, guard),
         ]);
       } catch (error) {
@@ -1063,7 +1116,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
             attempts + 1,
             JSON.stringify(row),
           ),
-        dispatchMirrorStatement(this.db, row, nowIso),
+        ...(this.shouldMirror(userId) ? [dispatchMirrorStatement(this.db, row, nowIso)] : []),
         clearGuard(this.db, guard),
       ]);
     } catch (error) {
@@ -1119,7 +1172,7 @@ export class D1RepositoryAdapter implements VocabularyRepository, ReviewReposito
         this.db
           .prepare('UPDATE daily_dispatches SET status=?,record_json=? WHERE dispatch_id=?')
           .bind(row.status, JSON.stringify(row), row.dispatch_id),
-        dispatchMirrorStatement(this.db, row, now),
+        ...(this.shouldMirror(userId) ? [dispatchMirrorStatement(this.db, row, now)] : []),
         clearGuard(this.db, guard),
       ]);
     } catch (error) {

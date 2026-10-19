@@ -80,16 +80,39 @@ export async function computeTelegramInitDataHash(
 }
 
 /**
+ * Parses the multi-user allowlist (`M9-02`) from `ALLOWED_TELEGRAM_IDS`.
+ * Accepts comma/space/semicolon-separated numeric ids; the owner id is always included so a
+ * misconfigured list can never lock the operator out. Invalid tokens are ignored.
+ */
+export function parseAllowedTelegramIds(params: {
+  raw: string | undefined;
+  ownerTelegramId: string;
+}): number[] {
+  const ids = new Set<number>();
+  const owner = Number(params.ownerTelegramId.trim());
+  if (Number.isInteger(owner) && owner > 0) {
+    ids.add(owner);
+  }
+  for (const token of (params.raw ?? '').split(/[\s,;]+/)) {
+    const candidate = Number(token.trim());
+    if (Number.isInteger(candidate) && candidate > 0) {
+      ids.add(candidate);
+    }
+  }
+  return [...ids];
+}
+
+/**
  * Verifies raw Telegram Mini App `initData` string (`docs/07_TELEGRAM_SETUP.md`, `M2-02`, TC-08).
  * Enforces:
  * 1. Valid HMAC-SHA256 signature
  * 2. Fresh `auth_date` within `maxAgeSeconds` (default 3600s)
- * 3. `user.id` matches `ownerTelegramId` allowlist
+ * 3. `user.id` matches the allowlist (`M9-02`; single-owner list by default)
  */
 export async function verifyTelegramInitData(params: {
   initData: string;
   botToken: string;
-  ownerTelegramId: string;
+  allowedTelegramIds: readonly number[];
   nowEpochSeconds?: number;
   maxAgeSeconds?: number;
 }): Promise<VerifiedTelegramUser> {
@@ -166,11 +189,10 @@ export async function verifyTelegramInitData(params: {
     });
   }
 
-  const expectedOwnerId = Number(params.ownerTelegramId.trim());
-  if (!Number.isInteger(expectedOwnerId) || parsedUser.id !== expectedOwnerId) {
+  if (!params.allowedTelegramIds.includes(parsedUser.id)) {
     throw new AppError({
       code: 'FORBIDDEN',
-      message: 'User is not in owner allowlist',
+      message: 'User is not in the allowlist',
       status: 403,
     });
   }
@@ -211,12 +233,12 @@ export async function issueSessionToken(params: {
 }
 
 /**
- * Verifies a Bearer session token and enforces expiration and owner identity.
+ * Verifies a Bearer session token and enforces expiration and allowlist membership (`M9-02`).
  */
 export async function verifySessionToken(params: {
   authorizationHeader: string | null;
   signingSecret: string;
-  ownerTelegramId: string;
+  allowedTelegramIds: readonly number[];
   nowEpochSeconds?: number;
 }): Promise<{ userId: string }> {
   const header = params.authorizationHeader?.trim() ?? '';
@@ -270,11 +292,13 @@ export async function verifySessionToken(params: {
     });
   }
 
-  const expectedOwnerUserId = `telegram:${params.ownerTelegramId.trim()}`;
-  if (claims.sub !== expectedOwnerUserId) {
+  const subjectMatchesAllowlist = params.allowedTelegramIds.some(
+    (id) => claims.sub === `telegram:${id}`,
+  );
+  if (!subjectMatchesAllowlist) {
     throw new AppError({
       code: 'FORBIDDEN',
-      message: 'Session subject is not authorized owner',
+      message: 'Session subject is not in the allowlist',
       status: 403,
     });
   }

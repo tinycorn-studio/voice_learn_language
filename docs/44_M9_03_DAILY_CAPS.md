@@ -37,6 +37,22 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 - Không thêm bảng audit/cleanup ở MVP: bảng chỉ tăng ~3 row/user/ngày, nhỏ so với domain; có thể prune sau.
 - Không log nội dung cá nhân: log chỉ có `kind/used/cap` với `request_id`.
 
+## Thông báo người dùng thấy khi hết hạn mức
+
+Message do server sinh (`quota.ts:37`), frontend hiển thị **nguyên văn** (không map lại):
+
+> `Bạn đã dùng hết {cap} {tên} hôm nay. Giới hạn sẽ đặt lại vào 0:00 (giờ Việt Nam).`
+
+| Ngữ cảnh                                | Tên trong message            | Nơi hiển thị                                                                                                                                   |
+| --------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/v1/chat-turn` (chế độ nhẹ)   | "lượt trò chuyện chế độ nhẹ" | Hộp lỗi inline dưới hội thoại (`role="alert"`, `data-testid="lite-error"`) + nút "Gửi lại" — `LiteConversationPanel.tsx:45-48,133-137,230-243` |
+| `POST /api/v1/translate`                | "lượt dịch câu"              | Dòng lỗi ngay dưới câu thoại trong transcript + nút "Thử lại" — `VoiceSessionPanel.tsx:447-456,133-137`                                        |
+| `POST /api/v1/live-token` lúc bấm Start | "phiên luyện nói"            | Banner lỗi trên panel (`mic-error-banner`) — `voice-session.ts:61-69`, `VoiceSessionPanel.tsx:407-410,573-577`                                 |
+
+- Envelope lỗi được parse tại `learning-api-client.ts:154-182` (`ApiClientError` giữ `code`/`retryable`/`status`); fallback câu chung chỉ dùng khi lỗi mạng/envelope hỏng ("Không thể kết nối máy chủ..." / "Không thể gửi lượt này...").
+- Phân biệt với 429 theo phút (retryable): "Bạn đã dịch nhiều câu trong thời gian ngắn..." (dịch) và "Too many live token requests..." (live) — hai loại này hiển thị cùng chỗ nhưng hết 1 phút là dùng lại được.
+- Hành vi đã biết chưa đẹp: (1) cap ngày là 429 không retryable nhưng UI vẫn hiện nút "Gửi lại"/"Thử lại"/bấm Start lại → bấm lại sẽ nhận đúng message cũ, chưa ẩn nút theo `retryable`; (2) nếu cap live cạn _giữa phiên_ lúc tự reconnect xin token mới, `gemini-live-client.ts:314-349` nuốt message token và chỉ hiện câu chung "Không thể kết nối lại Gemini. Hãy nhấn Start để thử lại." sau 4 lần retry — muốn thấy message cap phải bấm Start lại.
+
 ## Kết quả local
 
 - `tests/d1-usage-daily.test.ts` (mới): 3/3 PASS — tăng/chặn/reset theo ngày; song song không overshoot; cap 0 không ghi.
@@ -48,6 +64,7 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 - Chưa đo quota free tier thật của flash-lite (RPD/RPM) để chốt cap production — sẽ tinh chỉnh bằng env không cần deploy code.
 - Chưa có cảnh báo chủ động khi user chạm 80% cap (chỉ hiện tại mức chặn); cân nhắc M9-04 khi có telemetry.
 - Rate-limit in-memory vẫn per-isolate — cap D1 là lớp bảo vệ thật.
+- UX cap (xem mục "Thông báo người dùng thấy khi hết hạn mức"): nút retry vẫn hiện cho 429 không retryable; message cap live cạn giữa phiên bị nuốt trong luồng reconnect — chưa sửa, chờ đánh giá khi có QA thật.
 
 ## Deploy
 

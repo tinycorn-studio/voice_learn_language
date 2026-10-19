@@ -1,6 +1,6 @@
 # PROGRESS — SINGLE SOURCE OF TRUTH
 
-> Updated: 2026-10-19 11:15 +07:00
+> Updated: 2026-10-19 11:35 +07:00
 > Phase: M7 D1 PRIMARY PRODUCTION — phục hồi/runtime M7-11 đã đạt; dữ liệu cũ verify, GAS v7, Worker 0f087b37/Pages M7-11; Worker đã tự ACK 3 mirror jobs, pending=0. M8-06 Mini App, M8-07 telemetry/app modules, M8-08 code-switching và M8-09 Active Dialogue hiện ở production; M8-08+M8-09 đã commit `a759e6e` và push lên `origin/feat/M8-09-active-dialogue`. M8-10 (ẩn log chẩn đoán mặc định) đã deploy Pages Production `M8-10-20261019` (deployment `c1430518-7647-4964-b8e5-73776896d50f`) và được người dùng xác nhận thành công. M8-09/M8-08 cần Gemini Live/Telegram QA. M8-07 chờ đủ traffic/QA để ghi p50/p95. Toàn milestone M7 chưa DONE vì gates vận hành M7-10. M9 (mở rộng 1k user/day chi phí 0đ) đã mở; M9-01 đã deploy (chờ QA thiết bị); M9-02 + M9-03 đã deploy (Worker `2a0bf5a7` + migration D1 0004) — owner mặc định miễn cap, id khác opt-in `UNCAPPED_TELEGRAM_IDS`; multi-user chờ set `ALLOWED_TELEGRAM_IDS` để mở user thật.
 > Đang thực hiện: Chờ QA Telegram thật cho M9-01 (Web Speech/toggle lite) và caps trong ngày (owner miễn — kiểm tra không phát sinh row `usage_daily`). Kế tiếp: M9-04 đo rows written.
 > Next action: (1) người dùng QA Telegram: chế độ nhẹ (mic/TTS/fallback/retry), owner dùng thoải mái không bị 429 cap; (2) khi cần mở user: `npx wrangler secret put ALLOWED_TELEGRAM_IDS` + (tùy chọn) `UNCAPPED_TELEGRAM_IDS` — secret put tự publish, không cần deploy code; (3) M9-04 đo rows written thực tế.
@@ -108,6 +108,8 @@ Hướng đã chốt với người dùng: giữ Gemini Live cho số ít phiên
 - [ ] M9-04 — P2, PENDING: Đo rows written thực tế; nếu vượt 100k rows/ngày thì spike free Postgres (Neon/Supabase) qua repository adapter; nếu không thì đóng task bằng số đo.
 
 ## Latest accomplished
+
+- **2026-10-19 11:35 Docs: hành vi hết hạn mức + rule deploy-doc:** docs/44 thêm mục "Thông báo người dùng thấy khi hết hạn mức" (message `quota.ts` nguyên văn, bảng ngữ cảnh → nơi hiển thị kèm file/dòng: `LiteConversationPanel.tsx`, `VoiceSessionPanel.tsx`, banner live; phân biệt 429 phút vs 429 cap ngày; 2 gap UX: nút retry cho lỗi không retryable, cap live cạn giữa phiên bị nuốt ở `gemini-live-client.ts:314-349`). docs/08 trỏ sang docs/44. AGENTS.md §8 thêm rule tường minh: mỗi lần deploy cập nhật doc task (version/rollback/migration/smoke/secret/hành vi người dùng thấy) trong cùng commit + cập nhật dần theo từng đợt bổ sung. Docs-only, không đổi code/không deploy lại.
 
 - **2026-10-19 11:15 M9-03 uncapped DEPLOYED:** Người dùng xác nhận deploy. Worker `npx wrangler deploy` → version `2a0bf5a7-f590-4c1d-b370-6ada348f77df` (rollback `8bc40470`), bindings nguyên vẹn. Smoke: `/health` 200 healthy; chat-turn không auth 401. Owner từ giờ miễn cap mặc định (không ghi row `usage_daily`); thêm id khác qua `npx wrangler secret put UNCAPPED_TELEGRAM_IDS` không cần deploy code. Commit `06121c0` push `origin/feat/M9-02-multi-user`.
 

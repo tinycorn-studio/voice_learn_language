@@ -5,13 +5,13 @@
 1. Vào Telegram tìm `@BotFather` (tài khoản đã xác minh), `/newbot`, nhập tên/username, nhận bot token.
 2. Giữ token trong secret manager, không commit/đưa vào chat. Token cho phép điều khiển bot.
 3. Chat `/start` với bot để cho phép bot nhắn tin; lấy `chat.id` và `from.id` từ webhook test tạm thời/log **đã che token**, hoặc một script local riêng an toàn. Cấu hình `OWNER_TELEGRAM_ID` ở Worker. Không tin user ID do client gửi.
-4. **M9-02 multi-user:** thêm người dùng qua secret `ALLOWED_TELEGRAM_IDS` (danh sách số id cách nhau dấu phẩy/khoảng trắng/chấm phẩy, ví dụ `111222333,444555666`). Owner trong `OWNER_TELEGRAM_ID` luôn được gộp vào danh sách. Auth Mini App, session token, webhook Bot đều check membership; dữ liệu cô lập theo `telegram:<id>`; mirror Google Sheet chỉ chạy cho owner. Đổi danh sách cần update secret và redeploy Worker:
+4. **M9-02 multi-user:** thêm người dùng qua secret `ALLOWED_TELEGRAM_IDS` (danh sách số id cách nhau dấu phẩy/khoảng trắng/chấm phẩy, ví dụ `111222333,444555666`). Owner trong `OWNER_TELEGRAM_ID` luôn được gộp vào danh sách. Auth Mini App, session token, webhook Bot đều check membership; dữ liệu cô lập theo `telegram:<id>`; mirror Google Sheet chỉ chạy cho owner. `wrangler secret put` tự publish version mới (không cần deploy lại code):
 
 ```powershell
 npx wrangler secret put ALLOWED_TELEGRAM_IDS
 ```
 
-User mới cần `/start` với bot trước để nhận được digest (bot không nhắn được cho người chưa mở chat). Chỉ mở thêm user khi các cap ngày M9-03 đã hoạt động. 5. Thiết kế commands: `/start`, `/review`, `/words`, `/stats`, `/pause`, `/help`; bot có thể dùng inline keyboard để đánh giá Again/Hard/Good/Easy.
+User mới cần `/start` với bot trước để nhận được digest (bot không nhắn được cho người chưa mở chat). Chỉ mở thêm user khi các cap ngày M9-03 đã hoạt động. 5. **M9-03 miễn hạn mức:** owner mặc định được miễn cap ngày; muốn miễn thêm id khác thì set secret `UNCAPPED_TELEGRAM_IDS` (cùng định dạng danh sách). Id miễn không ghi counter `usage_daily` và không bao giờ bị 429 vì cap. 6. Thiết kế commands: `/start`, `/review`, `/words`, `/stats`, `/pause`, `/help`; bot có thể dùng inline keyboard để đánh giá Again/Hard/Good/Easy.
 
 ## 2. Set webhook khi Worker HTTPS đã sẵn sàng
 

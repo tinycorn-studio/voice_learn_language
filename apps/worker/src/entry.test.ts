@@ -930,7 +930,12 @@ describe('M9-01 authenticated lite chat-turn route', () => {
   });
 
   it('M9-03: enforces the per-user daily cap before calling Gemini and returns a clear 429', async () => {
-    const token = await chatSession();
+    const memberToken = await issueSessionToken({
+      userId: 'telegram:333222111',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: nowSeconds,
+    });
+    const token = memberToken.token;
     const capSpy = vi.fn(
       async (input: { userId: string; kind: string; cap: number; localDate: string }) => {
         const denied = capSpy.mock.calls.length > 1;
@@ -956,7 +961,11 @@ describe('M9-01 authenticated lite chat-turn route', () => {
             { status: 200 },
           ),
       );
-    const capEnv: WorkerEnv = { ...TEST_ENV, DAILY_CHAT_TURNS_CAP: '31' };
+    const capEnv: WorkerEnv = {
+      ...TEST_ENV,
+      ALLOWED_TELEGRAM_IDS: '333222111',
+      DAILY_CHAT_TURNS_CAP: '31',
+    };
     const store = new SecurityStateStore();
 
     const allowedRun = await handleWorkerRequest(
@@ -976,7 +985,7 @@ describe('M9-01 authenticated lite chat-turn route', () => {
     expect(fakeFetch).toHaveBeenCalledTimes(1);
     expect(capSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: 'telegram:777888999',
+        userId: 'telegram:333222111',
         kind: 'chat_turn',
         cap: 31,
         localDate: '2026-10-19',
@@ -1001,5 +1010,79 @@ describe('M9-01 authenticated lite chat-turn route', () => {
     expect(deniedBody.error.message).toContain('31');
     expect(deniedBody.error.message).toContain('giờ Việt Nam');
     expect(fakeFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('M9-03: uncapped ids (owner by default, opt-in list) bypass daily caps without counter writes', async () => {
+    const ownerToken = await chatSession();
+    const memberSession = await issueSessionToken({
+      userId: 'telegram:333222111',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: nowSeconds,
+    });
+    const capSpy = vi.fn(
+      async (input: { userId: string; kind: string; cap: number; localDate: string }) => ({
+        allowed: false,
+        used: input.cap,
+        cap: input.cap,
+      }),
+    );
+    const mockReviewRepo = {
+      listDue: vi.fn(),
+      preview: vi.fn(),
+      recordReview: vi.fn(),
+      getStats: vi.fn(),
+      claimDailyDigest: vi.fn(),
+      finishDailyDigest: vi.fn(),
+      updateUserPreferences: vi.fn(),
+      checkAndConsumeUsage: capSpy,
+    };
+    const fakeFetch = vi
+      .fn<typeof fetch>()
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Great job!' }] } }] }),
+            { status: 200 },
+          ),
+      );
+    const bypassEnv: WorkerEnv = {
+      ...TEST_ENV,
+      ALLOWED_TELEGRAM_IDS: '333222111',
+      UNCAPPED_TELEGRAM_IDS: '333222111',
+      DAILY_CHAT_TURNS_CAP: '1',
+    };
+    const store = new SecurityStateStore();
+
+    const ownerRun = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${ownerToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'Owner turn beyond any cap.' }),
+      }),
+      bypassEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs, reviewRepo: mockReviewRepo },
+      store,
+    );
+    expect(ownerRun.status).toBe(200);
+
+    const memberRun = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${memberSession.token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'Uncapped member turn beyond any cap.' }),
+      }),
+      bypassEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs, reviewRepo: mockReviewRepo },
+      store,
+    );
+    expect(memberRun.status).toBe(200);
+    expect(capSpy).not.toHaveBeenCalled();
+    expect(fakeFetch).toHaveBeenCalledTimes(2);
   });
 });

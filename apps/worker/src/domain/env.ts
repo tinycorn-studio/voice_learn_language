@@ -10,6 +10,7 @@ export interface WorkerEnv {
   TELEGRAM_WEBHOOK_SECRET: string;
   OWNER_TELEGRAM_ID: string;
   ALLOWED_TELEGRAM_IDS?: string;
+  UNCAPPED_TELEGRAM_IDS?: string;
   SESSION_SIGNING_SECRET?: string;
   GAS_SHARED_SECRET: string;
   GAS_EXEC_URL: string;

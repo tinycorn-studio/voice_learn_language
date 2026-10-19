@@ -1,8 +1,8 @@
 # M9-03 — Daily usage caps per user (free-tier guardrail)
 
-**Trạng thái:** DEPLOYED — migration `0004_usage_daily.sql` đã apply production D1; caps chạy trên Worker `8bc40470`
+**Trạng thái:** DEPLOYED (Worker `8bc40470`, migration 0004 đã apply) — bổ sung miễn hạn mức `UNCAPPED_TELEGRAM_IDS` (owner mặc định miễn) đang chờ deploy lại
 **Task ID:** M9-03
-**Branch:** `feat/M9-02-multi-user` (làm liền với M9-02 vì cùng mở multi-user; commit `c99e01e`)
+**Branch:** `feat/M9-02-multi-user` (làm liền với M9-02 vì cùng mở multi-user; commit `c99e01e`, bổ sung sau)
 **Ngày mở:** 2026-10-19 (UTC+7)
 
 ## Mục tiêu
@@ -15,17 +15,19 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 2. `domain/quota.ts` (mới, Single Source of Truth cho caps):
    - `resolveDailyCaps(env)`: default `chat_turn=30`, `translation=30`, `live_session=5`/user/ngày; override qua env `DAILY_CHAT_TURNS_CAP`, `DAILY_TRANSLATIONS_CAP`, `DAILY_LIVE_SESSIONS_CAP`; giá trị không hợp lệ → default; `0` = tắt tính năng trong ngày.
    - `dailyCapMessage(kind, cap)`: thông báo tiếng Việt kèm mốc reset.
-3. `repositories.ts`: `DailyUsageKind`, `DailyUsageOutcome`; method optional `checkAndConsumeUsage` trên `ReviewRepository` (adapter không có counter — GAS mode/test doubles — tự bỏ qua enforcement).
-4. `d1-repository.ts`: `checkAndConsumeUsage` nguyên tử bằng 1 câu UPSERT có điều kiện:
+3. Miễn hạn mức theo id: `UNCAPPED_TELEGRAM_IDS` (secret, danh sách id phân tách dấu phẩy/khoảng trắng/chấm phẩy) — owner (`OWNER_TELEGRAM_ID`) **luôn** nằm trong danh sách mặc định để không tự khóa mình. Id miễn hạn mức bỏ qua cả check lẫn ghi counter (không phát sinh row `usage_daily`), áp cho cả 3 kind.
+4. `repositories.ts`: `DailyUsageKind`, `DailyUsageOutcome`; method optional `checkAndConsumeUsage` trên `ReviewRepository` (adapter không có counter — GAS mode/test doubles — tự bỏ qua enforcement).
+5. `d1-repository.ts`: `checkAndConsumeUsage` nguyên tử bằng 1 câu UPSERT có điều kiện:
    `INSERT ... ON CONFLICT(user_id,local_date,kind) DO UPDATE SET used=used+1 ... WHERE usage_daily.used < ? RETURNING used`
    — nhiều isolate chạy song song không thể vượt cap; bị chặn thì đọc `used` hiện tại để trả thông tin.
-5. `entry.ts`: helper `enforceDailyCap` chạy sau rate-limit in-memory, trước khi gọi Gemini tại 3 route: `POST /api/v1/live-token` (live_session), `POST /api/v1/translate` (translation), `POST /api/v1/chat-turn` (chat_turn). Vượt cap → `AppError RATE_LIMITED` 429 (không retryable), log `daily_cap_exhausted` chỉ gồm kind/used/cap.
+6. `entry.ts`: helper `enforceDailyCap` chạy sau rate-limit in-memory, trước khi gọi Gemini tại 3 route: `POST /api/v1/live-token` (live_session), `POST /api/v1/translate` (translation), `POST /api/v1/chat-turn` (chat_turn). Vượt cap → `AppError RATE_LIMITED` 429 (không retryable), log `daily_cap_exhausted` chỉ gồm kind/used/cap.
 
 ## Tiêu chí nghiệm thu
 
 - Counter tăng đúng theo `(user, local_date, kind)`; chặn khi chạm cap; sang ngày mới tự reset; user/kind khác độc lập; 8 request song song với cap 3 → đúng 3 allowed.
 - `cap = 0` → chặn và không ghi counter.
 - Route chat-turn khi bị cap: 429, message chứa số cap + "giờ Việt Nam", KHÔNG gọi Gemini (fetch 0 lần).
+- Id miễn hạn mức (owner mặc định qua `OWNER_TELEGRAM_ID`, hoặc trong `UNCAPPED_TELEGRAM_IDS`): không gọi `checkAndConsumeUsage`, không ghi counter, luôn qua cap dù `DAILY_*_CAP` thấp.
 - Single-user regression (không có `checkAndConsumeUsage`) giữ nguyên hành vi cũ.
 
 ## Ràng buộc và quyết định
@@ -38,8 +40,8 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 ## Kết quả local
 
 - `tests/d1-usage-daily.test.ts` (mới): 3/3 PASS — tăng/chặn/reset theo ngày; song song không overshoot; cap 0 không ghi.
-- `apps/worker/src/entry.test.ts`: test M9-03 mới PASS — allowed lần 1 gọi Gemini 1 lần với `localDate` đúng (+07), lần 2 bị 429 `RATE_LIMITED` kèm message, fetch không tăng.
-- Full suite: 267/267 tests, 44 files PASS.
+- `apps/worker/src/entry.test.ts`: 2 test M9-03 PASS — (1) user thường (không miễn): allowed lần 1 gọi Gemini 1 lần với `localDate` đúng (+07), lần 2 bị 429 `RATE_LIMITED` kèm message, fetch không tăng; (2) owner + id trong `UNCAPPED_TELEGRAM_IDS` bypass: checker (luôn deny) không được gọi, 200 và Gemini được gọi.
+- Full suite: 268/268 tests, 44 files PASS (sau thay đổi miễn hạn mức).
 
 ## Chưa làm / rủi ro
 
@@ -52,4 +54,5 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 - Local gates: full suite 267/267 tests/44 files (serial), typecheck/lint/build/secret scan/Prettier/diff check PASS; commit `c99e01e` push `origin/feat/M9-02-multi-user`.
 - Migration: `npx wrangler d1 migrations apply voice-learn-prod-db --remote` → `0004_usage_daily.sql ✅` (0001–0003 đã applied từ trước; lần gọi đầu bị lỗi API 7403 transient, retry thành công). Verify `sqlite_master` thấy bảng `usage_daily`.
 - Worker: `npx wrangler deploy` → version `8bc40470-aa6d-40fb-852a-912b72cbe3a4` (rollback `a56d81fb-7a9c-4009-ab40-5dce9dc9e165`). Smoke: `/health` 200; chat-turn không auth 401.
-- Caps mặc định đang áp cho mọi user trong allowlist (hiện chỉ owner): 5 phiên live, 30 dịch, 30 chat-turn/ngày; muốn đổi: `npx wrangler secret put DAILY_LIVE_SESSIONS_CAP` (chỉ cần khi khác default).
+- Caps mặc định đang áp cho mọi user trong allowlist: 5 phiên live, 30 dịch, 30 chat-turn/ngày; muốn đổi: `npx wrangler secret put DAILY_LIVE_SESSIONS_CAP` (chỉ cần khi khác default).
+- Bổ sung miễn hạn mức (`UNCAPPED_TELEGRAM_IDS`, owner mặc định miễn) sau deploy `8bc40470` — cần deploy lại Worker để có hiệu lực; không có secret nào bắt buộc phải set trước (owner miễn sẵn). Chỉ cần `npx wrangler secret put UNCAPPED_TELEGRAM_IDS` khi muốn miễn cho id khác ngoài owner.

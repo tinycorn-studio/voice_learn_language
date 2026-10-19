@@ -52,21 +52,43 @@ function allowedIds(env: WorkerEnv): number[] {
   });
 }
 
+/**
+ * Resolves ids exempt from daily caps (`M9-03`; owner always included so the operator can never
+ * lock themselves out, additional ids opt-in via `UNCAPPED_TELEGRAM_IDS`).
+ */
+function uncappedIds(env: WorkerEnv): number[] {
+  return parseAllowedTelegramIds({
+    raw: env.UNCAPPED_TELEGRAM_IDS,
+    ownerTelegramId: env.OWNER_TELEGRAM_ID,
+  });
+}
+
+function numericTelegramId(userId: string): number | null {
+  const match = /^telegram:(\d+)$/.exec(userId);
+  return match ? Number(match[1]) : null;
+}
+
 /** Bounds per-tick digest fan-out so Free-tier subrequest budgets stay safe (`M9-02`). */
 const DIGEST_USERS_PER_TICK = 5;
 
 /**
  * Enforces per-user daily free-tier caps when the active backend keeps durable counters (`M9-03`).
- * Adapters without `checkAndConsumeUsage` (GAS mode, lightweight test doubles) skip enforcement.
+ * Ids in `uncappedTelegramIds` (owner always, others opt-in) bypass enforcement without writing a
+ * counter. Adapters without `checkAndConsumeUsage` (GAS mode, lightweight test doubles) skip it too.
  */
 async function enforceDailyCap(params: {
   reviewRepo: ReviewRepository;
   userId: string;
   kind: DailyUsageKind;
   cap: number;
+  uncappedTelegramIds: readonly number[];
   nowMs: number;
   requestId: string;
 }): Promise<DailyUsageOutcome> {
+  const numericId = numericTelegramId(params.userId);
+  if (numericId !== null && params.uncappedTelegramIds.includes(numericId)) {
+    return { allowed: true, used: 0, cap: params.cap };
+  }
   if (typeof params.reviewRepo.checkAndConsumeUsage !== 'function') {
     return { allowed: true, used: 0, cap: params.cap };
   }
@@ -686,6 +708,7 @@ async function handleWorkerRequestInternal(
         userId: session.userId,
         kind: 'live_session',
         cap: resolveDailyCaps(env).live_session,
+        uncappedTelegramIds: uncappedIds(env),
         nowMs,
         requestId,
       });
@@ -736,6 +759,7 @@ async function handleWorkerRequestInternal(
         userId: session.userId,
         kind: 'translation',
         cap: resolveDailyCaps(env).translation,
+        uncappedTelegramIds: uncappedIds(env),
         nowMs,
         requestId,
       });
@@ -776,6 +800,7 @@ async function handleWorkerRequestInternal(
         userId: session.userId,
         kind: 'chat_turn',
         cap: resolveDailyCaps(env).chat_turn,
+        uncappedTelegramIds: uncappedIds(env),
         nowMs,
         requestId,
       });

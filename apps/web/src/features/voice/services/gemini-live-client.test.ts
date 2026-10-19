@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GeminiLiveSessionClient, type VerifiedSaveVocabularyEvent } from './gemini-live-client.js';
+import {
+  GeminiLiveSessionClient,
+  type TutorSessionContext,
+  type VerifiedSaveVocabularyEvent,
+} from './gemini-live-client.js';
 import { TestWebSocket } from './test-websocket.js';
 
 const clients: GeminiLiveSessionClient[] = [];
@@ -8,13 +12,15 @@ afterEach(() => {
   clients.length = 0;
   vi.useRealTimers();
 });
-function setup() {
+function setup(sessionContext?: TutorSessionContext) {
   const sockets: TestWebSocket[] = [];
   const callbacks = {
     onStateChange: vi.fn(),
     onTranscript: vi.fn(),
     onAudioChunk: vi.fn(),
+    onCoachCorrection: vi.fn(),
     onError: vi.fn(),
+    ...(sessionContext ? { sessionContext } : {}),
     onSaveVocabulary: vi
       .fn<(_event: VerifiedSaveVocabularyEvent) => Promise<{ ok: boolean }>>()
       .mockResolvedValue({ ok: true }),
@@ -46,9 +52,9 @@ describe('M5-05 Live protocol, trusted transcript and reconnect', () => {
     ws.onopen?.({});
     client.sendPcmAudioChunk('AAAA');
     expect(ws.sent).toHaveLength(1);
-    expect(JSON.parse(ws.sent[0]!).setup.tools[0].functionDeclarations[0].name).toBe(
-      'save_vocabulary',
-    );
+    const declaration = JSON.parse(ws.sent[0]!).setup.tools[0].functionDeclarations[0];
+    expect(declaration.name).toBe('save_vocabulary');
+    expect(declaration.behavior).toBe('NON_BLOCKING');
     ws.emit({ setupComplete: {} });
     await vi.waitFor(() => expect(callbacks.onStateChange).toHaveBeenLastCalledWith('listening'));
     client.sendPcmAudioChunk('AAAA');
@@ -63,6 +69,7 @@ describe('M5-05 Live protocol, trusted transcript and reconnect', () => {
     expect(callbacks.onSaveVocabulary.mock.calls[0]?.[0].event_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(JSON.parse(ws.sent.at(-1)!).toolResponse.functionResponses[0].response).toEqual({
       saved: true,
+      scheduling: 'SILENT',
     });
   });
   it('accumulates streamed transcript before tool validation and handles PCM playback', async () => {
@@ -105,6 +112,83 @@ describe('M5-05 Live protocol, trusted transcript and reconnect', () => {
       false,
     );
   });
+  it('builds roleplay and due-word context and accepts only grounded non-blocking coaching', async () => {
+    const context: TutorSessionContext = {
+      scenario: 'job_interview',
+      coachingEnabled: true,
+      focusWords: [{ word: 'diligent', meaningVi: 'chăm chỉ' }],
+    };
+    const { client, sockets, callbacks } = setup(context);
+    client.connect({ ephemeralToken: 'synthetic-token' });
+    const ws = sockets[0]!;
+    ws.onopen?.({});
+    const setupMessage = JSON.parse(ws.sent[0]!).setup;
+    expect(setupMessage.systemInstruction.parts[0].text).toContain('job interview');
+    expect(setupMessage.systemInstruction.parts[0].text).toContain('diligent');
+    expect(
+      setupMessage.tools[0].functionDeclarations.map((item: { name: string }) => item.name),
+    ).toEqual(['save_vocabulary', 'coach_correction']);
+
+    client.recordTurnContext({ speaker: 'user', text: 'I go to cinema yesterday.' });
+    ws.emit({
+      toolCall: {
+        functionCalls: [
+          {
+            id: 'coach-1',
+            name: 'coach_correction',
+            args: {
+              source_excerpt: 'I go to cinema yesterday.',
+              learner_phrase: 'I go to cinema yesterday',
+              suggested_sentence: 'I went to the cinema yesterday.',
+              focus_phrase: 'went to the cinema',
+              category: 'grammar',
+            },
+          },
+        ],
+      },
+    });
+    await vi.waitFor(() => expect(callbacks.onCoachCorrection).toHaveBeenCalledOnce());
+    expect(JSON.parse(ws.sent.at(-1)!).toolResponse.functionResponses[0]).toEqual({
+      id: 'coach-1',
+      name: 'coach_correction',
+      response: { accepted: true, scheduling: 'SILENT' },
+    });
+  });
+  it('omits coaching tool and rejects correction outside the latest user turn', async () => {
+    const context: TutorSessionContext = {
+      scenario: 'free_talk',
+      coachingEnabled: false,
+      focusWords: [],
+    };
+    const { client, sockets, callbacks } = setup(context);
+    client.connect({ ephemeralToken: 'synthetic-token' });
+    const ws = sockets[0]!;
+    ws.onopen?.({});
+    expect(JSON.parse(ws.sent[0]!).setup.tools[0].functionDeclarations).toHaveLength(1);
+    client.recordTurnContext({ speaker: 'user', text: 'I feel tired today.' });
+    ws.emit({
+      toolCall: {
+        functionCalls: [
+          {
+            id: 'coach-2',
+            name: 'coach_correction',
+            args: {
+              source_excerpt: 'I feel tired today.',
+              learner_phrase: 'I feel tired today',
+              suggested_sentence: 'I felt tired today.',
+              focus_phrase: 'felt',
+              category: 'grammar',
+            },
+          },
+        ],
+      },
+    });
+    await vi.waitFor(() => expect(ws.sent).toHaveLength(2));
+    expect(callbacks.onCoachCorrection).not.toHaveBeenCalled();
+    expect(JSON.parse(ws.sent.at(-1)!).toolResponse.functionResponses[0].response.accepted).toBe(
+      false,
+    );
+  });
   it.each(['goAway', 'unexpected-close'])(
     'R07 resumes after %s and cancels scheduled reconnect on Stop',
     async (cause) => {
@@ -130,13 +214,11 @@ describe('M5-05 Live protocol, trusted transcript and reconnect', () => {
   it('refreshes a spent token when no handle exists and stops after bounded reconnect failures', async () => {
     vi.useFakeTimers();
     const { client, sockets, callbacks } = setup();
-    const refresh = vi
-      .fn()
-      .mockResolvedValue({
-        token: 'new-token',
-        model: 'models/gemini-3.8-live',
-        expires_at: new Date(Date.now() + 60000).toISOString(),
-      });
+    const refresh = vi.fn().mockResolvedValue({
+      token: 'new-token',
+      model: 'models/gemini-3.8-live',
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+    });
     client.connect({ ephemeralToken: 'old-token', getFreshToken: refresh });
     sockets[0]!.close(1006);
     await vi.advanceTimersByTimeAsync(1000);

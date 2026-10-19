@@ -1,11 +1,15 @@
 import {
   AudioSessionController,
   downsampleFloat32ToInt16Pcm,
+  estimateSpeechFrameDurationMs,
   type MediaDevicesLike,
 } from './audio-session-controller.js';
 
 export interface VoiceAudioSession {
-  start(onPcm: (base64Pcm: string) => void): Promise<void>;
+  start(
+    onPcm: (base64Pcm: string) => void,
+    onSpeechActivity?: (durationMs: number) => void,
+  ): Promise<void>;
   play(base64Pcm: string, mimeType: string): void;
   interrupt(): void;
   stop(): void;
@@ -25,7 +29,10 @@ export class BrowserAudioSession implements VoiceAudioSession {
     this.controller = new AudioSessionController(mediaDevices);
   }
 
-  public async start(onPcm: (base64Pcm: string) => void): Promise<void> {
+  public async start(
+    onPcm: (base64Pcm: string) => void,
+    onSpeechActivity?: (durationMs: number) => void,
+  ): Promise<void> {
     this.stop();
     const generation = this.generation;
     const Context =
@@ -51,6 +58,8 @@ export class BrowserAudioSession implements VoiceAudioSession {
       this.worklet = new AudioWorkletNode(context, 'pcm-capture');
       this.worklet.port.onmessage = (event: MessageEvent<unknown>) => {
         if (generation !== this.generation || !(event.data instanceof Float32Array)) return;
+        const speechDuration = estimateSpeechFrameDurationMs(event.data, context.sampleRate);
+        if (speechDuration > 0) onSpeechActivity?.(speechDuration);
         const pcm = downsampleFloat32ToInt16Pcm(event.data, context.sampleRate);
         const bytes = new Uint8Array(pcm.length * 2);
         const view = new DataView(bytes.buffer);

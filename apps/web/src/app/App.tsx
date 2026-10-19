@@ -1,12 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ReviewRating,
   ReviewSubmitRequest,
@@ -161,6 +153,11 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     refresh,
   } = useLearningData({ api, authenticated, activeTab, recordStartup });
   const refreshVocabulary = useCallback(() => refresh('vocabulary'), [refresh]);
+  const loadDueCardsForVoice = useCallback(async () => {
+    const cards = await api.listDueReviews();
+    setDueCards(cards);
+    return cards;
+  }, [api, setDueCards]);
   const {
     entries,
     queueCaptureError,
@@ -428,6 +425,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         <VoiceSessionPanel
           sessionFactory={sessionFactory}
           translateText={translateText}
+          loadDueCards={loadDueCardsForVoice}
           enabled={authenticated}
           onVoiceStateChange={setVoiceState}
           onToast={showToast}

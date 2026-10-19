@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserAudioSession } from './browser-audio-session.js';
+import { estimateSpeechFrameDurationMs } from './audio-session-controller.js';
 
 function audioHarness() {
   const track = { kind: 'audio', readyState: 'live', stop: vi.fn() };
@@ -62,11 +63,13 @@ describe('BrowserAudioSession PCM graph', () => {
   it('captures 48kHz as 16kHz little-endian PCM, plays declared rate and releases resources', async () => {
     const h = audioHarness();
     const capture = vi.fn();
-    await h.session.start(capture);
+    const speechActivity = vi.fn();
+    await h.session.start(capture, speechActivity);
     h.worklet.port.onmessage?.({ data: new Float32Array([1, 1, 1, -1, -1, -1]) });
     expect(
       [...atob(capture.mock.calls[0]![0] as string)].map((char) => char.charCodeAt(0)),
     ).toEqual([255, 127, 0, 128]);
+    expect(speechActivity).toHaveBeenCalledWith(0.125);
     h.session.play(btoa(String.fromCharCode(255, 127, 0, 128)), 'audio/pcm;rate=24000');
     expect(h.context.createBuffer).toHaveBeenCalledWith(1, 2, 24000);
     expect(h.samples[0]?.[1]).toBe(-1);
@@ -78,6 +81,13 @@ describe('BrowserAudioSession PCM graph', () => {
     expect(h.source.disconnect).toHaveBeenCalledOnce();
     expect(h.worklet.port.onmessage).toBeNull();
     expect(h.context.close).toHaveBeenCalledOnce();
+  });
+
+  it('estimates active speech frames locally from RMS and ignores silence', () => {
+    expect(estimateSpeechFrameDurationMs(new Float32Array(480).fill(0.1), 48000)).toBe(10);
+    expect(estimateSpeechFrameDurationMs(new Float32Array(480).fill(0.005), 48000)).toBe(0);
+    expect(estimateSpeechFrameDurationMs(new Float32Array(), 48000)).toBe(0);
+    expect(estimateSpeechFrameDurationMs(new Float32Array(480).fill(0.5), 0)).toBe(0);
   });
   it('closes the audio context and cancels late microphone permission after resume failure', async () => {
     const h = audioHarness();

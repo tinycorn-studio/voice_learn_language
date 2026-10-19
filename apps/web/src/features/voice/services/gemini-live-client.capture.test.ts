@@ -80,8 +80,9 @@ describe('M5-12 vocabulary capture recovery', () => {
       expect.arrayContaining(['inquiry_detected', 'persistence_started', 'persistence_saved']),
     );
     expect(
-      callbacks.onCaptureDiagnostic.mock.calls.find(([entry]) => entry.stage === 'persistence_saved')?.[0]
-        .persistence_duration_ms,
+      callbacks.onCaptureDiagnostic.mock.calls.find(
+        ([entry]) => entry.stage === 'persistence_saved',
+      )?.[0].persistence_duration_ms,
     ).toEqual(expect.any(Number));
     expect(JSON.stringify(callbacks.onCaptureDiagnostic.mock.calls)).not.toContain('overwhelmed');
   });
@@ -102,7 +103,7 @@ describe('M5-12 vocabulary capture recovery', () => {
     await vi.advanceTimersByTimeAsync(20000);
     expect(ws.sent.filter((frame) => frame.includes('clientContent'))).toHaveLength(1);
   });
-  it('keeps audio flowing while persistence waits for a Sheets acknowledgement', async () => {
+  it('keeps audio flowing while persistence waits for backend acknowledgement', async () => {
     const { ws, callbacks } = setup();
     let acknowledge!: (result: { ok: boolean }) => void;
     callbacks.onSaveVocabulary.mockImplementation(
@@ -114,6 +115,10 @@ describe('M5-12 vocabulary capture recovery', () => {
     ws.emit(transcript());
     ws.emit(tool());
     await vi.waitFor(() => expect(callbacks.onSaveVocabulary).toHaveBeenCalledOnce());
+    expect(callbacks.onVocabularyCaptureStatus).toHaveBeenLastCalledWith({
+      word: 'overwhelmed',
+      status: 'pending',
+    });
     ws.emit({
       serverContent: {
         modelTurn: { parts: [{ inlineData: { data: 'AAAA', mimeType: 'audio/pcm;rate=24000' } }] },
@@ -123,9 +128,23 @@ describe('M5-12 vocabulary capture recovery', () => {
       await vi.waitFor(() => expect(callbacks.onAudioChunk).toHaveBeenCalledOnce(), {
         timeout: 100,
       });
+      expect(ws.sent.filter((frame) => frame.includes('functionResponses'))).toHaveLength(0);
+      expect(callbacks.onVocabularyCaptureStatus).toHaveBeenLastCalledWith({
+        word: 'overwhelmed',
+        status: 'pending',
+      });
     } finally {
       acknowledge({ ok: true });
     }
+    await vi.waitFor(() =>
+      expect(ws.sent.filter((frame) => frame.includes('functionResponses'))).toHaveLength(1),
+    );
+    const response = JSON.parse(ws.sent.at(-1)!).toolResponse.functionResponses[0].response;
+    expect(response).toEqual({ saved: true, scheduling: 'SILENT' });
+    expect(callbacks.onVocabularyCaptureStatus).toHaveBeenLastCalledWith({
+      word: 'overwhelmed',
+      status: 'saved',
+    });
   });
   it('does not recover ordinary conversation and cancels recovery on Stop', async () => {
     vi.useFakeTimers();
@@ -198,5 +217,47 @@ describe('M5-12 vocabulary capture recovery', () => {
     acknowledge({ ok: true });
     await vi.advanceTimersByTimeAsync(1);
     expect(ws.sent.filter((frame) => frame.includes('"saved":true'))).toHaveLength(3);
+  });
+  it('automatically captures vocabulary when learner code-switches with a Vietnamese word in English', async () => {
+    vi.useFakeTimers();
+    const { ws, callbacks } = setup();
+    const codeSwitchUtterance = 'I want to buy a ... cái kéo';
+    ws.emit(transcript(codeSwitchUtterance));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(callbacks.onVocabularyCaptureStatus).toHaveBeenCalledWith({
+      word: 'cái kéo',
+      status: 'pending',
+    });
+    ws.emit({
+      toolCall: {
+        functionCalls: [
+          {
+            id: 'cs-tool-1',
+            name: 'save_vocabulary',
+            args: {
+              word: 'scissors',
+              lemma: 'scissors',
+              part_of_speech: 'noun',
+              meaning_vi: 'cái kéo',
+              example: 'I need scissors to cut the paper.',
+              source_excerpt: codeSwitchUtterance,
+            },
+          },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(callbacks.onSaveVocabulary).toHaveBeenCalledTimes(1);
+    expect(callbacks.onSaveVocabulary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        word: 'scissors',
+        meaning_vi: 'cái kéo',
+        source_excerpt: codeSwitchUtterance,
+      }),
+    );
+    expect(callbacks.onVocabularyCaptureStatus).toHaveBeenLastCalledWith({
+      word: 'cái kéo',
+      status: 'saved',
+    });
   });
 });

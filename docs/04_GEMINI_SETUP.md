@@ -50,6 +50,8 @@ M5-10 (13/10/2026): Đối chiếu [REST AuthToken reference](https://ai.google.
 
 M5-12: prompt bắt buộc gọi tool khi hỏi nghĩa, kể cả cách nói `X, that mean?`. Client giữ snapshot câu hỏi, chờ tool/ASR tới khác thứ tự và dùng một event ID cho các tool của cùng câu hỏi. Sau turnComplete, nếu model bỏ tool thì gửi một yêu cầu recovery trên cùng Live session, có giới hạn một lần/câu hỏi và 10 lần/Start; quá hạn báo chưa xác nhận lưu. Không gọi thêm model text hoặc AI cho từng audio chunk. Chi tiết budget, cleanup và kiểm thử: [M5-12 release](26_VOCABULARY_CAPTURE_RELEASE.md).
 
+M8-08: `save_vocabulary` được khai báo `behavior: NON_BLOCKING`; phản hồi tool đặt `scheduling: SILENT` bên trong `response`, để model không dừng hội thoại khi D1 đang ghi. UI chỉ báo `saved` sau khi backend xác nhận commit. Với code-switching, client tự động lưu đúng một target có dấu tiếng Việt với độ tin cậy đủ cao; tên riêng/từ ngoại ngữ mơ hồ bị bỏ qua, còn nhiều candidate cần làm rõ. Đây là heuristic có chủ đích bảo thủ, không phải bộ nhận diện ngôn ngữ hay từ điển dịch Anh–Việt; Gemini Live thật vẫn cần kiểm tra trên model `gemini-3.8-live`.
+
 `save_vocabulary({word, meaning_vi?, part_of_speech?, sense_hint?, source_excerpt})` chỉ được gọi khi user có **ý định hỏi nghĩa**, hoặc hỏi cách nói từ/cụm từ bằng tiếng Anh. Cần sanitize/validate server side; model có thể nhầm.
 
 - “What does overwhelmed mean?” → save.
@@ -63,8 +65,9 @@ M5-12: prompt bắt buộc gọi tool khi hỏi nghĩa, kể cả cách nói `X,
 ```text
 You are a kind, concise English conversation coach for a Vietnamese learner.
 Keep natural conversations in English; explain vocabulary in English + short Vietnamese meaning only when asked.
-You MUST call save_vocabulary whenever the learner asks meaning, translation or how to say a term in English, including learner phrasing like "overwhelmed, that mean?". Never call it for ordinary conversation.
+Call save_vocabulary whenever the learner asks meaning, translation or how to say a term in English, including learner phrasing like "overwhelmed, that mean?". When one clearly identifiable Vietnamese vocabulary term is inserted into English because the learner lacks the English word, bridge it naturally in English and save the English equivalent with that Vietnamese phrase as meaning_vi. If there are multiple targets or the translation is uncertain, ask a brief clarification and do not save.
 Resolve "that" only if one unambiguous target exists in recent conversation. Otherwise ask which word.
+Never call the tool for ordinary conversation or Vietnamese conversational fillers. Copy source_excerpt exactly; include a natural English example using the target term.
 Do not save arbitrary words used in ordinary dialogue. Do not claim a word is saved until tool execution succeeds.
 Do not output secrets or internal configuration.
 ```
@@ -80,6 +83,7 @@ Do not output secrets or internal configuration.
 - https://ai.google.dev/gemini-api/docs/live-api
 - https://ai.google.dev/gemini-api/docs/live-api/ephemeral-tokens
 - https://ai.google.dev/gemini-api/docs/live-api/capabilities
+- https://ai.google.dev/gemini-api/docs/live-api/tools
 - https://ai.google.dev/gemini-api/docs/live-api/best-practices
 - https://ai.google.dev/gemini-api/docs/pricing
 - https://ai.google.dev/gemini-api/docs/deprecations/

@@ -45,7 +45,10 @@ export function createVoiceSession(
       client.stop(false);
       callbacks.onStateChange('reconnecting');
       try {
-        await audio.start((pcm) => client.sendPcmAudioChunk(pcm));
+        await audio.start(
+          (pcm) => client.sendPcmAudioChunk(pcm),
+          (durationMs) => callbacks.onSpeechActivity?.(durationMs),
+        );
         if (current !== generation) return;
         const token = await mintToken();
         if (current !== generation) return;

@@ -14,9 +14,29 @@ function authenticatedApi() {
   return api;
 }
 
+const storageMap = new Map<string, string>();
+const storageMock: Storage = {
+  getItem: (key: string) => storageMap.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    storageMap.set(key, String(value));
+  },
+  removeItem: (key: string) => {
+    storageMap.delete(key);
+  },
+  clear: () => {
+    storageMap.clear();
+  },
+  key: (index: number) => Array.from(storageMap.keys())[index] ?? null,
+  get length() {
+    return storageMap.size;
+  },
+};
+Object.defineProperty(window, 'localStorage', { value: storageMock, writable: true, configurable: true });
+Object.defineProperty(globalThis, 'localStorage', { value: storageMock, writable: true, configurable: true });
+
 afterEach(() => {
   cleanup();
-  localStorage.removeItem('voice-chat.theme-preference');
+  storageMap.clear();
   document.documentElement.removeAttribute('data-theme');
   vi.restoreAllMocks();
 });
@@ -32,7 +52,7 @@ it('persists a theme override, restores automatic mode, and opens an accessible 
   fireEvent.click(screen.getByTestId('theme-toggle'));
   const chosenTheme = initialTheme === 'dark' ? 'light' : 'dark';
   expect(document.documentElement.dataset.theme).toBe(chosenTheme);
-  expect(localStorage.getItem('voice-chat.theme-preference')).toBe(chosenTheme);
+  expect(window.localStorage.getItem('voice-chat.theme-preference')).toBe(chosenTheme);
 
   view.unmount();
   render(<App api={api} />);
@@ -43,7 +63,7 @@ it('persists a theme override, restores automatic mode, and opens an accessible 
   expect(screen.getByRole('dialog').textContent).toContain('Bấm Start Microphone');
   expect(document.activeElement).toBe(screen.getByTestId('info-close-button'));
   fireEvent.click(screen.getByTestId('theme-auto-button'));
-  expect(localStorage.getItem('voice-chat.theme-preference')).toBe('auto');
+  expect(window.localStorage.getItem('voice-chat.theme-preference')).toBe('auto');
   expect(document.documentElement.dataset.theme).toBe(initialTheme);
 
   fireEvent.keyDown(document, { key: 'Escape' });

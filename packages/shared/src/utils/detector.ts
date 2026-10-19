@@ -7,8 +7,10 @@ import { normalizeText } from './normalize.js';
  */
 export const SAVE_VOCABULARY_TOOL_DECLARATION = {
   name: 'save_vocabulary',
+  // Persisting D1 is independent of the spoken turn; Live API may keep generating audio.
+  behavior: 'NON_BLOCKING',
   description:
-    'Call this tool ONLY when the learner explicitly asks what an English word/phrase means, asks for its Vietnamese translation, or asks how to say a term in English. Do NOT call for ordinary conversation or when "that/it" has multiple ambiguous referents.',
+    'Call this tool whenever the learner explicitly asks what an English word/phrase means, asks for its Vietnamese translation, or asks how to say a term in English. For a Vietnamese insertion in an English sentence, call only when one vocabulary target and its English equivalent are clear; otherwise ask briefly and do not save. Do NOT call for ordinary conversation, Vietnamese fillers (à, ừ, nhỉ, hả, nhé...), or ambiguous targets.',
   parameters: {
     type: 'OBJECT',
     properties: {
@@ -131,6 +133,252 @@ function extractQuotedOrHighlightedCandidates(
   return matches;
 }
 
+const VIETNAMESE_DIACRITICS_REGEX =
+  /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+
+const VIETNAMESE_FILLERS = new Set([
+  'a',
+  'à',
+  'ạ',
+  'u',
+  'ừ',
+  'ha',
+  'hả',
+  'nhe',
+  'nhé',
+  'nhi',
+  'nhỉ',
+  'nha',
+  'the',
+  'thế',
+  'vay',
+  'vậy',
+  'oi',
+  'ơi',
+  'dung khong',
+  'đúng không',
+  'phai khong',
+  'phải không',
+  'ne',
+  'nè',
+  'hen',
+  'chu',
+  'chứ',
+  'duoc khong',
+  'được không',
+  'sao',
+]);
+
+const ENGLISH_CONTEXT_TOKENS = new Set([
+  'i',
+  'you',
+  'he',
+  'she',
+  'it',
+  'we',
+  'they',
+  'me',
+  'him',
+  'her',
+  'us',
+  'them',
+  'my',
+  'your',
+  'his',
+  'her',
+  'its',
+  'our',
+  'their',
+  'this',
+  'that',
+  'these',
+  'those',
+  'is',
+  'am',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'can',
+  'could',
+  'will',
+  'would',
+  'shall',
+  'should',
+  'may',
+  'might',
+  'must',
+  'a',
+  'an',
+  'the',
+  'and',
+  'but',
+  'or',
+  'so',
+  'because',
+  'if',
+  'to',
+  'in',
+  'on',
+  'at',
+  'for',
+  'of',
+  'with',
+  'about',
+  'by',
+  'from',
+  'as',
+  'into',
+  'like',
+  'through',
+  'after',
+  'over',
+  'between',
+  'out',
+  'against',
+  'during',
+  'without',
+  'before',
+  'under',
+  'around',
+  'among',
+  'very',
+  'really',
+  'too',
+  'just',
+  'some',
+  'any',
+  'much',
+  'many',
+  'want',
+  'need',
+  'feel',
+  'think',
+  'know',
+  'see',
+  'look',
+  'go',
+  'come',
+  'get',
+  'make',
+  'buy',
+  'cut',
+  'today',
+  'yesterday',
+  'tomorrow',
+  'day',
+  'time',
+  'weather',
+  'paper',
+  'now',
+]);
+
+// This short allowlist supports common single-token inserts; unknown low-confidence tokens fail closed.
+const VIETNAMESE_LEXICAL_WORDS = new Set([
+  'bánh',
+  'bực',
+  'bội',
+  'chào',
+  'cái',
+  'đầu',
+  'đau',
+  'đẹp',
+  'dễ',
+  'khó',
+  'kéo',
+  'mệt',
+  'nghĩa',
+  'nước',
+  'phở',
+  'quá',
+  'rất',
+  'tải',
+  'tiếng',
+  'việt',
+]);
+const VIETNAMESE_CONNECTORS = new Set(['oi']);
+
+interface CodeSwitchToken {
+  clean: string;
+  hasDiacritics: boolean;
+}
+
+function hasStrongVietnameseOrthography(value: string): boolean {
+  // A tone mark plus a second vowel mark is uncommon outside Vietnamese; normalize so
+  // precomposed and decomposed ASR text use the same check.
+  return /[đ]|[aeiouy]\p{M}{2,}/iu.test(value.normalize('NFD'));
+}
+
+function isTitleCasePhrase(tokens: readonly CodeSwitchToken[]): boolean {
+  return tokens.length > 1 && tokens.every((token) => /^\p{Lu}/u.test(token.clean));
+}
+
+function extractCodeSwitchingTargets(utterance: string): string[] {
+  const tokens: CodeSwitchToken[] = utterance
+    .split(/\s+/)
+    .map((token) => ({
+      clean: token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''),
+      hasDiacritics: VIETNAMESE_DIACRITICS_REGEX.test(token),
+    }))
+    .filter((token) => token.clean.length > 0);
+
+  const englishWordCount = tokens.filter(
+    (token) =>
+      !token.hasDiacritics &&
+      (ENGLISH_CONTEXT_TOKENS.has(token.clean.toLowerCase()) || /^[a-zA-Z]{3,}$/.test(token.clean)),
+  ).length;
+  if (englishWordCount < 2) return [];
+
+  const groups: CodeSwitchToken[][] = [];
+  let group: CodeSwitchToken[] = [];
+  const flushGroup = () => {
+    if (group.some((token) => token.hasDiacritics)) groups.push(group);
+    group = [];
+  };
+
+  for (const token of tokens) {
+    const isVietnameseCandidate =
+      token.hasDiacritics || VIETNAMESE_CONNECTORS.has(token.clean.toLowerCase());
+    if (isVietnameseCandidate) group.push(token);
+    else flushGroup();
+  }
+  flushGroup();
+
+  const candidates: string[] = [];
+  for (const candidateTokens of groups) {
+    const candidate = candidateTokens
+      .map((token) => token.clean)
+      .join(' ')
+      .trim();
+    const normalized = normalizeText(candidate);
+    if (!candidate || VIETNAMESE_FILLERS.has(normalized)) continue;
+    // Accented place/person names such as “Hà Nội” are not vocabulary targets.
+    if (isTitleCasePhrase(candidateTokens)) continue;
+
+    const hasKnownVietnameseWord = candidateTokens.some((token) =>
+      VIETNAMESE_LEXICAL_WORDS.has(normalizeText(token.clean)),
+    );
+    const hasVietnameseLetterPattern = candidateTokens.some((token) =>
+      hasStrongVietnameseOrthography(token.clean),
+    );
+    // Single-token candidates require a lexical cue; this avoids saving common pronouns
+    // and foreign words just because one accented character looks Vietnamese.
+    const hasSafeLexicalEvidence =
+      hasKnownVietnameseWord || (candidateTokens.length > 1 && hasVietnameseLetterPattern);
+    if (!hasSafeLexicalEvidence) continue;
+    candidates.push(candidate);
+  }
+  return candidates;
+}
+
 /**
  * Pure deterministic vocabulary intent detector (`M1-03`, `docs/00_PRODUCT_SCOPE.md` US-02).
  *
@@ -225,12 +473,38 @@ export function detectVocabularyIntent(
     }
   }
 
+  const codeSwitchTargets = extractCodeSwitchingTargets(trimmed);
+  if (codeSwitchTargets.length > 1) {
+    return {
+      status: 'clarify',
+      targetWord: null,
+      sourceExcerpt: excerpt,
+      reason: 'ambiguous_multiple_code_switch_targets',
+    };
+  }
+  const codeSwitchTarget = codeSwitchTargets[0];
+  if (codeSwitchTarget) {
+    return {
+      status: 'save',
+      targetWord: codeSwitchTarget,
+      sourceExcerpt: excerpt,
+      reason: 'code_switching_insertion',
+    };
+  }
+
   return {
     status: 'ignore',
     targetWord: null,
     sourceExcerpt: excerpt,
     reason: 'ordinary_conversation',
   };
+}
+
+function containsVocabularyPhrase(text: string, phrase: string): boolean {
+  const words = normalizeVocabularyQuestion(text).split(' ').filter(Boolean);
+  const target = normalizeVocabularyQuestion(phrase).split(' ').filter(Boolean);
+  if (target.length === 0 || target.length > words.length) return false;
+  return words.some((_, start) => target.every((word, offset) => words[start + offset] === word));
 }
 
 /**
@@ -305,10 +579,11 @@ export function validateSaveVocabularyToolCall(
     };
   }
 
+  const isCodeSwitching = decision.reason === 'code_switching_insertion';
   const isTranslationToEnglish =
     /how\s+do\s+(?:i|you)\s+say\b|english\s+(?:word|term|phrase)\s+for\b|tiếng\s+anh.*nói\s+sao/i.test(
       trustedUserTurn.text,
-    );
+    ) || isCodeSwitching;
   if (!isTranslationToEnglish && normalizeText(decision.targetWord ?? '') !== normalizedWord) {
     return {
       allowed: false,
@@ -318,11 +593,23 @@ export function validateSaveVocabularyToolCall(
   }
   if (
     isTranslationToEnglish &&
-    !normalizeText(args.meaning_vi).includes(normalizeText(decision.targetWord ?? ''))
+    !containsVocabularyPhrase(args.meaning_vi, decision.targetWord ?? '')
   ) {
     return {
       allowed: false,
       reason: 'translation_does_not_match_user_question',
+      requiresClarification: true,
+    };
+  }
+  if (
+    isCodeSwitching &&
+    (!/^[a-zA-Z][a-zA-Z' -]{0,119}$/.test(args.word) ||
+      !args.example ||
+      !containsVocabularyPhrase(args.example, args.word))
+  ) {
+    return {
+      allowed: false,
+      reason: 'invalid_code_switch_translation_shape',
       requiresClarification: true,
     };
   }

@@ -491,4 +491,144 @@ describe('M1-03 Vocabulary Intent Detector & Tool Call Validation (30 Fixtures)'
     // 10 minutes later (00:05 +07:00 next day) is 2026-10-12T17:05:00.000Z
     expect(formatLocalDateAsiaHoChiMinh('2026-10-12T17:05:00.000Z')).toBe('2026-10-13');
   });
+
+  describe('Bilingual Code-Switching & Auto Background Capture', () => {
+    it('detects Vietnamese insertions embedded in English context as code_switching_insertion', () => {
+      const decision1 = detectVocabularyIntent('I want to buy a ... cái kéo');
+      expect(decision1.status).toBe('save');
+      expect(decision1.targetWord).toBe('cái kéo');
+      expect(decision1.reason).toBe('code_switching_insertion');
+
+      const decision2 = detectVocabularyIntent('I need some cái kéo to cut paper');
+      expect(decision2.status).toBe('save');
+      expect(decision2.targetWord).toBe('cái kéo');
+      expect(decision2.reason).toBe('code_switching_insertion');
+
+      const decision3 = detectVocabularyIntent('Yesterday the weather was so oi bức');
+      expect(decision3.status).toBe('save');
+      expect(decision3.targetWord).toBe('oi bức');
+      expect(decision3.reason).toBe('code_switching_insertion');
+
+      const decision4 = detectVocabularyIntent('I feel very bực bội today');
+      expect(decision4.status).toBe('save');
+      expect(decision4.targetWord).toBe('bực bội');
+      expect(decision4.reason).toBe('code_switching_insertion');
+    });
+
+    it('ignores Vietnamese conversational fillers and sentence particles in English context', () => {
+      expect(detectVocabularyIntent('I will go home now, à?').status).toBe('ignore');
+      expect(detectVocabularyIntent('Yes, ừ, that is true').status).toBe('ignore');
+      expect(detectVocabularyIntent('I think so, đúng không?').status).toBe('ignore');
+      expect(detectVocabularyIntent('Can you help me with this, nhé?').status).toBe('ignore');
+      expect(detectVocabularyIntent('See you tomorrow, nha!').status).toBe('ignore');
+      expect(detectVocabularyIntent('Is this right, hả?').status).toBe('ignore');
+    });
+
+    it('fails closed for foreign accented words and proper names without Vietnamese evidence', () => {
+      for (const utterance of [
+        'The café is lovely.',
+        'I updated my résumé today.',
+        'I traveled through São Paulo last year.',
+        'Hà Nội is beautiful this season.',
+        'HÀ NỘI is beautiful this season.',
+        'I feel very tôi today.',
+        'I feel very buc boi today.',
+      ]) {
+        expect(detectVocabularyIntent(utterance).status, utterance).toBe('ignore');
+      }
+    });
+
+    it('asks which term to capture when one English turn contains multiple Vietnamese targets', () => {
+      const decision = detectVocabularyIntent('I like phở and bánh mì');
+      expect(decision).toEqual({
+        status: 'clarify',
+        targetWord: null,
+        sourceExcerpt: 'I like phở and bánh mì',
+        reason: 'ambiguous_multiple_code_switch_targets',
+      });
+    });
+
+    it('validates and sanitizes save_vocabulary tool calls for code-switching utterances', () => {
+      const userTurn = [{ speaker: 'user' as const, text: 'I want to buy a ... cái kéo' }];
+      const validation = validateSaveVocabularyToolCall(
+        {
+          word: 'scissors',
+          lemma: 'scissors',
+          part_of_speech: 'noun',
+          meaning_vi: 'cái kéo',
+          example: 'I need scissors to cut the paper.',
+          source_excerpt: 'I want to buy a ... cái kéo',
+        },
+        userTurn,
+      );
+
+      expect(validation.allowed).toBe(true);
+      if (validation.allowed) {
+        expect(validation.sanitized.word).toBe('scissors');
+        expect(validation.sanitized.meaning_vi).toBe('cái kéo');
+        expect(validation.sanitized.lemma).toBe('scissors');
+        expect(validation.sanitized.part_of_speech).toBe('noun');
+        expect(validation.sanitized.source_excerpt).toBe('I want to buy a ... cái kéo');
+      }
+    });
+
+    it('rejects save_vocabulary tool call when meaning_vi does not match the inserted Vietnamese word', () => {
+      const userTurn = [{ speaker: 'user' as const, text: 'I want to buy a ... cái kéo' }];
+      const validation = validateSaveVocabularyToolCall(
+        {
+          word: 'hammer',
+          meaning_vi: 'cái búa',
+          source_excerpt: 'I want to buy a ... cái kéo',
+        },
+        userTurn,
+      );
+
+      expect(validation.allowed).toBe(false);
+      if (!validation.allowed) {
+        expect(validation.reason).toBe('translation_does_not_match_user_question');
+      }
+    });
+
+    it('rejects code-switch tool calls with a malformed English target or example', () => {
+      const userTurn = [{ speaker: 'user' as const, text: 'I want to buy a ... cái kéo' }];
+      for (const args of [
+        {
+          word: 'kéo',
+          meaning_vi: 'cái kéo',
+          example: 'I need kéo today.',
+          source_excerpt: userTurn[0]!.text,
+        },
+        {
+          word: 'scissors',
+          meaning_vi: 'cái kéo',
+          example: 'Please use the knife.',
+          source_excerpt: userTurn[0]!.text,
+        },
+      ]) {
+        const validation = validateSaveVocabularyToolCall(args, userTurn);
+        expect(validation.allowed).toBe(false);
+        if (!validation.allowed) {
+          expect(validation.reason).toBe('invalid_code_switch_translation_shape');
+          expect(validation.requiresClarification).toBe(true);
+        }
+      }
+    });
+
+    it('rejects save_vocabulary tool call on conversational fillers', () => {
+      const userTurn = [{ speaker: 'user' as const, text: 'I will go home now, à?' }];
+      const validation = validateSaveVocabularyToolCall(
+        {
+          word: 'ah',
+          meaning_vi: 'à',
+          source_excerpt: 'I will go home now, à?',
+        },
+        userTurn,
+      );
+
+      expect(validation.allowed).toBe(false);
+      if (!validation.allowed) {
+        expect(validation.reason).toBe('source_excerpt_lacks_explicit_intent');
+      }
+    });
+  });
 });

@@ -26,6 +26,19 @@ export interface AudioSessionStartResult {
   errorMessage: string | null;
 }
 
+/** Estimates voiced audio locally; no samples or measurements leave the browser callback. */
+export function estimateSpeechFrameDurationMs(
+  samples: Float32Array,
+  sampleRate: number,
+  rmsThreshold = 0.02,
+): number {
+  if (!samples.length || !Number.isFinite(sampleRate) || sampleRate <= 0) return 0;
+  let squaredSum = 0;
+  for (const sample of samples) squaredSum += sample * sample;
+  const rms = Math.sqrt(squaredSum / samples.length);
+  return rms >= rmsThreshold ? (samples.length / sampleRate) * 1000 : 0;
+}
+
 /**
  * Downsamples Float32 PCM samples from native browser sample rate (e.g. 48000Hz or 44100Hz)
  * to 16000Hz signed 16-bit little-endian PCM required by Gemini Live API.

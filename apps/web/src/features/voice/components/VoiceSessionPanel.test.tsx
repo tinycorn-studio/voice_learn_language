@@ -1,10 +1,32 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { DueReviewCard } from '@voice-chat/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VoiceSessionPanel, type VoiceSessionFactory } from './VoiceSessionPanel.js';
 import {
   AudioSessionController,
   downsampleFloat32ToInt16Pcm,
 } from '../services/audio-session-controller.js';
+
+function createDueCard(index: number): DueReviewCard {
+  return {
+    review_id: `review-${index}`,
+    word_id: `word-${index}`,
+    card_id: `card-${index}`,
+    word: ['diligent', 'overwhelmed', 'scissors', 'reliable'][index - 1] ?? `word${index}`,
+    lemma: ['diligent', 'overwhelmed', 'scissors', 'reliable'][index - 1] ?? `word${index}`,
+    part_of_speech: 'adjective',
+    meaning_vi: `nghĩa ${index}`,
+    example: '',
+    source_excerpt: '',
+    due_at: '2026-10-16T00:00:00.000Z',
+    review_state: 'new',
+    repetitions: 0,
+    interval_days: 0,
+    ease_factor: 2.5,
+    version: 1,
+    row_version: 1,
+  };
+}
 
 afterEach(cleanup);
 describe('Voice session UI and microphone cancellation', () => {
@@ -166,9 +188,7 @@ describe('Voice session UI and microphone cancellation', () => {
     fireEvent.click(screen.getByTestId('btn-translate-turn-1'));
     expect(screen.queryByTestId('translation-turn-1')).toBeNull();
     fireEvent.click(screen.getByTestId('btn-translate-turn-1'));
-    expect(screen.getByTestId('translation-turn-1').textContent).toContain(
-      'Tôi cảm thấy quá tải.',
-    );
+    expect(screen.getByTestId('translation-turn-1').textContent).toContain('Tôi cảm thấy quá tải.');
     expect(translateText).toHaveBeenCalledOnce();
   });
 
@@ -197,5 +217,80 @@ describe('Voice session UI and microphone cancellation', () => {
       'Bản dịch sau khi thử lại.',
     );
     expect(translateText).toHaveBeenCalledTimes(2);
+  });
+
+  it('loads due cards only when requested and starts with at most three selected review targets', async () => {
+    let callbacks: Parameters<VoiceSessionFactory>[0] | undefined;
+    const loadDueCards = vi.fn().mockResolvedValue([1, 2, 3, 4].map(createDueCard));
+    render(
+      <VoiceSessionPanel
+        sessionFactory={(value) => {
+          callbacks = value;
+          return { start: vi.fn().mockResolvedValue(undefined), stop: vi.fn(), sendText: vi.fn() };
+        }}
+        translateText={vi.fn().mockResolvedValue('')}
+        loadDueCards={loadDueCards}
+      />,
+    );
+    expect(loadDueCards).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('btn-active-srs'));
+    await screen.findByText('4 thẻ đến hạn · đã chọn 3/3');
+    expect(loadDueCards).toHaveBeenCalledOnce();
+    expect(screen.getByRole('checkbox', { name: /reliable/i }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /diligent/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /reliable/i }));
+    fireEvent.change(screen.getByTestId('roleplay-select'), {
+      target: { value: 'job_interview' },
+    });
+    fireEvent.click(screen.getByTestId('coaching-toggle'));
+    fireEvent.click(screen.getByTestId('btn-start-mic'));
+
+    expect(callbacks?.sessionContext).toEqual({
+      scenario: 'job_interview',
+      coachingEnabled: false,
+      focusWords: [
+        { word: 'overwhelmed', meaningVi: 'nghĩa 2' },
+        { word: 'scissors', meaningVi: 'nghĩa 3' },
+        { word: 'reliable', meaningVi: 'nghĩa 4' },
+      ],
+    });
+  });
+
+  it('shows a grounded correction, shadowing prompt and local session report after Stop', () => {
+    let callbacks: Parameters<VoiceSessionFactory>[0] | undefined;
+    render(
+      <VoiceSessionPanel
+        sessionFactory={(value) => {
+          callbacks = value;
+          return { start: vi.fn().mockResolvedValue(undefined), stop: vi.fn(), sendText: vi.fn() };
+        }}
+        translateText={vi.fn().mockResolvedValue('')}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('btn-start-mic'));
+    act(() => {
+      callbacks?.onStateChange('listening');
+      callbacks?.onTranscript('user', 'I go to cinema yesterday.', true);
+      callbacks?.onTranscript('assistant', 'You went to the cinema yesterday.', true);
+      callbacks?.onCoachCorrection?.({
+        source_excerpt: 'I go to cinema yesterday.',
+        learner_phrase: 'I go to cinema yesterday',
+        suggested_sentence: 'I went to the cinema yesterday.',
+        focus_phrase: 'went to the cinema',
+        category: 'grammar',
+      });
+      callbacks?.onSpeechActivity?.(3500);
+    });
+    fireEvent.click(screen.getByTestId('btn-stop-mic'));
+
+    expect(screen.getByTestId('coach-correction-turn-1').textContent).toContain(
+      'went to the cinema',
+    );
+    expect(screen.getByTestId('session-insights').textContent).toContain('4 giây');
+    expect(screen.getByTestId('session-insights').textContent).toContain('5/5');
+    fireEvent.click(screen.getByTestId('btn-shadow-turn-1'));
+    expect(screen.getByTestId('session-insights').textContent).toContain('Gợi ý coaching');
+    expect(screen.getByText(/Hãy đọc câu gợi ý qua micro/)).toBeTruthy();
   });
 });

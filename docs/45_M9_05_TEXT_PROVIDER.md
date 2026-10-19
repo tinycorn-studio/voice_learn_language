@@ -70,4 +70,5 @@ Ví dụ DeepSeek (bản trả phí, cùng cơ chế): base `https://api.deepsee
 ## Deploy
 
 - Local gates: full suite 286/286 tests/46 files (serial), typecheck/lint/build/secret scan/Prettier/diff check PASS.
-- Chưa deploy. Bản M9-05 có thể deploy ngay mà không đổi hành vi (mặc định `gemini`), nhưng sẽ deploy cùng lúc khi người dùng có key + xác nhận, để smoke thật provider mới trong 1 lượt.
+- 2026-10-19 12:15 +07:00: người dùng xác nhận deploy code trước khi có key. Worker version `52b45941-2e15-4012-894b-2122d730e251` (rollback `092385ac-6646-4fd9-a987-06f7ac0b1a3d`), bindings nguyên vẹn (D1 `voice-learn-prod-db`, `DATA_BACKEND=d1`, `SHEET_MIRROR_ENABLED=true`, `GEMINI_MODEL`, `GEMINI_TRANSLATION_MODEL`), **chưa set `TEXT_AI_*`** → toàn bộ route vẫn chạy Gemini như trước (startup 7 ms). Smoke: `/health` 200; `POST /api/v1/chat-turn` và `POST /api/v1/translate` không auth đều 401. Frontend không đổi → không deploy Pages.
+- Kích hoạt provider mới (khi có key Z.AI): `npx wrangler secret put TEXT_AI_API_KEY/TEXT_AI_PROVIDER/TEXT_AI_BASE_URL/TEXT_AI_MODEL` — secret put tự publish, không cần deploy code; sau khi bật nên smoke 1 lượt lite + 1 lượt dịch và theo dõi `wrangler tail` cho `text_ai_fallback`.

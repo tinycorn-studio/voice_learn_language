@@ -1,6 +1,6 @@
 # M9-03 — Daily usage caps per user (free-tier guardrail)
 
-**Trạng thái:** DEPLOYED (Worker `8bc40470`, migration 0004 đã apply) — bổ sung miễn hạn mức `UNCAPPED_TELEGRAM_IDS` (owner mặc định miễn) đang chờ deploy lại
+**Trạng thái:** DEPLOYED — Worker `2a0bf5a7-f590-4c1d-b370-6ada348f77df` (uncapped live; rollback `8bc40470`), migration 0004 đã apply
 **Task ID:** M9-03
 **Branch:** `feat/M9-02-multi-user` (làm liền với M9-02 vì cùng mở multi-user; commit `c99e01e`, bổ sung sau)
 **Ngày mở:** 2026-10-19 (UTC+7)
@@ -55,4 +55,4 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 - Migration: `npx wrangler d1 migrations apply voice-learn-prod-db --remote` → `0004_usage_daily.sql ✅` (0001–0003 đã applied từ trước; lần gọi đầu bị lỗi API 7403 transient, retry thành công). Verify `sqlite_master` thấy bảng `usage_daily`.
 - Worker: `npx wrangler deploy` → version `8bc40470-aa6d-40fb-852a-912b72cbe3a4` (rollback `a56d81fb-7a9c-4009-ab40-5dce9dc9e165`). Smoke: `/health` 200; chat-turn không auth 401.
 - Caps mặc định đang áp cho mọi user trong allowlist: 5 phiên live, 30 dịch, 30 chat-turn/ngày; muốn đổi: `npx wrangler secret put DAILY_LIVE_SESSIONS_CAP` (chỉ cần khi khác default).
-- Bổ sung miễn hạn mức (`UNCAPPED_TELEGRAM_IDS`, owner mặc định miễn) sau deploy `8bc40470` — cần deploy lại Worker để có hiệu lực; không có secret nào bắt buộc phải set trước (owner miễn sẵn). Chỉ cần `npx wrangler secret put UNCAPPED_TELEGRAM_IDS` khi muốn miễn cho id khác ngoài owner.
+- Bổ sung miễn hạn mức (`UNCAPPED_TELEGRAM_IDS`, owner mặc định miễn): commit `06121c0`, deploy version `2a0bf5a7-f590-4c1d-b370-6ada348f77df` (2026-10-19 ~11:05 +07; rollback `8bc40470`). Smoke sau deploy: `/health` 200, chat-turn không auth 401. Owner đã miễn sẵn — chỉ cần `npx wrangler secret put UNCAPPED_TELEGRAM_IDS` khi muốn miễn thêm id khác (secret put tự publish, không cần deploy code).

@@ -1,8 +1,8 @@
 # M9-01 — Chế độ hội thoại nhẹ (turn-based)
 
-**Trạng thái:** IN_PROGRESS — local implementation + gates hoàn tất; chờ xác nhận deploy Worker/Pages và QA thiết bị thật  
-**Task ID:** M9-01  
-**Branch:** `feat/M9-01-lite-mode` (tạo từ `837d425`)  
+**Trạng thái:** DEPLOYED / WAITING_USER_QA — Worker + Pages Production đã phát hành; chờ QA thiết bị thật
+**Task ID:** M9-01
+**Branch:** `feat/M9-01-lite-mode` (tạo từ `837d425`, commit `692fb11`)
 **Ngày mở:** 2026-10-19 (UTC+7)
 
 ## Mục tiêu
@@ -47,6 +47,14 @@ Mở đường cho 1k user/day với chi phí 0đ: thêm chế độ hội tho�
 
 ## Chưa làm / rủi ro
 
-- Chưa deploy Worker/Pages; chưa QA Web Speech thật trên Android/Desktop/iOS (do người dùng thực hiện sau deploy).
+- QA Web Speech thật trên Android/Desktop/iOS do người dùng thực hiện sau deploy (Web Speech trên iOS hạn chế — fallback nhập chữ là đường chính).
 - Quota free tier flash-lite chưa đo; chưa có số đo rows written impact (chế độ nhẹ không ghi D1 nên dự kiến trung tính).
-- Web Speech API trên iOS Safari/WebView hạn chế — fallback nhập chữ là đường chính, cần xác nhận trải nghiệm thật.
+
+## Deploy
+
+- Local gates trước deploy: full suite 255/255 tests/42 files (serial), typecheck/lint/build/secret scan/Prettier/diff check PASS; commit `692fb11` push `origin/feat/M9-01-lite-mode`.
+- Worker deploy bằng `npx wrangler deploy` (wrangler 4.149.0, xác nhận người dùng trước khi deploy): version `a56d81fb-7a9c-4009-ab40-5dce9dc9e165` (created 2026-10-19T02:40:59Z); binding giữ nguyên D1 `voice-learn-prod-db`, `DATA_BACKEND=d1`, `SHEET_MIRROR_ENABLED=true`, `GEMINI_TRANSLATION_MODEL=gemini-3.5-flash-lite`, cron `* * * * *`. Rollback version trước: `ba31b7a7-e378-4029-81d3-157eec28fd9d`.
+- Worker smoke: `GET /health` → 200 `healthy`; `POST /api/v1/chat-turn` không auth → 401 (guard hoạt động).
+- Pages deploy bằng `npx wrangler pages deploy apps/web/dist --project-name voice-chat-learn-language --branch production --commit-dirty=true`: deployment `3e764f2d-2fd0-4656-90b9-af6905c19657`, environment Production, branch `production`, source `692fb11` (clean commit).
+- Canonical `https://voice-chat-learn-language.pages.dev/` và unique `https://3e764f2d.voice-chat-learn-language.pages.dev/` đều HTTP 200; HTML tham chiếu `index-DvGFNClT.js` + `index-CZndnnD0.css`; SHA256 5 asset public (entry JS/CSS, LiteConversationPanel, FlashcardReviewPanel, VocabularyManagerPanel) khớp local; bundle entry chứa `voice-mode-lite` + `/api/v1/chat-turn` + tham chiếu chunk lite. Rollback Pages: deployment `c1430518-7647-4964-b8e5-73776896d50f` (M8-10).
+- Chờ người dùng QA trong Telegram: toggle Chế độ nhẹ, mic/TTS trên Android/Desktop, fallback nhập chữ, retry lượt lỗi, không mint live token khi chỉ dùng lite.

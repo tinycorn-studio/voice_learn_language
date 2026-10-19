@@ -1,8 +1,8 @@
 # M9-03 — Daily usage caps per user (free-tier guardrail)
 
-**Trạng thái:** IN_PROGRESS — code + tests pass local, chờ xác nhận deploy
+**Trạng thái:** DEPLOYED — migration `0004_usage_daily.sql` đã apply production D1; caps chạy trên Worker `8bc40470`
 **Task ID:** M9-03
-**Branch:** `feat/M9-02-multi-user` (làm liền với M9-02 vì cùng mở multi-user)
+**Branch:** `feat/M9-02-multi-user` (làm liền với M9-02 vì cùng mở multi-user; commit `c99e01e`)
 **Ngày mở:** 2026-10-19 (UTC+7)
 
 ## Mục tiêu
@@ -46,3 +46,10 @@ Chặn lạm dụng và bảo vệ quota free tier khi mở nhiều user: mỗi 
 - Chưa đo quota free tier thật của flash-lite (RPD/RPM) để chốt cap production — sẽ tinh chỉnh bằng env không cần deploy code.
 - Chưa có cảnh báo chủ động khi user chạm 80% cap (chỉ hiện tại mức chặn); cân nhắc M9-04 khi có telemetry.
 - Rate-limit in-memory vẫn per-isolate — cap D1 là lớp bảo vệ thật.
+
+## Deploy
+
+- Local gates: full suite 267/267 tests/44 files (serial), typecheck/lint/build/secret scan/Prettier/diff check PASS; commit `c99e01e` push `origin/feat/M9-02-multi-user`.
+- Migration: `npx wrangler d1 migrations apply voice-learn-prod-db --remote` → `0004_usage_daily.sql ✅` (0001–0003 đã applied từ trước; lần gọi đầu bị lỗi API 7403 transient, retry thành công). Verify `sqlite_master` thấy bảng `usage_daily`.
+- Worker: `npx wrangler deploy` → version `8bc40470-aa6d-40fb-852a-912b72cbe3a4` (rollback `a56d81fb-7a9c-4009-ab40-5dce9dc9e165`). Smoke: `/health` 200; chat-turn không auth 401.
+- Caps mặc định đang áp cho mọi user trong allowlist (hiện chỉ owner): 5 phiên live, 30 dịch, 30 chat-turn/ngày; muốn đổi: `npx wrangler secret put DAILY_LIVE_SESSIONS_CAP` (chỉ cần khi khác default).

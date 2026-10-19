@@ -1,8 +1,8 @@
 # M9-02 — Multi-user Telegram allowlist
 
-**Trạng thái:** IN_PROGRESS — code + tests pass local, chờ xác nhận deploy (Worker secret `ALLOWED_TELEGRAM_IDS`)
+**Trạng thái:** DEPLOYED (owner-only) — code chạy production Worker `8bc40470`; multi-user chỉ kích hoạt sau khi set secret `ALLOWED_TELEGRAM_IDS`
 **Task ID:** M9-02
-**Branch:** `feat/M9-02-multi-user` (tạo từ `55f1674`)
+**Branch:** `feat/M9-02-multi-user` (tạo từ `55f1674`, commit `c99e01e`)
 **Ngày mở:** 2026-10-19 (UTC+7)
 
 ## Mục tiêu
@@ -49,6 +49,14 @@ Thay thế mô hình một-owner bằng allowlist nhiều user để mở dần 
 
 ## Chưa làm / rủi ro
 
-- Chưa deploy: cần `wrangler secret put ALLOWED_TELEGRAM_IDS` (danh sách owner + user thật) trước khi mở.
+- Chưa set secret `ALLOWED_TELEGRAM_IDS`: production hiện vẫn owner-only (fallback đúng thiết kế); cần `wrangler secret put ALLOWED_TELEGRAM_IDS` khi muốn mở user thật.
 - Allowlist lớn (>~30 user/ngày) vượt budget digest window — cần redesign deliveries.
 - Webhook per-user dùng chung bot token; rate limit Telegram phía Telegram Bot API cần theo dõi khi đông người dùng.
+
+## Deploy
+
+- Local gates trước deploy: full suite 267/267 tests/44 files (serial), typecheck/lint/build/secret scan/Prettier/diff check PASS; commit `c99e01e` push `origin/feat/M9-02-multi-user`.
+- Người dùng xác nhận deploy (owner-only). Worker deploy `npx wrangler deploy`: version `8bc40470-aa6d-40fb-852a-912b72cbe3a4` (2026-10-19 ~10:25 +07; rollback `a56d81fb-7a9c-4009-ab40-5dce9dc9e165` = M9-01); bindings giữ nguyên D1 `voice-learn-prod-db`, `DATA_BACKEND=d1`, cron `* * * * *`.
+- Migration `0004_usage_daily.sql` apply remote (M9-03) cùng lượt deploy; xem docs/44.
+- Smoke: `GET /health` → 200 healthy; `POST /api/v1/chat-turn` không auth → 401.
+- Frontend không thay đổi trong M9-02/M9-03 → không cần deploy Pages.

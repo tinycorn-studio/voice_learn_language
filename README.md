@@ -18,7 +18,7 @@ Production dùng [D1 primary](docs/27_D1_PERFORMANCE_MIGRATION_PLAN.md); Sheet c
 - ✅ Source đã sửa R01–R09 theo review M5-04, có tests hồi quy và tích hợp App → Worker → Apps Script VM. Bằng chứng/giới hạn trong [báo cáo sửa lỗi](docs/22_REVIEW_FIXES.md):
   - `packages/shared`: Zod contracts, bộ phát hiện từ vựng (`detectVocabularyIntent` đạt 30/30 mẫu câu 0 FP / 0 FN), bộ lập lịch SRS (`Again/Hard/Good/Easy`), xuất/nhập CSV, chống formula injection.
   - `apps/web`: đăng nhập Telegram qua Worker, dữ liệu API thật, PCM AudioWorklet → Gemini trực tiếp → playback, reconnect có budget/Stop; Flashcards và CRUD lưu backend rồi mới báo thành công. Không có dữ liệu mẫu; mở ngoài Mini App chưa được xác thực.
-  - `apps/worker`: xác thực Telegram `initData`, ephemeral token `uses:1`, D1 authoritative CRUD/FSRS, HMAC mirror Apps Script, webhook retry; Cron mỗi phút drain mirror/Telegram, digest giới hạn 08:00–08:05 UTC+7 với tối đa ba send attempts khi lỗi xác định.
+  - `apps/worker`: xác thực Telegram `initData`, ephemeral token `uses:1`, D1 authoritative CRUD/FSRS, HMAC mirror Apps Script, webhook retry; Cron mỗi phút drain mirror/Telegram, digest trong 08:00–08:59 UTC+7 (300 slot user/ngày) với tối đa ba send attempts khi lỗi xác định.
   - `apps-script/Code.gs`: HMAC, `LockService`, mutation replay/unique key; schema v3 Words/Cards/Reviews/Settings. FSRS có lịch từng Card độc lập, preview backend, retry/OCC và native audit; xem [review FSRS](docs/23_FSRS_REVIEW_FIXES.md).
 - ⬜ Chờ cấu hình tài khoản & khoá bí mật thật (`M0-02`, `M3-01`) để chạy nghiệm thu thiết bị thật & triển khai production (`M1-02`, `M5`).
 - ⚠️ Giá, quota, tên model và lệnh CLI có thể đổi; kiểm tra tài liệu nguồn trước mỗi đợt triển khai.

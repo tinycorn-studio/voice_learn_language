@@ -1,6 +1,6 @@
 # M9-02 — Multi-user Telegram allowlist
 
-**Trạng thái:** DEPLOYED (owner-only) — code chạy production Worker `8bc40470`; multi-user chỉ kích hoạt sau khi set secret `ALLOWED_TELEGRAM_IDS`
+**Trạng thái:** DEPLOYED (owner-only) — code chạy production Worker `092385ac`; multi-user chỉ kích hoạt sau khi set secret `ALLOWED_TELEGRAM_IDS`
 **Task ID:** M9-02
 **Branch:** `feat/M9-02-multi-user` (tạo từ `55f1674`, commit `c99e01e`)
 **Ngày mở:** 2026-10-19 (UTC+7)
@@ -37,7 +37,7 @@ Thay thế mô hình một-owner bằng allowlist nhiều user để mở dần 
 
 - Allowlist qua env (secret), không thêm bảng D1: mở/đóng user chỉ cần đổi secret + redeploy Worker, rollback nhanh.
 - Mirror chỉ owner vì GAS policy chỉ nhận owner; ghi non-owner vào outbox chỉ tạo job chết.
-- Cron giới hạn 5 user/tick + xoay vòng trong cửa sổ 08:00–08:05 +07 (6 tick); allowlist đông hơn cần redesign theo deliveries (đã ghi blocker).
+- Cron giới hạn 5 user/tick + xoay vòng trong cửa sổ 08:00–08:59 +07 (`isDailyDigestWindow`, 60 tick/ngày = **300 slot digest**); allowlist đông hơn cần redesign theo deliveries (đã ghi blocker). Tính năng trò chuyện/dịch/webhook ôn tập không bị giới hạn bởi cửa sổ này.
 - `parseAllowedTelegramIds` luôn gộp owner: an toàn vận hành trong mọi cấu hình.
 
 ## Kết quả local
@@ -50,7 +50,7 @@ Thay thế mô hình một-owner bằng allowlist nhiều user để mở dần 
 ## Chưa làm / rủi ro
 
 - Chưa set secret `ALLOWED_TELEGRAM_IDS`: production hiện vẫn owner-only (fallback đúng thiết kế); cần `wrangler secret put ALLOWED_TELEGRAM_IDS` khi muốn mở user thật.
-- Allowlist lớn (>~30 user/ngày) vượt budget digest window — cần redesign deliveries.
+- Allowlist lớn hơn ~300 user vượt dung lượng cửa sổ digest (60 tick × 5) — cần redesign deliveries; 30–300 user mọi người vẫn nhận digest trong 08:00–08:59.
 - Webhook per-user dùng chung bot token; rate limit Telegram phía Telegram Bot API cần theo dõi khi đông người dùng.
 
 ## Deploy
@@ -60,3 +60,4 @@ Thay thế mô hình một-owner bằng allowlist nhiều user để mở dần 
 - Migration `0004_usage_daily.sql` apply remote (M9-03) cùng lượt deploy; xem docs/44.
 - Smoke: `GET /health` → 200 healthy; `POST /api/v1/chat-turn` không auth → 401.
 - Frontend không thay đổi trong M9-02/M9-03 → không cần deploy Pages.
+- 2026-10-19 ~11:45 +07 (mở rộng cửa sổ digest): người dùng yêu cầu nâng sức chứa (ưu tiên trò chuyện/dịch, digest không gấp). Thay `entry.ts:1247` (trước: chỉ phút 00–05) bằng helper `isDailyDigestWindow` — cả giờ 01:00–01:59 UTC = 08:00–08:59 +07, 60 tick × 5 = 300 slot/ngày; thêm test cửa sổ. Full suite 269/269 tests/44 files (serial) + typecheck/lint/build/secret scan PASS. Deploy version `092385ac-6646-4fd9-a987-06f7ac0b1a3d` (rollback `2a0bf5a7-f590-4c1d-b370-6ada348f77df`); smoke `/health` 200, chat-turn 401, translate 401.

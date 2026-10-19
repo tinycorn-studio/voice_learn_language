@@ -71,7 +71,7 @@ Cloudflare Cron Trigger chạy theo **UTC**. Lịch gửi 08:00 Việt Nam = `01
 crons = ["* * * * *"]
 ```
 
-M7-11: Cron mỗi phút drain một Telegram delivery và một mirror event trên D1; hai processor độc lập, lỗi được log sanitized để retry. Handler chỉ claim digest lúc 01:00–01:05 UTC (08:00–08:05 +07). Một digest mỗi ngày, tối đa 3 send attempts; sent/unknown không tự gửi lại. Cron **không đảm bảo chạy đúng phút tuyệt đối**; dispatch phải dedupe. Theo dõi scheduled invocation failures, outbox lag/dead-letter và Telegram deliveries. Thay Cron có thể cần thời gian truyền cấu hình; kiểm cả schedule API lẫn outbox attempt/ACK thật.
+M7-11: Cron mỗi phút drain một Telegram delivery và một mirror event trên D1; hai processor độc lập, lỗi được log sanitized để retry. Handler chỉ claim digest lúc 01:00–01:59 UTC (08:00–08:59 +07; từ 2026-10-19 mở rộng từ 6 phút để đủ 300 slot user/ngày, xem docs/43). Một digest mỗi ngày, tối đa 3 send attempts; sent/unknown không tự gửi lại. Cron **không đảm bảo chạy đúng phút tuyệt đối**; dispatch phải dedupe. Theo dõi scheduled invocation failures, outbox lag/dead-letter và Telegram deliveries. Thay Cron có thể cần thời gian truyền cấu hình; kiểm cả schedule API lẫn outbox attempt/ACK thật.
 
 M7-11 còn kích hoạt một mirror job bằng `ctx.waitUntil` sau mutation thành công, giảm thời gian chờ Sheet và không block HTTP/voice. Cùng global lease/CAS ngăn overlap với Cron; network lỗi vẫn để pending/backoff. Không dùng foreground success làm bằng chứng Cron đã chạy: kiểm scheduled invocation riêng. Nhánh này bỏ qua read/token/auth/error responses.
 

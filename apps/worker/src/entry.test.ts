@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { computeTelegramInitDataHash, issueSessionToken } from './auth/telegram-auth.js';
-import { handleScheduledCron, handleWorkerRequest, SecurityStateStore } from './entry.js';
+import {
+  handleScheduledCron,
+  handleWorkerRequest,
+  isDailyDigestWindow,
+  SecurityStateStore,
+} from './entry.js';
 import type { WorkerEnv } from './domain/env.js';
 
 const TEST_ENV: WorkerEnv = {
@@ -628,6 +633,14 @@ describe('M2 Cloudflare Worker Routes, Auth, Live Token & Cron', () => {
     ]);
     expect(fakeFetch).toHaveBeenCalledTimes(2);
     expect(finishSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('M9-02: digest window covers the whole 08:00–08:59 +07 hour (01:00–01:59 UTC)', () => {
+    expect(isDailyDigestWindow(Date.parse('2026-10-12T01:00:00.000Z'))).toBe(true);
+    expect(isDailyDigestWindow(Date.parse('2026-10-12T01:30:00.000Z'))).toBe(true);
+    expect(isDailyDigestWindow(Date.parse('2026-10-12T01:59:00.000Z'))).toBe(true);
+    expect(isDailyDigestWindow(Date.parse('2026-10-12T00:59:00.000Z'))).toBe(false);
+    expect(isDailyDigestWindow(Date.parse('2026-10-12T02:00:00.000Z'))).toBe(false);
   });
 });
 

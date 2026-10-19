@@ -72,6 +72,15 @@ function numericTelegramId(userId: string): number | null {
 const DIGEST_USERS_PER_TICK = 5;
 
 /**
+ * Daily digest fan-out window: the whole `08:00–08:59 Asia/Ho_Chi_Minh` hour (`01:00–01:59 UTC`),
+ * i.e. 60 one-minute ticks × `DIGEST_USERS_PER_TICK` = 300 digest slots/day (`M9-02`). Allowlists
+ * beyond ~300 need the durable deliveries redesign.
+ */
+export function isDailyDigestWindow(scheduledTimeMs: number): boolean {
+  return new Date(scheduledTimeMs).getUTCHours() === 1;
+}
+
+/**
  * Enforces per-user daily free-tier caps when the active backend keeps durable counters (`M9-03`).
  * Ids in `uncappedTelegramIds` (owner always, others opt-in) bypass enforcement without writing a
  * counter. Adapters without `checkAndConsumeUsage` (GAS mode, lightweight test doubles) skip it too.
@@ -1079,7 +1088,7 @@ async function handleWorkerRequestInternal(
 }
 
 /**
- * Scheduled Cron handler running at `01:00 UTC` (`08:00 Asia/Ho_Chi_Minh`, `M2-04`, `M4-03`).
+ * Scheduled Cron handler running within the `08:00–08:59 Asia/Ho_Chi_Minh` window (`M2-04`, `M4-03`).
  * Claims daily digests idempotently per allowlisted user (`M9-02`). Each minute tick handles a
  * rotated window of users so Free-tier subrequest budgets stay bounded; long allowlists need the
  * durable deliveries redesign before scaling past this window.
@@ -1243,8 +1252,7 @@ export async function handleScheduledTick(
           processor: index === 0 ? 'telegram' : 'sheet_mirror',
         });
     });
-    const time = new Date(scheduledTime);
-    if (time.getUTCHours() !== 1 || time.getUTCMinutes() > 5) return;
+    if (!isDailyDigestWindow(scheduledTime)) return;
   }
   await handleScheduledCron(scheduledTime, env, deps);
 }

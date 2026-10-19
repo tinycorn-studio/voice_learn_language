@@ -1099,3 +1099,113 @@ describe('M9-01 authenticated lite chat-turn route', () => {
     expect(fakeFetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('M9-05 configurable text provider (OpenAI-compatible with Gemini fallback)', () => {
+  const nowMs = Date.parse('2026-10-19T03:00:00.000Z');
+  const nowSeconds = Math.floor(nowMs / 1000);
+
+  const providerEnv: WorkerEnv = {
+    ...TEST_ENV,
+    TEXT_AI_PROVIDER: 'openai',
+    TEXT_AI_BASE_URL: 'https://api.z.ai/api/paas/v4',
+    TEXT_AI_MODEL: 'glm-4.7-flash',
+    TEXT_AI_API_KEY: 'test_only_provider_key_do_not_expose_in_response',
+  };
+
+  async function providerSession(): Promise<string> {
+    const session = await issueSessionToken({
+      userId: 'telegram:777888999',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: nowSeconds,
+    });
+    return session.token;
+  }
+
+  it('routes chat-turn and translate through the configured provider without leaking its key', async () => {
+    const token = await providerSession();
+    const fakeFetch = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe('https://api.z.ai/api/paas/v4/chat/completions');
+      expect(new Headers(init?.headers).get('authorization')).toBe(
+        'Bearer test_only_provider_key_do_not_expose_in_response',
+      );
+      const payload = JSON.parse(String(init?.body)) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      expect(payload.messages[0]?.role).toBe('system');
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'Keep going! What did you buy?' } }] }),
+        { status: 200 },
+      );
+    });
+
+    const chatTurn = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'I went to the market.' }),
+      }),
+      providerEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(chatTurn.status).toBe(200);
+    const chatText = await chatTurn.text();
+    expect(chatText).toContain('Keep going! What did you buy?');
+    expect(chatText).not.toContain('test_only_provider_key_do_not_expose_in_response');
+
+    const translate = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ text: 'I went to the market.' }),
+      }),
+      providerEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(translate.status).toBe(200);
+    expect(fakeFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to Gemini at the route level when the configured provider fails', async () => {
+    const token = await providerSession();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fakeFetch = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).includes('api.z.ai')) {
+        return new Response('private provider response', { status: 500 });
+      }
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'Gemini fallback reply.' }] } }],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const response = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'Hello again!' }),
+      }),
+      providerEnv,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('Gemini fallback reply.');
+    expect(fakeFetch).toHaveBeenCalledTimes(2);
+    const logged = warn.mock.calls.map(([entry]) => JSON.stringify(entry)).join('\n');
+    expect(logged).toContain('text_ai_fallback');
+    warn.mockRestore();
+  });
+});

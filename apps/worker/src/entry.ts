@@ -13,8 +13,7 @@ import {
 } from '@voice-chat/shared';
 import { createRepositories } from './adapters/repository-factory.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
-import { translateTranscriptTurn } from './adapters/gemini-translator.js';
-import { generateTutorReply } from './adapters/gemini-tutor.js';
+import { requestTutorReply, translateText } from './adapters/text-ai.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
 import { processSheetMirror } from './adapters/sheet-mirror.js';
 import {
@@ -779,11 +778,11 @@ async function handleWorkerRequestInternal(
           status: 429,
         });
       }
-      const translation = await translateTranscriptTurn({
+      const translation = await translateText({
+        env,
         text: parsed.data.text,
-        geminiApiKey: env.GEMINI_API_KEY,
-        ...(env.GEMINI_TRANSLATION_MODEL ? { model: env.GEMINI_TRANSLATION_MODEL } : {}),
         fetchFn,
+        requestId,
       });
       return jsonEnvelopeResponse({ ok: true, data: { translation }, request_id: requestId }, 200, {
         ...corsHeaders,
@@ -820,12 +819,12 @@ async function handleWorkerRequestInternal(
           status: 429,
         });
       }
-      const reply = await generateTutorReply({
+      const reply = await requestTutorReply({
+        env,
         message: parsed.data.message,
         ...(parsed.data.history ? { history: parsed.data.history } : {}),
-        geminiApiKey: env.GEMINI_API_KEY,
-        ...(env.GEMINI_TRANSLATION_MODEL ? { model: env.GEMINI_TRANSLATION_MODEL } : {}),
         fetchFn,
+        requestId,
       });
       return jsonEnvelopeResponse({ ok: true, data: { reply }, request_id: requestId }, 200, {
         ...corsHeaders,

@@ -1,4 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type {
   ReviewRating,
   ReviewSubmitRequest,
@@ -95,6 +104,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   const [activeTab, setActiveTab] = useState<'voice' | 'review' | 'vocabulary'>('voice');
   const [voiceState, setVoiceState] = useState<VoiceSessionState>('idle');
   const [infoOpen, setInfoOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginAttempt, setLoginAttempt] = useState(0);
   const [authenticated, setAuthenticated] = useState(false);
@@ -135,6 +145,18 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     },
     [api],
   );
+  // Diagnostics stay out of the main screen until the user opens them or a request fails.
+  const diagnosticEntries = useSyncExternalStore(
+    api.diagnostics.subscribe,
+    api.diagnostics.getSnapshot,
+  );
+  const latestFailureId = useMemo(
+    () => [...diagnosticEntries].reverse().find((entry) => entry.code !== 'OK')?.request_id ?? null,
+    [diagnosticEntries],
+  );
+  useEffect(() => {
+    if (latestFailureId) setDiagnosticsOpen(true);
+  }, [latestFailureId]);
 
   const closeInfo = useCallback(() => setInfoOpen(false), []);
 
@@ -303,6 +325,18 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
             <span>{themeLabel}</span>
           </button>
           <button
+            type="button"
+            className="diagnostics-toggle"
+            data-testid="diagnostics-toggle"
+            aria-label="Chẩn đoán kết nối"
+            aria-expanded={diagnosticsOpen}
+            aria-controls="diagnostics-panel"
+            title={diagnosticsOpen ? 'Ẩn log chẩn đoán' : 'Xem log chẩn đoán'}
+            onClick={() => setDiagnosticsOpen((value) => !value)}
+          >
+            <AppIcon name="pulse" size={21} />
+          </button>
+          <button
             ref={infoButtonRef}
             type="button"
             className="info-button"
@@ -357,7 +391,7 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
           </button>
         </div>
       )}
-      <ApiDiagnosticsPanel api={api} onToast={showToast} />
+      <ApiDiagnosticsPanel api={api} onToast={showToast} open={diagnosticsOpen} />
       {!authenticated && !authLoading && (
         <p>Đóng cửa sổ này và mở lại qua nút Mini App của Telegram Bot để đăng nhập.</p>
       )}

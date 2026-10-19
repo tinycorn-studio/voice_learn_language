@@ -137,6 +137,7 @@ body {
 
 .theme-toggle,
 .info-button,
+.diagnostics-toggle,
 .info-modal-close {
   min-height: 44px;
   border: 1px solid var(--color-outline);
@@ -158,6 +159,7 @@ body {
 }
 
 .info-button,
+.diagnostics-toggle,
 .info-modal-close {
   width: 44px;
   display: inline-grid;
@@ -168,6 +170,7 @@ body {
 
 .theme-toggle:hover,
 .info-button:hover,
+.diagnostics-toggle:hover,
 .info-modal-close:hover {
   background: var(--color-surface-raised);
 }
@@ -1336,8 +1339,9 @@ button:disabled {
   margin-block: 0.5rem;
 }
 
-.api-diagnostics summary {
-  cursor: pointer;
+.api-diagnostics h3 {
+  margin-block: 0.75rem 0.5rem;
+  font-size: 1.05rem;
 }
 
 .diagnostic-actions {
@@ -1351,7 +1355,7 @@ button:disabled {
   margin-block: 0.75rem;
 }
 
-.diagnostic-latency h3 {
+.diagnostic-latency h4 {
   margin-block: 0.5rem;
   font-size: 1rem;
 }

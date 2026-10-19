@@ -65,8 +65,8 @@ it('exposes capture timings without HTTP errors and strips arbitrary private met
     duration_ms: 80,
     exception_name: null,
   });
-  render(<ApiDiagnosticsPanel api={api} />);
-  expect(screen.getByText('Log chẩn đoán')).toBeTruthy();
+  render(<ApiDiagnosticsPanel api={api} open />);
+  expect(screen.getByRole('heading', { name: 'Log chẩn đoán' })).toBeTruthy();
   const report = api.diagnostics.exportReport();
   expect(report).toContain('inquiry_detected');
   expect(report).toContain('persistence_duration_ms');
@@ -78,6 +78,13 @@ it('exposes capture timings without HTTP errors and strips arbitrary private met
   expect(report).not.toContain('private');
   expect(api.diagnostics.getCaptureSnapshot()).toHaveLength(100);
   expect(screen.queryByText(/Mã lỗi gần nhất/)).toBeNull();
+});
+
+it('stays hidden until opened, even when OK logs exist', () => {
+  const api = new LearningApiClient('https://worker.example', () => '');
+  api.diagnostics.recordStartup({ stage: 'voice_ready', elapsed_ms: 12 });
+  const { container } = render(<ApiDiagnosticsPanel api={api} open={false} />);
+  expect(container.innerHTML).toBe('');
 });
 
 it('bounds startup diagnostics and rejects unknown startup stages', () => {
@@ -99,8 +106,13 @@ it('shows the failed request ID, adds an unauthenticated health result and copie
   const api = new LearningApiClient('https://worker.example', () => 'private-init', fetchFn);
   render(<App api={api} />);
   await waitFor(() => expect(screen.getByText('NETWORK_ERROR')).toBeTruthy());
+  expect(screen.getByTestId('diagnostics-toggle').getAttribute('aria-expanded')).toBe('true');
   expect(screen.getByText(api.diagnostics.getSnapshot()[0]!.request_id)).toBeTruthy();
-  fireEvent.click(screen.getByText('Log chẩn đoán'));
+  fireEvent.click(screen.getByTestId('diagnostics-toggle'));
+  expect(screen.getByTestId('diagnostics-toggle').getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: 'Kiểm tra kết nối' })).toBeNull();
+  fireEvent.click(screen.getByTestId('diagnostics-toggle'));
+  expect(screen.getByTestId('diagnostics-toggle').getAttribute('aria-expanded')).toBe('true');
   fetchFn.mockResolvedValueOnce(
     new Response(
       JSON.stringify({
@@ -122,11 +134,30 @@ it('shows the failed request ID, adds an unauthenticated health result and copie
   expect((screen.getByTestId('btn-start-mic') as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText('NETWORK_ERROR')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Sao chép log' }));
-  await waitFor(() => expect(screen.getByTestId('feedback-toast').textContent).toContain('Đã sao chép log'));
+  await waitFor(() =>
+    expect(screen.getByTestId('feedback-toast').textContent).toContain('Đã sao chép log'),
+  );
   expect(writeText).toHaveBeenCalledWith(api.diagnostics.exportReport());
   expect(writeText.mock.calls[0]?.[0]).not.toContain('private');
   expect((screen.getByLabelText('Log chẩn đoán') as HTMLTextAreaElement).value).toContain(
     '/health',
+  );
+});
+
+it('reopens after being closed when a new request fails', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const fetchFn = vi
+    .fn<typeof fetch>()
+    .mockRejectedValueOnce(new TypeError('private network detail'))
+    .mockRejectedValueOnce(new TypeError('private network detail'));
+  const api = new LearningApiClient('https://worker.example', () => 'private-init', fetchFn);
+  render(<App api={api} />);
+  await waitFor(() => expect(screen.getByText('NETWORK_ERROR')).toBeTruthy());
+  fireEvent.click(screen.getByTestId('diagnostics-toggle'));
+  expect(screen.queryByRole('button', { name: 'Kiểm tra kết nối' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Thử kết nối lại' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Kiểm tra kết nối' })).toBeTruthy(),
   );
 });
 
@@ -143,7 +174,6 @@ it.each(['missing', 'denied'])(
     const api = new LearningApiClient('https://worker.example', () => '', vi.fn<typeof fetch>());
     render(<App api={api} />);
     await waitFor(() => expect(screen.getByText('MISSING_INIT_DATA')).toBeTruthy());
-    fireEvent.click(screen.getByText('Log chẩn đoán'));
     fireEvent.click(screen.getByRole('button', { name: 'Sao chép log' }));
     await waitFor(() => expect(screen.getByText(/Không thể sao chép tự động/)).toBeTruthy());
     const textarea = screen.getByLabelText('Log chẩn đoán') as HTMLTextAreaElement;

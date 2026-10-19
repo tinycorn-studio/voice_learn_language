@@ -504,12 +504,15 @@ describe('M8-01 authenticated on-demand transcript translation route', () => {
 
   it('limits translation requests per authenticated user and isolate', async () => {
     const token = await translationSession();
-    const fakeFetch = vi.fn<typeof fetch>().mockImplementation(async () =>
-      new Response(
-        JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Bản dịch.' }] } }] }),
-        { status: 200 },
-      ),
-    );
+    const fakeFetch = vi
+      .fn<typeof fetch>()
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Bản dịch.' }] } }] }),
+            { status: 200 },
+          ),
+      );
     const store = new SecurityStateStore();
     for (let attempt = 0; attempt < 12; attempt++) {
       const response = await handleWorkerRequest(
@@ -542,5 +545,170 @@ describe('M8-01 authenticated on-demand transcript translation route', () => {
     );
     expect(limited.status).toBe(429);
     expect(fakeFetch).toHaveBeenCalledTimes(12);
+  });
+});
+
+describe('M9-01 authenticated lite chat-turn route', () => {
+  const nowMs = Date.parse('2026-10-19T02:00:00.000Z');
+  const nowSeconds = Math.floor(nowMs / 1000);
+
+  async function chatSession(): Promise<string> {
+    const session = await issueSessionToken({
+      userId: 'telegram:777888999',
+      signingSecret: TEST_ENV.SESSION_SIGNING_SECRET!,
+      nowEpochSeconds: nowSeconds,
+    });
+    return session.token;
+  }
+
+  it('answers one bounded lite-mode turn without leaking key, message, or history into logs', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const token = await chatSession();
+    const privateMessage = 'I went to the market with my sister.';
+    const fakeFetch = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',
+      );
+      expect(new Headers(init?.headers).get('x-goog-api-key')).toBe(TEST_ENV.GEMINI_API_KEY);
+      const payload = JSON.parse(String(init?.body)) as {
+        contents: Array<{ role: string; parts: Array<{ text: string }> }>;
+      };
+      expect(payload.contents).toHaveLength(3);
+      expect(payload.contents[2]?.parts[0]?.text).toBe(privateMessage);
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'Sounds fun! What did you buy there?' }] } }],
+        }),
+        { status: 200 },
+      );
+    });
+    const response = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          origin: 'https://voice-chat-learn-language.pages.dev',
+        },
+        body: JSON.stringify({
+          message: privateMessage,
+          history: [
+            { role: 'learner', text: 'Hi teacher!' },
+            { role: 'tutor', text: 'Hello! How was your day?' },
+          ],
+        }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('access-control-allow-origin')).toBe(TEST_ENV.ALLOWED_ORIGIN);
+    const bodyText = await response.text();
+    expect(bodyText).toContain('Sounds fun! What did you buy there?');
+    expect(bodyText).not.toContain(TEST_ENV.GEMINI_API_KEY);
+    expect(bodyText).not.toContain(privateMessage);
+    expect(fakeFetch).toHaveBeenCalledOnce();
+    const logged = info.mock.calls.map(([entry]) => JSON.stringify(entry)).join('\n');
+    expect(logged).toContain('/api/v1/chat-turn');
+    expect(logged).not.toContain(privateMessage);
+    expect(logged).not.toContain('I went to the market');
+    info.mockRestore();
+  });
+
+  it('rejects missing auth, malformed payloads, and oversized history before calling Gemini', async () => {
+    const fakeFetch = vi.fn<typeof fetch>();
+    const noAuth = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'Hello!' }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(noAuth.status).toBe(401);
+
+    const token = await chatSession();
+    const tooLong = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'x'.repeat(501) }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(tooLong.status).toBe(400);
+
+    const tooMuchHistory = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: 'Hello!',
+          history: Array.from({ length: 7 }, () => ({ role: 'learner', text: 'Hi' })),
+        }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      new SecurityStateStore(),
+    );
+    expect(tooMuchHistory.status).toBe(400);
+    expect(fakeFetch).not.toHaveBeenCalled();
+  });
+
+  it('limits lite chat turns per authenticated user and isolate', async () => {
+    const token = await chatSession();
+    const fakeFetch = vi
+      .fn<typeof fetch>()
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Great job!' }] } }] }),
+            { status: 200 },
+          ),
+      );
+    const store = new SecurityStateStore();
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const response = await handleWorkerRequest(
+        new Request('https://worker.example/api/v1/chat-turn', {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ message: `Message ${attempt}.` }),
+        }),
+        TEST_ENV,
+        { fetchFn: fakeFetch, nowMs: () => nowMs },
+        store,
+      );
+      expect(response.status).toBe(200);
+    }
+    const limited = await handleWorkerRequest(
+      new Request('https://worker.example/api/v1/chat-turn', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'One turn too many.' }),
+      }),
+      TEST_ENV,
+      { fetchFn: fakeFetch, nowMs: () => nowMs },
+      store,
+    );
+    expect(limited.status).toBe(429);
+    expect(fakeFetch).toHaveBeenCalledTimes(10);
   });
 });

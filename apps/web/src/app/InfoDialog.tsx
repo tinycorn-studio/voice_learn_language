@@ -101,10 +101,20 @@ export function InfoDialog({
             </p>
           </section>
           <section>
+            <h3>Chế độ nhẹ</h3>
+            <p>
+              Chuyển sang <strong>Chế độ nhẹ</strong> khi cần tiết kiệm quota hoặc thiết bị không mở
+              được phiên Live: bạn nói bằng micro của thiết bị hoặc nhập chữ, câu được gửi đến
+              Gemini khi bấm Gửi, và câu trả lời được đọc bằng giọng có sẵn trên thiết bị. Nhận dạng
+              giọng nói do trình duyệt/thiết bị xử lý; hội thoại chỉ giữ trong phiên này, không lưu
+              trên máy chủ.
+            </p>
+          </section>
+          <section>
             <h3>Quyền riêng tư</h3>
             <p>
-              Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch. Nội dung được gửi đến Gemini
-              tuân theo chính sách của Google theo tier đang dùng.
+              Ứng dụng không lưu toàn bộ audio, transcript hoặc bản dịch. Nội dung được gửi đến
+              Gemini tuân theo chính sách của Google theo tier đang dùng.
             </p>
           </section>
           <section className="theme-preference-row" aria-label="Chế độ giao diện">

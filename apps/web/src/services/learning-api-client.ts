@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   apiErrorDetailSchema,
+  chatTurnResponseSchema,
   dueReviewCardSchema,
   liveTokenResponseSchema,
   reviewPreviewResponseSchema,
@@ -11,6 +12,7 @@ import {
   vocabularyCreateResponseSchema,
   vocabularyItemSchema,
   vocabularyListResponseSchema,
+  type ChatTurnHistoryItem,
   type LiveTokenResponse,
   type DueReviewCard,
   type ReviewPreviewResponse,
@@ -398,8 +400,15 @@ export class LearningApiClient {
     });
   }
   public async translateText(text: string): Promise<string> {
+    return (await this.authorized('/api/v1/translate', 'POST', translationResponseSchema, { text }))
+      .translation;
+  }
+  public async chatTurn(message: string, history: ChatTurnHistoryItem[] = []): Promise<string> {
     return (
-      await this.authorized('/api/v1/translate', 'POST', translationResponseSchema, { text })
-    ).translation;
+      await this.authorized('/api/v1/chat-turn', 'POST', chatTurnResponseSchema, {
+        message,
+        ...(history.length > 0 ? { history } : {}),
+      })
+    ).reply;
   }
 }

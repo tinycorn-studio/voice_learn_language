@@ -49,8 +49,13 @@ export interface LatencyPercentiles {
 }
 
 /** Interpolated quantiles for the bounded, in-memory samples shown in diagnostics. */
-export function summarizeLatency(metric: string, values: readonly number[]): LatencyPercentiles | null {
-  const sorted = values.filter((value) => Number.isFinite(value) && value >= 0).sort((left, right) => left - right);
+export function summarizeLatency(
+  metric: string,
+  values: readonly number[],
+): LatencyPercentiles | null {
+  const sorted = values
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((left, right) => left - right);
   if (sorted.length === 0) return null;
 
   const quantile = (fraction: number) => {
@@ -110,6 +115,7 @@ export function diagnosticRoute(path: string): string {
     '/api/v1/reviews/stats',
     '/api/v1/live-token',
     '/api/v1/translate',
+    '/api/v1/chat-turn',
   ].includes(route ?? '')
     ? route!
     : 'unknown';

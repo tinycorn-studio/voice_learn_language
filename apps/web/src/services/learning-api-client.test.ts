@@ -440,7 +440,11 @@ describe('M8-01 on-demand translation API client', () => {
         new Response(
           JSON.stringify({
             ok: false,
-            error: { code: 'RATE_LIMITED', message: 'Gemini đang giới hạn lượt dịch.', retryable: true },
+            error: {
+              code: 'RATE_LIMITED',
+              message: 'Gemini đang giới hạn lượt dịch.',
+              retryable: true,
+            },
             request_id: 'translation-rate-limited',
           }),
           { status: 429 },
@@ -452,6 +456,58 @@ describe('M8-01 on-demand translation API client', () => {
       status: 429,
       retryable: true,
     });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('M9-01 lite chat-turn client', () => {
+  it('posts one bounded turn with history and returns the validated reply', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ ok: true, data: { reply: 'Sounds fun!' }, request_id: 'chat-turn-1' }),
+          { status: 200 },
+        ),
+      );
+    const api = new LearningApiClient('https://worker.example', () => 'synthetic-init', fetchFn);
+    await expect(
+      api.chatTurn('I bought some fruit.', [{ role: 'learner', text: 'I went to the market.' }]),
+    ).resolves.toBe('Sounds fun!');
+    expect(String(fetchFn.mock.calls[1]?.[0])).toBe('https://worker.example/api/v1/chat-turn');
+    expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toEqual({
+      message: 'I bought some fruit.',
+      history: [{ role: 'learner', text: 'I went to the market.' }],
+    });
+    expect(api.diagnostics.getSnapshot().at(-1)).toMatchObject({
+      route: '/api/v1/chat-turn',
+      code: 'OK',
+      phase: 'complete',
+    });
+  });
+
+  it('omits empty history and surfaces rate-limit errors without retrying', async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(authResponse())
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: { code: 'RATE_LIMITED', message: 'Bạn đã gửi nhiều lượt.', retryable: true },
+            request_id: 'chat-turn-limited',
+          }),
+          { status: 429 },
+        ),
+      );
+    const api = new LearningApiClient('https://worker.example', () => 'synthetic-init', fetchFn);
+    await expect(api.chatTurn('Hello!')).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      status: 429,
+      retryable: true,
+    });
+    expect(JSON.parse(String(fetchFn.mock.calls[1]?.[1]?.body))).toEqual({ message: 'Hello!' });
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });

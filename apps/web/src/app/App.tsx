@@ -46,6 +46,11 @@ const VocabularyManagerPanel = lazy(() =>
     default: module.VocabularyManagerPanel,
   })),
 );
+const LiteConversationPanel = lazy(() =>
+  import('../features/lite/components/LiteConversationPanel.js').then((module) => ({
+    default: module.LiteConversationPanel,
+  })),
+);
 
 function PanelLoading({ label }: { label: string }) {
   return (
@@ -102,6 +107,14 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
     [suppliedApi],
   );
   const [activeTab, setActiveTab] = useState<'voice' | 'review' | 'vocabulary'>('voice');
+  const [voiceMode, setVoiceMode] = useState<'live' | 'lite'>(() => {
+    try {
+      return localStorage.getItem('voice-chat.voice-mode') === 'lite' ? 'lite' : 'live';
+    } catch {
+      // Storage can be unavailable in some WebViews; fall back to the default mode.
+      return 'live';
+    }
+  });
   const [voiceState, setVoiceState] = useState<VoiceSessionState>('idle');
   const [infoOpen, setInfoOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -159,6 +172,14 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   }, [latestFailureId]);
 
   const closeInfo = useCallback(() => setInfoOpen(false), []);
+  const selectVoiceMode = useCallback((mode: 'live' | 'lite') => {
+    setVoiceMode(mode);
+    try {
+      localStorage.setItem('voice-chat.voice-mode', mode);
+    } catch {
+      // Remembering the choice is best-effort only.
+    }
+  }, []);
 
   const {
     words,
@@ -196,6 +217,11 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
   });
   const preview = useCallback((id: string) => api.previewReview(id), [api]);
   const translateText = useCallback((text: string) => api.translateText(text), [api]);
+  const chatTurn = useCallback(
+    (message: string, history: Array<{ role: 'learner' | 'tutor'; text: string }>) =>
+      api.chatTurn(message, history),
+    [api],
+  );
 
   useEffect(() => {
     recordStartup('app_mounted');
@@ -456,14 +482,43 @@ export function App({ api: suppliedApi, voiceFactory = createVoiceSession }: App
         </section>
       )}
       <div className="app-tab-panel" data-testid="voice-tab-panel" hidden={activeTab !== 'voice'}>
-        <VoiceSessionPanel
-          sessionFactory={sessionFactory}
-          translateText={translateText}
-          loadDueCards={loadDueCardsForVoice}
-          enabled={authenticated}
-          onVoiceStateChange={setVoiceState}
-          onToast={showToast}
-        />
+        <div className="voice-mode-toggle" role="group" aria-label="Chế độ hội thoại">
+          <button
+            type="button"
+            className={`btn-chip ${voiceMode === 'live' ? 'active' : ''}`}
+            data-testid="voice-mode-live"
+            aria-pressed={voiceMode === 'live'}
+            onClick={() => selectVoiceMode('live')}
+          >
+            <AppIcon name="spark" size={18} /> Gemini Live
+          </button>
+          <button
+            type="button"
+            className={`btn-chip ${voiceMode === 'lite' ? 'active' : ''}`}
+            data-testid="voice-mode-lite"
+            aria-pressed={voiceMode === 'lite'}
+            onClick={() => selectVoiceMode('lite')}
+          >
+            <AppIcon name="clock" size={18} /> Chế độ nhẹ
+          </button>
+        </div>
+        <div hidden={voiceMode !== 'live'}>
+          <VoiceSessionPanel
+            sessionFactory={sessionFactory}
+            translateText={translateText}
+            loadDueCards={loadDueCardsForVoice}
+            enabled={authenticated}
+            onVoiceStateChange={setVoiceState}
+            onToast={showToast}
+          />
+        </div>
+        <div hidden={voiceMode !== 'lite'}>
+          {voiceMode === 'lite' && (
+            <Suspense fallback={<PanelLoading label="Đang mở chế độ nhẹ..." />}>
+              <LiteConversationPanel enabled={authenticated} chatTurn={chatTurn} />
+            </Suspense>
+          )}
+        </div>
       </div>
       {activeTab === 'review' && !authenticated && (
         <PanelLoading

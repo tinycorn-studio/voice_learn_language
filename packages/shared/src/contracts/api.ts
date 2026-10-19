@@ -140,6 +140,36 @@ export const translationResponseSchema = z
 export type TranslationResponse = z.infer<typeof translationResponseSchema>;
 
 /**
+ * POST /api/v1/chat-turn: one turn of the free turn-based conversation mode (`M9-01`).
+ * History is client-supplied conversation context; the Worker treats every item as plain text.
+ */
+export const chatTurnHistoryItemSchema = z
+  .object({
+    role: z.enum(['learner', 'tutor']),
+    text: z.string().trim().min(1).max(300),
+  })
+  .strict();
+
+export type ChatTurnHistoryItem = z.infer<typeof chatTurnHistoryItemSchema>;
+
+export const chatTurnRequestSchema = z
+  .object({
+    message: z.string().trim().min(1).max(500),
+    history: z.array(chatTurnHistoryItemSchema).max(6).optional(),
+  })
+  .strict();
+
+export type ChatTurnRequest = z.infer<typeof chatTurnRequestSchema>;
+
+export const chatTurnResponseSchema = z
+  .object({
+    reply: z.string().trim().min(1).max(1200),
+  })
+  .strict();
+
+export type ChatTurnResponse = z.infer<typeof chatTurnResponseSchema>;
+
+/**
  * Event ID schema (UUIDv4 / UUIDv7 or safe alphanumeric token 12..128 chars matching GAS).
  */
 export const eventIdSchema = z

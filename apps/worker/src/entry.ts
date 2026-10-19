@@ -1,4 +1,5 @@
 import {
+  chatTurnRequestSchema,
   formatLocalDateAsiaHoChiMinh,
   liveTokenRequestSchema,
   reviewSubmitRequestSchema,
@@ -13,6 +14,7 @@ import {
 import { createRepositories } from './adapters/repository-factory.js';
 import { mintGeminiEphemeralToken } from './adapters/gemini-token-issuer.js';
 import { translateTranscriptTurn } from './adapters/gemini-translator.js';
+import { generateTutorReply } from './adapters/gemini-tutor.js';
 import { TelegramBotClient } from './adapters/telegram-bot-client.js';
 import { processSheetMirror } from './adapters/sheet-mirror.js';
 import {
@@ -41,6 +43,7 @@ export interface WorkerDependencies {
 export class SecurityStateStore {
   private readonly liveTokenHits = new Map<string, number[]>();
   private readonly translationHits = new Map<string, number[]>();
+  private readonly chatTurnHits = new Map<string, number[]>();
   private readonly processedUpdateIds = new Set<number>();
   private readonly pendingUpdates = new Map<number, Promise<Response>>();
 
@@ -101,6 +104,26 @@ export class SecurityStateStore {
     if (this.translationHits.size > 1000) {
       const oldest = this.translationHits.keys().next().value;
       if (oldest !== undefined) this.translationHits.delete(oldest);
+    }
+  }
+
+  /** Limits lite chat-turn bursts per authenticated user and Worker isolate (`M9-01`). */
+  public checkChatTurnRateLimit(userId: string, nowMs: number, maxPerMinute = 10): void {
+    const windowStart = nowMs - 60_000;
+    const history = (this.chatTurnHits.get(userId) ?? []).filter((ts) => ts > windowStart);
+    if (history.length >= maxPerMinute) {
+      throw new AppError({
+        code: 'RATE_LIMITED',
+        message: 'Bạn đã gửi nhiều lượt trong chế độ nhẹ. Hãy chờ một chút rồi thử lại.',
+        status: 429,
+        retryable: true,
+      });
+    }
+    history.push(nowMs);
+    this.chatTurnHits.set(userId, history);
+    if (this.chatTurnHits.size > 1000) {
+      const oldest = this.chatTurnHits.keys().next().value;
+      if (oldest !== undefined) this.chatTurnHits.delete(oldest);
     }
   }
 
@@ -191,6 +214,7 @@ function diagnosticRouteForPath(path: string): string {
     '/api/v1/vocabulary',
     '/api/v1/live-token',
     '/api/v1/translate',
+    '/api/v1/chat-turn',
     '/api/v1/reviews',
     '/api/v1/reviews/due',
     '/api/v1/reviews/submit',
@@ -643,11 +667,35 @@ async function handleWorkerRequestInternal(
         ...(env.GEMINI_TRANSLATION_MODEL ? { model: env.GEMINI_TRANSLATION_MODEL } : {}),
         fetchFn,
       });
-      return jsonEnvelopeResponse(
-        { ok: true, data: { translation }, request_id: requestId },
-        200,
-        { ...corsHeaders, 'cache-control': 'no-store' },
-      );
+      return jsonEnvelopeResponse({ ok: true, data: { translation }, request_id: requestId }, 200, {
+        ...corsHeaders,
+        'cache-control': 'no-store',
+      });
+    }
+
+    // One turn of the free turn-based conversation mode; bounded text only, never persisted.
+    if (request.method === 'POST' && path === '/api/v1/chat-turn') {
+      const rawJson = await parseRequestJson(request);
+      const parsed = chatTurnRequestSchema.safeParse(rawJson);
+      if (!parsed.success) {
+        throw new AppError({
+          code: 'INVALID_ARGUMENT',
+          message: 'Invalid chat-turn request payload',
+          status: 400,
+        });
+      }
+      securityStore.checkChatTurnRateLimit(session.userId, nowMs);
+      const reply = await generateTutorReply({
+        message: parsed.data.message,
+        ...(parsed.data.history ? { history: parsed.data.history } : {}),
+        geminiApiKey: env.GEMINI_API_KEY,
+        ...(env.GEMINI_TRANSLATION_MODEL ? { model: env.GEMINI_TRANSLATION_MODEL } : {}),
+        fetchFn,
+      });
+      return jsonEnvelopeResponse({ ok: true, data: { reply }, request_id: requestId }, 200, {
+        ...corsHeaders,
+        'cache-control': 'no-store',
+      });
     }
 
     const { vocabulary: vocabRepo, review: reviewRepo } = await resolveRepositories();

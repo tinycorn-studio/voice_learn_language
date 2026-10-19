@@ -34,6 +34,12 @@ Worker gọi Gemini `generateContent` bằng `GEMINI_API_KEY`; model mặc đị
 
 Tại thời điểm kiểm tra triển khai M8-01 (15/10/2026), trang giá của Google mô tả Gemini 3.5 Flash-Lite tối ưu cho dịch và hiển thị input/output miễn phí ở Free tier; hạn mức thực tế tùy project nên kiểm tra trong AI Studio. Chính sách sử dụng dữ liệu Free tier của Google áp dụng cho câu được gửi dịch. Thông báo quyền riêng tư trong Mini App nói rõ khi bấm “Dịch”, câu đó sẽ được gửi đến Gemini. Tài liệu tham khảo: [Generate Content REST API](https://ai.google.dev/gemini-api/docs/generate-content), [giá Gemini API](https://ai.google.dev/gemini-api/docs/pricing), [giới hạn tốc độ](https://ai.google.dev/gemini-api/docs/rate-limits).
 
+## POST /api/v1/chat-turn (M9-01)
+
+Yêu cầu Bearer session Telegram đã xác minh. Request `{ "message": "I went to the market.", "history": [{ "role": "learner", "text": "..." }, { "role": "tutor", "text": "..." }] }`: `message` trim 1–500 ký tự; `history` tùy chọn, tối đa 6 lượt gần nhất, mỗi `text` 1–300 ký tự, `role` chỉ `learner`/`tutor`; field lạ bị từ chối. Response `{ "reply": "..." }` 1–1200 ký tự với `Cache-Control: no-store`.
+
+Worker gọi Gemini `generateContent` bằng `GEMINI_API_KEY` với model `GEMINI_TRANSLATION_MODEL` (mặc định `gemini-3.5-flash-lite`), `maxOutputTokens 320`, temperature 0.6, timeout provider 10 giây; system instruction cố định vai trò gia sư tiếng Anh thân thiện, không cho đổi vai/tiết lộ hướng dẫn. Bộ giới hạn theo từng Worker isolate cho phép 10 lượt/user/phút. HTTP 429 từ provider thành `RATE_LIMITED`; timeout thành `TIMEOUT` 504; lỗi provider/kết quả rỗng/quá dài/SAFETY thành `UPSTREAM_ERROR` 502 đã sanitize. Route không ghi D1/Sheet, không lưu/log nội dung hội thoại; client giữ `history` trong bộ nhớ trang và chỉ gửi lại 6 lượt gần nhất khi người dùng gửi lượt mới. Đây là route cho chế độ hội thoại nhẹ (STT/TTS chạy trên thiết bị, fallback nhập chữ); không thay thế `/api/v1/live-token` của Gemini Live.
+
 ## POST /api/v1/vocabulary
 
 ```json
